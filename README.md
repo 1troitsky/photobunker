@@ -2,7 +2,7 @@
 
 PhotoBunker — privacy-first камера и зашифрованное фотопространство в устанавливаемой PWA. Нормативные требования находятся в [_docs/README.md](_docs/README.md); порядок будущих PR — в [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 
-Текущий этап **I01** создаёт локальное окружение, Vue shell и служебный API. Криптография, аккаунты, PIN, камера, загрузка пользовательских фотографий и retention ещё не реализованы. Локальное S3 проверяется только синтетическими данными.
+Этап **I01** создаёт локальное окружение, Vue shell и служебный API. В **I02** подготовлены архитектурные решения и отдельный браузерный стенд. Продуктовые криптография, аккаунты, PIN, камера, загрузка пользовательских фотографий и retention ещё не реализованы. Проверки используют синтетические данные.
 
 ## Локальный запуск
 
@@ -52,4 +52,6 @@ CI запускает тот же `setup`, один полный `check`, зат
 
 Проверки реальных iPhone Home Screen PWA и Android PWA остаются **pending**. Desktop/CI не подтверждают качество камеры, устойчивость очереди или фоновые возможности мобильных браузеров. Доступ телефона по LAN и доверенный на телефоне HTTPS потребуют отдельной настройки.
 
-Пока [PR №1 со спецификацией](https://github.com/1troitsky/photobunker/pull/1) открыт, реализационный PR I01 должен иметь базу `docs/product-foundation`. После merge спецификации его базу можно сменить на `main`.
+В I02 предложены [формат объектов](docs/adr/0002-object-encryption-format.md), [ключи и unlock](docs/adr/0003-keys-unlock-and-capture.md), [TTL и restore](docs/adr/0004-retention-clock-access-and-restore.md). Эти решения требуют review до продуктового codec. [Изолированный стенд](tools/browser-spike/README.md) проверяет CSP/WASM, library worker, IndexedDB и non-extractable upload key; [матрица](docs/operations/browser-compatibility.md) отделяет desktop результаты от ещё не проверенных устройств. Стенд запускается отдельно на порту 5180 и не обращается к API/S3 приложения.
+
+[PR №1 со спецификацией](https://github.com/1troitsky/photobunker/pull/1) и [draft PR №2 с I01](https://github.com/1troitsky/photobunker/pull/2) пока открыты. База I01 — `docs/product-foundation`; I02 в `codex/protocol-and-browser-spike` основан на `codex/local-foundation`. После merge предшествующих PR базы последовательно меняются на `main`.

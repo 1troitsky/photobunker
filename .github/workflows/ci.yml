@@ -2,7 +2,7 @@ name: Local foundation
 
 on:
   pull_request:
-    branches: [main, docs/product-foundation]
+    branches: [main, docs/product-foundation, 'codex/**']
   push:
     branches: [main, docs/product-foundation, 'codex/**']
   workflow_dispatch:
