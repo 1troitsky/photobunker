@@ -29,6 +29,10 @@ Chromium дополнительно получает fake camera, измеряе
 
 ## Ручная проверка устройства
 
+У владельца доступен iPhone; Android пока недоступен и остаётся pending. Для iPhone подготовлен [локальный HTTPS запуск](../../tools/browser-spike/README.md#iphone-по-локальному-https) со своим test CA, отдельным port/origin и ручным доверием на телефоне. Настройка и проверка TLS на Mac не считаются проверкой iPhone.
+
+12 октября на Mac проверены loopback TLS с полной верификацией CA/SAN, CSP обоих HTML entries, точные bytes public CA download и 404 для остальных bootstrap paths; без CA TLS отклоняется. Повторный setup сохраняет CA, public/unassigned IP отвергается, private keys имеют mode 0600. Прямое подключение Mac к выбранному LAN IP пока сбрасывается до TLS (`ECONNRESET`); доступность с iPhone остаётся pending до проверки соединения/сетевых разрешений. Маршруты, firewall и системное доверие автоматически не менялись.
+
 1. Подготовить trusted HTTPS origin стенда, доступный телефону; указывать localhost Mac на телефоне нельзя. Записать OS/browser version, hardware model без serial/идентификаторов, tab или installed mode, дату и commit harness. Если HTTPS/доступность не готовы, результат pending, не менять browser security flags.
 2. На чистом origin запустить synthetic probes без camera permission. Скачать JSON явно. Проверить CSP/WASM, обе IDB records, abort и key clone; `persist()` нажать отдельно и записать как granted/denied/unsupported. Reload, закрытие/reopen и перезапуск браузера проверять отдельно.
 3. Навести камеру на test card: текст UP, разные углы/цвета, без людей/GPS/личных предметов. Явно разрешить camera. Измерить video settings и takePhoto (если доступен), затем Canvas. Повторить front/back через browser/device controls; lab пока не предоставляет переключатель камеры.
