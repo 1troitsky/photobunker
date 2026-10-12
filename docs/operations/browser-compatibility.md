@@ -11,7 +11,7 @@ PASS означает только проверенный столбец на у
 | macOS arm64, Playwright Chromium 156.0.8078.4 (1248) | PASS | PASS | PASS | physical pending; fake Canvas/stop PASS |
 | macOS arm64, Playwright Firefox 157 (1555) | PASS | PASS | PASS | pending; fake test skipped |
 | macOS arm64, Playwright WebKit 27.2 (2370) | PASS | PASS в постоянном profile; ephemeral Blob отказ | PASS в постоянном profile | pending; fake test skipped |
-| Ubuntu 24.04 CI, три desktop engines | pending | pending | pending | не проверяется CI |
+| Ubuntu 24.04 CI, те же три desktop engines | PASS | PASS в постоянных profiles; WebKit ephemeral Blob отказ | PASS | physical не проверяется; fake Chromium PASS |
 | Реальный iPhone, Safari tab | pending | pending | pending | pending |
 | Реальный iPhone, Home Screen PWA | pending | pending | pending | pending |
 | Реальный Android, Chrome tab | pending | pending | pending | pending |
@@ -21,7 +21,7 @@ PASS означает только проверенный столбец на у
 
 Измерено 12 октября 2026 на macOS arm64, Node 22.23.3, Playwright 1.64.0: **10 tests passed, 2 skipped**, retries=0. Libsodium wrapper 0.8.4 сообщает core 1.0.22; production worker bundle — 435.33 kB без сжатия. Это размер JS bundle, не peak RAM и не аудит библиотеки/композиции.
 
-В ephemeral/private context WebKit на этом Mac первая Blob transaction завершается `UnknownError`; после abort отсутствуют и Blob, и job. Тест явно ожидает отказ и проверяет отсутствие ложного commit. Отдельный тест в постоянном profile обязан пройти все восемь probes и реальный process restart на каждом engine. Отрицательный результат относится к указанной среде; он не доказывает поведение приватного Safari на всех устройствах. UI сообщает save failure, silent fallback отсутствует.
+В ephemeral/private context WebKit на этом Mac первая Blob transaction завершается `UnknownError`; после abort отсутствуют и Blob, и job. Ubuntu CI также выявил отказ ephemeral Blob commit. Negative test на обеих средах требует именно `UnknownError` и проверяет отсутствие ложного commit. Отдельный тест в постоянном profile обязан пройти все восемь probes и реальный process restart на каждом engine. Отрицательный результат относится к указанным средам; он не доказывает поведение приватного Safari на всех устройствах. UI сообщает save failure, silent fallback отсутствует. Результаты текущего commit доступны в [checks PR №3](https://github.com/1troitsky/photobunker/pull/3/checks).
 
 `npm test` в package стенда запускает production build/preview под CSP и три Playwright projects. Для каждого engine в постоянном profile: ready/worker roundtrip на 8 MiB bounded chunks, tamper и wrong-recipient denial как primitive sanity checks; 4 MiB synthetic Blob/job atomic commit/readback/hash; abort после успешного put; non-extractable key sign/verify/export denial после process restart. Ephemeral context дополнительно проверяет reload либо описанный storage denial; negative WASM policy, отсутствие внешних requests, ошибок browser console и camera request проверяются отдельно. Это не cross-language codec vectors/security review приложения.
 

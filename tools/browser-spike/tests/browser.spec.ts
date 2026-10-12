@@ -15,10 +15,11 @@ test('ephemeral context matches measured capabilities and never turns a storage 
   await page.evaluate(() => {
     navigator.mediaDevices.getUserMedia = async () => { throw new Error('camera.must_not_be_requested') }
   })
-  // macOS WebKit's ephemeral profile cannot store a Blob (UnknownError).
+  // The pinned WebKit's ephemeral profile cannot store a Blob (UnknownError)
+  // on the measured macOS and Ubuntu environments.
   // Keep that negative finding explicit; the persistent-profile test below
   // must still pass the full suite, including process restart, on every engine.
-  if (browserName === 'webkit' && process.platform === 'darwin') {
+  if (browserName === 'webkit') {
     await expect(page.evaluate(() => window.pbLab.runSynthetic())).rejects.toThrow('idb-commit')
     const report = await page.evaluate(() => window.pbLab.report)
     expect(report.results.map(result => result.code)).toEqual(['wasm-csp', 'sodium-worker', 'idb-commit'])
