@@ -1,0 +1,52 @@
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import AppIcon from './components/AppIcon.vue'
+import { locale, t } from './i18n'
+
+const route = useRoute()
+const offline = ref(!navigator.onLine)
+const main = ref<HTMLElement>()
+const navigation = [
+  { name: 'camera', to: '/', icon: 'camera' },
+  { name: 'gallery', to: '/gallery', icon: 'gallery' },
+  { name: 'settings', to: '/settings', icon: 'settings' },
+] as const
+
+function updateConnection() { offline.value = !navigator.onLine }
+onMounted(() => {
+  window.addEventListener('online', updateConnection)
+  window.addEventListener('offline', updateConnection)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('online', updateConnection)
+  window.removeEventListener('offline', updateConnection)
+})
+watch([() => route.name, locale], () => {
+  document.title = `${t(route.name === 'gallery' ? 'gallery' : route.name === 'settings' ? 'settings' : 'camera')} · PhotoBunker`
+}, { immediate: true })
+watch(() => route.path, () => { main.value?.focus() }, { flush: 'post' })
+</script>
+
+<template>
+  <a class="skip-link" href="#main">{{ t('skip') }}</a>
+  <div class="app-shell">
+    <header class="brand">
+      <span class="brand-mark"><AppIcon name="camera" /></span>
+      <div class="brand-copy"><span class="brand-name">PhotoBunker</span><span class="brand-tagline">{{ t('tagline') }}</span></div>
+    </header>
+
+    <span class="release-badge"><span class="release-dot" />{{ t('early') }}</span>
+
+    <nav class="navigation" :aria-label="t('navigation')">
+      <RouterLink v-for="item in navigation" :key="item.name" :to="item.to" :class="['nav-item', { active: route.name === item.name }]" :aria-label="t(item.name)" :aria-current="route.name === item.name ? 'page' : undefined">
+        <AppIcon :name="item.icon" /><span>{{ t(item.name) }}</span><span class="nav-indicator" />
+      </RouterLink>
+    </nav>
+
+    <p v-if="offline" class="offline-notice" role="status"><AppIcon name="offline" /><span><strong>{{ t('offline') }}</strong><span>{{ t('offlineHint') }}</span></span></p>
+
+    <main id="main" ref="main" class="main-content" tabindex="-1"><RouterView /></main>
+    <span class="sidebar-caption">{{ t('version') }}</span>
+  </div>
+</template>
