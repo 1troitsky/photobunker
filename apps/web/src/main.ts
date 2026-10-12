@@ -4,6 +4,7 @@ import { createAppRouter } from './router'
 import { initializeLocale } from './i18n'
 import './style.css'
 import './prototype.css'
+import './profiles.css'
 
 initializeLocale()
 createApp(App).use(createAppRouter()).mount('#app')

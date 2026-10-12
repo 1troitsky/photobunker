@@ -13,6 +13,7 @@
     "preview": "vite preview --host 0.0.0.0 --port 4173 --strictPort"
   },
   "dependencies": {
+    "piexifjs": "1.0.6",
     "vue": "3.5.43",
     "vue-router": "4.6.4"
   },

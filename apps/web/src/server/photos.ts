@@ -1,5 +1,5 @@
 import * as local from '../local/photos'
-import type { Photo } from '../local/photos'
+import type { Photo, PhotoChanges } from '../local/photos'
 import { accessCode, accessLibraryId, belongsToServer, deleteServerPhoto, ensureAccess, ServerError, serverContent, serverPhoto, updateServerPhoto, uploadPhoto } from './api'
 
 export async function readPhoto(id: string): Promise<{ photo: Photo; blob: Blob }> {
@@ -28,14 +28,22 @@ export async function readThumbnail(id: string): Promise<Blob> {
 }
 export async function saveOnServer(id: string): Promise<Photo> {
   const { photo, blob } = await local.readPhoto(id)
+  if (photo.remoteLibraryId && !belongsToServer(photo)) throw new ServerError(403)
   const changes = { title: photo.title, note: photo.note, favorite: photo.favorite }
   await local.updatePhoto(id, { ...changes, uploadRequested: true })
   await ensureAccess()
   await local.updatePhoto(id, { ...changes, remoteLibraryId: accessLibraryId.value })
-  const result = await uploadPhoto(photo, blob, await local.readThumbnail(id))
-  return local.updatePhoto(id, { title: result.title, note: result.note, favorite: result.favorite, remoteRevision: result.remoteRevision, remoteLibraryId: result.remoteLibraryId, uploadRequested: false })
+  let result = await uploadPhoto(photo, blob, await local.readThumbnail(id))
+  await local.updatePhoto(id, { title: result.title, note: result.note, favorite: result.favorite, remoteRevision: result.remoteRevision, remoteLibraryId: result.remoteLibraryId, uploadRequested: false })
+  // Location can improve while the original is uploading. Deliver that sidecar
+  // separately; never rewrite the already confirmed original.
+  const current = (await local.readPhoto(id)).photo
+  if (JSON.stringify(current.metadata ?? {}) !== JSON.stringify(result.metadata ?? {})) {
+    result = await updateServerPhoto(result, { title: result.title, note: result.note, favorite: result.favorite, metadata: current.metadata })
+  }
+  return local.updatePhoto(id, { title: result.title, note: result.note, favorite: result.favorite, metadata: result.metadata, remoteRevision: result.remoteRevision, remoteLibraryId: result.remoteLibraryId, uploadRequested: false })
 }
-export async function updatePhoto(id: string, changes: Pick<Photo, 'title' | 'note' | 'favorite'>, expectedRevision?: number): Promise<Photo> {
+export async function updatePhoto(id: string, changes: PhotoChanges, expectedRevision?: number): Promise<Photo> {
   let current: Photo | undefined
   try { current = (await local.readPhoto(id)).photo } catch { /* Server-only photos need no local replica. */ }
   if (current?.remoteLibraryId && accessCode.value && !belongsToServer(current)) current = undefined

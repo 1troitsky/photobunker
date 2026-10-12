@@ -6,7 +6,7 @@ OrbStack/Compose environment for the supported local app at
 without encryption in this browser and, on explicit request, the local Garage
 server. Secure accounts, PIN, retention and encryption remain future work.
 
-Click **Try without a camera**, the shutter, then **Gallery**. Real camera access
+Start at **Profiles**, create a profile or choose **Start with personal capture**, then use **Try without a camera**, the shutter, and **Gallery**. Real camera access
 is requested only by **Turn on camera**. A synthetic demo scene needs no camera
 permission. The gallery supports originals, titles/notes, favorites, search,
 download and deletion. Photo details can save a selected photo to the local
@@ -52,14 +52,14 @@ a local production preview, explicitly build with `VITE_LOCAL_PROTOTYPE=true`,
 then run `npm run preview` and visit it online once before going offline.
 
 Only the generated public asset list is precached. `/`, `/camera`, `/gallery`,
-`/settings` and `/gallery/<uuid>` can fall back to public HTML. Local copies use
+`/settings`, `/profiles`, `/profiles/new`, `/profiles/<uuid>` and `/gallery/<uuid>` can fall back to public HTML. Local copies use
 IndexedDB; server-only photos require connectivity. API calls, storage URLs, user media, query strings and other origins
 are never cached. No background upload is implemented. Updates wait for existing
 clients to close and do not force a new build into an active session.
 
 ## Checks
 
-`npm run check` runs 22 component/lifecycle/cache/release-guard/API/library tests, TypeScript
+`npm run check` runs 28 component/lifecycle/cache/release-guard/API/library tests, TypeScript
 validation and the production build. Actual Blob storage, process restart,
 original-byte integrity, download and failure rollback are checked by the
 repeatable browser script described in
@@ -72,3 +72,13 @@ visibility. Failed upload retains the local original for manual retry; pending
 metadata stays fixed until acknowledgement. Metadata edits use the revision the
 user saw, so another browser's changes produce a visible conflict. Prototype
 authentication is not the final proof-of-possession/recovery mechanism.
+
+## Profile capture
+
+Profiles persist on the local server, scoped to the current library. New captures
+record an immutable profile snapshot, a short ID, category, shot-list item and
+selected metadata. The client applies crop/contain, resolution and JPEG quality
+before atomic storage; EXIF is rebuilt from the whitelist, with source thumbnails
+removed. Encoder-added EXIF is stripped in every browser. GPS updates a sidecar
+without replacing original bytes. Completed-field edit restrictions apply both
+locally and in the API. See [profile workflow and limits](../../docs/operations/profiles-prototype.md).

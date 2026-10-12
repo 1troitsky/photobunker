@@ -39,7 +39,7 @@ final class PrototypeLibraryController extends Controller
 
     public function upload(Request $request)
     {
-        $request->validate(['manifest' => 'required|string|max:12000', 'original' => 'required|file|max:65536', 'thumbnail' => 'required|file|max:2048']);
+        $request->validate(['manifest' => 'required|string|max:40000', 'original' => 'required|file|max:65536', 'thumbnail' => 'required|file|max:2048']);
         $manifest = json_decode($request->input('manifest'), true);
         abort_unless(is_array($manifest), 422);
         $data = Validator::make($manifest, [
@@ -48,17 +48,34 @@ final class PrototypeLibraryController extends Controller
             'mime' => ['required', Rule::in(['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/heic', 'image/heif'])],
             'method' => ['required', Rule::in(['demo', 'image-capture', 'video-frame'])],
             'title' => 'present|nullable|string|max:120', 'note' => 'present|nullable|string|max:2000', 'favorite' => 'required|boolean',
+            'profile' => 'sometimes|array', 'profile.id' => 'required_with:profile|uuid', 'profile.version' => 'required_with:profile|integer|min:1',
+            'shortId' => 'required_with:profile|string|max:24|regex:/^[A-Z0-9-]+$/D',
+            'category' => 'sometimes|nullable|string|max:80', 'shot' => 'sometimes|nullable|string|max:80',
+            'metadata' => 'sometimes|array',
         ])->validate();
+        $library = $request->attributes->get('prototype_library');
+        $snapshot = isset($data['profile']) ? DB::table('prototype_profile_versions')->where('library_id', $library)
+            ->where('profile_id', $data['profile']['id'])->where('version', $data['profile']['version'])->value('snapshot') : null;
+        abort_if(isset($data['profile']) && ! $snapshot, 422);
+        $profile = $snapshot ? json_decode($snapshot, true) : null;
+        if ($profile) {
+            abort_if(! empty($data['category']) && ! in_array($data['category'], $profile['rules']['categories'], true), 422);
+            abort_if(! empty($data['shot']) && ! in_array($data['shot'], $profile['rules']['shotList'], true), 422);
+        }
+        $metadata = $this->metadata($data['metadata'] ?? [], $profile);
         $original = $request->file('original');
         $thumbnail = $request->file('thumbnail');
         abort_unless($original->getSize() > 0 && $thumbnail->getSize() > 0, 422);
-        $fingerprint = hash('sha256', json_encode([
+        $fingerprintParts = [
             hash_file('sha256', $original->getRealPath()), hash_file('sha256', $thumbnail->getRealPath()),
             $data['createdAt'], $data['width'], $data['height'], $data['mime'], $data['method'],
-        ]));
-        $library = $request->attributes->get('prototype_library');
+        ];
+        if ($profile) {
+            array_push($fingerprintParts, $profile['id'], $profile['version'], $data['shortId'], $data['shot'] ?? '');
+        }
+        $fingerprint = hash('sha256', json_encode($fingerprintParts));
         // Commit a reservation before any S3 I/O; crashes leave discoverable keys.
-        DB::transaction(function () use ($library, $data, $original, $thumbnail, $fingerprint): void {
+        DB::transaction(function () use ($library, $data, $original, $thumbnail, $fingerprint, $profile, $metadata): void {
             Library::lock($library);
             abort_if(DB::table('prototype_deletions')->where('library_id', $library)->where('id', $data['id'])->exists(), 410);
             $existing = Library::photos($library)->where('id', $data['id'])->first();
@@ -69,6 +86,7 @@ final class PrototypeLibraryController extends Controller
                 return;
             }
             $reserved = Library::photos($library)->whereIn('state', ['active', 'pending']);
+            abort_if(isset($data['shortId']) && Library::photos($library)->where('short_id', $data['shortId'])->exists(), 409);
             abort_if($reserved->count() >= config('prototype.max_photos') || $reserved->sum(DB::raw('bytes + thumbnail_bytes')) + $original->getSize() + $thumbnail->getSize() > config('prototype.max_bytes'), 413);
             $prefix = 'prototype/'.Str::uuid();
             Library::photos($library)->insert([
@@ -78,6 +96,9 @@ final class PrototypeLibraryController extends Controller
                 'captured_at' => $data['createdAt'], 'width' => $data['width'], 'height' => $data['height'],
                 'mime' => $data['mime'], 'method' => $data['method'], 'title' => $data['title'] ?? '',
                 'note' => $data['note'] ?? '', 'favorite' => $data['favorite'], 'revision' => 1, 'created_at' => now(),
+                'profile_id' => $profile['id'] ?? null, 'profile_version' => $profile['version'] ?? null,
+                'profile_snapshot' => $profile ? json_encode($profile) : null, 'short_id' => $data['shortId'] ?? null,
+                'metadata' => json_encode($metadata), 'category' => $data['category'] ?? '', 'shot' => $data['shot'] ?? '',
             ]);
         });
         $photo = DB::transaction(function () use ($library, $data, $original, $thumbnail) {
@@ -141,15 +162,30 @@ final class PrototypeLibraryController extends Controller
 
     public function update(Request $request, string $id)
     {
-        $data = $request->validate(['title' => 'present|nullable|string|max:120', 'note' => 'present|nullable|string|max:2000', 'favorite' => 'required|boolean', 'revision' => 'required|integer|min:1']);
+        $data = $request->validate(['title' => 'present|nullable|string|max:120', 'note' => 'present|nullable|string|max:2000', 'favorite' => 'required|boolean', 'revision' => 'required|integer|min:1', 'category' => 'sometimes|nullable|string|max:80', 'metadata' => 'sometimes|array']);
         $photo = DB::transaction(function () use ($request, $id, $data) {
             $library = $request->attributes->get('prototype_library');
             Library::lock($library);
             $row = $this->active($request, $id);
             abort_unless((int) $row->revision === (int) $data['revision'], 409);
+            $profile = $row->profile_snapshot ? json_decode($row->profile_snapshot, true) : null;
+            if ($profile && ! $profile['rules']['descriptionEditable']) {
+                foreach (['title', 'note', 'category'] as $field) {
+                    abort_if($row->$field !== '' && array_key_exists($field, $data) && trim($data[$field] ?? '') !== $row->$field, 403);
+                }
+            }
+            abort_if($profile && ! empty($data['category']) && ! in_array($data['category'], $profile['rules']['categories'], true), 422);
+            $metadata = isset($data['metadata']) ? $this->metadata($data['metadata'], $profile) : json_decode($row->metadata ?? '{}', true);
+            if (isset($data['metadata'])) {
+                $previous = json_decode($row->metadata ?? '{}', true);
+                foreach (['capturedAt', 'camera', 'resolutionLimited'] as $field) {
+                    abort_if(($previous[$field] ?? null) !== ($metadata[$field] ?? null), 403);
+                }
+            }
             Library::photos($library)->where('id', $id)->update([
                 'title' => trim($data['title'] ?? ''), 'note' => trim($data['note'] ?? ''),
                 'favorite' => $data['favorite'], 'revision' => $row->revision + 1,
+                'category' => $data['category'] ?? $row->category, 'metadata' => json_encode($metadata),
             ]);
 
             return Library::photos($library)->where('id', $id)->firstOrFail();
@@ -179,5 +215,29 @@ final class PrototypeLibraryController extends Controller
         abort_unless($photo->state === 'active', 404);
 
         return $photo;
+    }
+
+    private function metadata(array $metadata, ?array $profile): array
+    {
+        $value = Validator::make(['metadata' => $metadata], [
+            'metadata' => 'array:capturedAt,camera,location,locationStatus,resolutionLimited',
+            'metadata.capturedAt' => 'sometimes|integer|min:0|max:9007199254740991',
+            'metadata.camera' => 'sometimes|string|max:120',
+            'metadata.locationStatus' => ['sometimes', Rule::in(['pending', 'unavailable'])],
+            'metadata.resolutionLimited' => 'sometimes|boolean',
+            'metadata.location' => 'sometimes|array:latitude,longitude,accuracy,measuredAt',
+            'metadata.location.latitude' => 'required_with:metadata.location|numeric|between:-90,90',
+            'metadata.location.longitude' => 'required_with:metadata.location|numeric|between:-180,180',
+            'metadata.location.accuracy' => 'required_with:metadata.location|numeric|min:0|max:10000000',
+            'metadata.location.measuredAt' => 'required_with:metadata.location|integer|min:0|max:9007199254740991',
+        ])->validate()['metadata'];
+        if ($profile) {
+            $rules = $profile['rules'];
+            abort_if(! $rules['keepDate'] && isset($value['capturedAt']), 422);
+            abort_if(! $rules['keepCamera'] && isset($value['camera']), 422);
+            abort_if($rules['location'] === 'off' && (isset($value['location']) || isset($value['locationStatus'])), 422);
+        }
+
+        return $value;
     }
 }

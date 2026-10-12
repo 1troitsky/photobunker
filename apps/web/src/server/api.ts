@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { localPrototype } from '../local/photos'
-import type { Photo } from '../local/photos'
+import type { Photo, PhotoChanges } from '../local/photos'
 const KEY = 'photobunker-prototype-access'
 export const accessCode = ref('')
 export const accessLibraryId = ref('')
@@ -21,6 +21,7 @@ async function request(path: string, init: RequestInit = {}, code = accessCode.v
   if (!response.ok) throw new ServerError(response.status)
   return response
 }
+export const prototypeRequest = request
 function remember(code: string, library: string) {
   accessCode.value = code
   accessLibraryId.value = library
@@ -61,7 +62,7 @@ export async function uploadPhoto(photo: Photo, blob: Blob, thumbnail: Blob): Pr
   form.set('thumbnail', thumbnail, 'thumbnail')
   return (await (await request('/photos', { method: 'POST', body: form })).json()).photo
 }
-export async function updateServerPhoto(photo: Photo, changes: Pick<Photo, 'title' | 'note' | 'favorite'>): Promise<Photo> {
+export async function updateServerPhoto(photo: Photo, changes: PhotoChanges): Promise<Photo> {
   return (await (await request(`/photos/${photo.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...changes, revision: photo.remoteRevision }) })).json()).photo
 }
 export async function deleteServerPhoto(id: string): Promise<void> { await request(`/photos/${id}`, { method: 'DELETE' }) }

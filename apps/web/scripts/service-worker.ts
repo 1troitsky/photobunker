@@ -3,7 +3,7 @@ export function renderServiceWorker(paths: string[], revision: string): string {
 const CACHE_PREFIX = 'photobunker-shell-';
 const CACHE_NAME = CACHE_PREFIX + ${JSON.stringify(revision)};
 const STATIC_PATHS = new Set(${JSON.stringify(paths)});
-const APP_ROUTES = new Set(['/', '/camera', '/gallery', '/settings']);
+const APP_ROUTES = new Set(['/', '/camera', '/profiles', '/profiles/new', '/gallery', '/settings']);
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll([...STATIC_PATHS])));
@@ -21,7 +21,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (request.method !== 'GET' || url.origin !== self.location.origin || url.search) return;
 
-  if (request.mode === 'navigate' && (APP_ROUTES.has(url.pathname) || /^\\/gallery\\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(url.pathname))) {
+  if (request.mode === 'navigate' && (APP_ROUTES.has(url.pathname) || /^\\/(?:gallery|profiles)\\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(url.pathname))) {
     event.respondWith(fetch(request).catch(async () => {
       const cache = await caches.open(CACHE_NAME);
       return (await cache.match('/')) || Response.error();

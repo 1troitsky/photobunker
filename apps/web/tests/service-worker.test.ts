@@ -71,4 +71,11 @@ describe('public app shell cache boundary', () => {
     expect(response).toBe(shell)
     expect(cache.match).toHaveBeenCalledExactlyOnceWith('/')
   })
+
+  it('opens profile pages offline without caching account or profile data', async () => {
+    const { request, shell } = worker()
+    for (const path of ['/profiles', '/profiles/new', '/profiles/81fc0686-b3b5-4d98-b59e-09ab1920398b']) {
+      expect(await request(path, 'navigate').mock.calls[0]![0]).toBe(shell)
+    }
+  })
 })

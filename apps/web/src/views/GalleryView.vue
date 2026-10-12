@@ -5,9 +5,17 @@ import PhotoThumbnail from '../components/PhotoThumbnail.vue'
 import { locale, t } from '../i18n'
 import { libraryError, libraryLoading, photos, refreshLibrary, serverError } from '../local/library'
 import { belongsToServer } from '../server/api'
+import { useRoute, useRouter } from 'vue-router'
+import { profiles, selectProfile } from '../profiles/store'
+import { missingRequirements } from '../profiles/model'
+import { p } from '../profiles/text'
+const route = useRoute(); const router = useRouter()
+const profileFilter = computed({ get: () => String(route.query.profile ?? ''), set: value => { void router.replace({ query: value ? { profile: value } : {} }) } })
+const profileChoices = computed(() => [...new Map([...photos.value.filter(photo => photo.profile).map(photo => [photo.profile!.id, photo.profile!.name] as const), ...profiles.value.map(profile => [profile.id, profile.name] as const)]).entries()])
 const search = ref('')
 const favorites = ref(false)
-const visible = computed(() => photos.value.filter(photo => (!favorites.value || photo.favorite) && `${photo.title} ${photo.note} ${photo.method === 'demo' ? t('testPhoto') : t('photo')}`.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase())))
+const visible = computed(() => photos.value.filter(photo => (!profileFilter.value || (profileFilter.value === 'legacy' ? !photo.profile : photo.profile?.id === profileFilter.value)) && (!favorites.value || photo.favorite) && `${photo.shortId ?? ''} ${photo.profile?.name ?? ''} ${photo.category ?? ''} ${photo.shot ?? ''} ${photo.title} ${photo.note} ${photo.method === 'demo' ? t('testPhoto') : t('photo')}`.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase())))
+function useFilterProfile() { const profile = profiles.value.find(item => item.id === profileFilter.value && !item.archived); if (profile) selectProfile(profile.id) }
 const day = (time: number) => new Intl.DateTimeFormat(locale.value, { day: 'numeric', month: 'long', year: 'numeric' }).format(time)
 const groups = computed(() => {
   const result: { day: string; photos: typeof photos.value }[] = []
@@ -19,7 +27,8 @@ onMounted(refreshLibrary)
 
 <template>
   <section class="content-screen gallery-screen" aria-labelledby="gallery-title">
-    <header class="page-heading gallery-heading"><div><p class="eyebrow">{{ t('galleryEyebrow') }}</p><h1 id="gallery-title">{{ t('gallery') }}<span v-if="photos.length" class="photo-count">{{ photos.length }}</span></h1><p>{{ t('localOnly') }}</p></div><RouterLink to="/" class="primary-button"><AppIcon name="camera" />{{ t('capture') }}</RouterLink></header>
+    <header class="page-heading gallery-heading"><div><p class="eyebrow">{{ t('galleryEyebrow') }}</p><h1 id="gallery-title">{{ t('gallery') }}<span v-if="photos.length" class="photo-count">{{ visible.length }}</span></h1><p>{{ t('localOnly') }}</p></div><RouterLink to="/camera" class="primary-button" @click="useFilterProfile"><AppIcon name="camera" />{{ t('capture') }}</RouterLink></header>
+    <select v-if="profileChoices.length" v-model="profileFilter" class="gallery-profile-select" :aria-label="p('profile')"><option value="">{{ p('profileFilter') }}</option><option v-for="[id, name] in profileChoices" :key="id" :value="id">{{ name }}</option><option value="legacy">{{ p('legacy') }}</option></select>
     <div v-if="photos.length" class="gallery-toolbar">
       <div class="segmented-control"><button :aria-pressed="!favorites" @click="favorites = false">{{ t('allPhotos') }}</button><button :aria-pressed="favorites" @click="favorites = true"><AppIcon name="star" />{{ t('favorites') }}</button></div>
       <input v-model="search" type="search" :placeholder="t('searchPhotos')" :aria-label="t('searchPhotos')">
@@ -33,6 +42,7 @@ onMounted(refreshLibrary)
           <div class="photo-card-image"><PhotoThumbnail :id="photo.id" :alt="photo.title || (photo.method === 'demo' ? t('testPhoto') : t('photo'))" /><span v-if="photo.favorite" class="favorite-marker"><AppIcon name="star" /></span><span v-if="photo.method === 'demo'" class="demo-marker">DEMO</span></div>
           <div class="photo-card-caption"><span>{{ photo.title || (photo.method === 'demo' ? t('testPhoto') : t('photoTitlePlaceholder')) }}</span><span>{{ new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(photo.createdAt) }}</span></div>
           <p class="photo-delivery">{{ t(belongsToServer(photo) && photo.remoteRevision !== undefined ? 'serverSaved' : photo.uploadRequested ? 'serverPending' : 'browserOnly') }}</p>
+          <p v-if="photo.profile" class="photo-profile-label">{{ photo.profile.name }} · {{ photo.shortId }}<span v-if="missingRequirements(photo).length"> · {{ p('incomplete') }}</span></p>
         </RouterLink></div>
       </section>
     </template>

@@ -26,7 +26,7 @@ async function snapshot(page) {
 const button = (page, name) => page.getByRole('button', { name, exact: true })
 const nav = (page, name) => page.getByRole('navigation').getByRole('link', { name, exact: true })
 async function capture(page) { await button(page, 'Попробовать без камеры').click(); await button(page, 'Снять фото').click() }
-const saved = page => expect(page.getByRole('status')).toHaveText('Кадр сохранён в этом браузере')
+const saved = page => expect(page.getByRole('status')).toContainText('Кадр сохранён в этом браузере')
 for (const [name, engine] of Object.entries({ chromium, firefox, webkit })) {
   const profile = await mkdtemp(join(tmpdir(), `photobunker-app-${name}-`))
   const options = { headless: true, locale: 'ru-RU', viewport: { width: 1280, height: 900 }, ...(name === 'chromium' ? { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] } : {}) }
@@ -36,6 +36,7 @@ for (const [name, engine] of Object.entries({ chromium, firefox, webkit })) {
     let page = context.pages()[0]
     page.on('pageerror', error => errors.push(error.message))
     await page.goto(origin)
+    await button(page, 'Начать с личной съёмки').click()
     await expect(button(page, 'Включить камеру')).toBeVisible()
     assert.equal(await page.locator('video').evaluate(video => video.srcObject), null)
     await capture(page); await saved(page)
@@ -51,7 +52,7 @@ for (const [name, engine] of Object.entries({ chromium, firefox, webkit })) {
     assert.deepEqual((await snapshot(page)).hashes, before.hashes)
     const downloaded = page.waitForEvent('download'); await button(page, 'Скачать оригинал').click()
     const download = await downloaded
-    assert.equal(download.suggestedFilename(), `photobunker-${id}.jpg`)
+    assert.equal(download.suggestedFilename(), `photobunker-${before.photos[0].shortId}.jpg`)
     assert.equal(createHash('sha256').update(await readFile(await download.path())).digest('hex'), before.hashes[0])
     await page.getByRole('link', { name: 'В галерею', exact: true }).click()
     await button(page, 'Избранное').click(); await expect(page.locator('.photo-card')).toHaveCount(1)

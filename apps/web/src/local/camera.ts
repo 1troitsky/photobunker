@@ -27,10 +27,10 @@ export function cameraController(video: HTMLVideoElement) {
   let stream: MediaStream | undefined
   let generation = 0
   function stop() { generation++; stream?.getTracks().forEach(track => track.stop()); stream = undefined; video.srcObject = null }
-  async function start(facingMode: 'environment' | 'user') {
+  async function start(facingMode: 'environment' | 'user', dimensions?: { width: number; height: number }) {
     stop()
     const current = generation
-    const acquired = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: facingMode }, width: { ideal: 4096 }, height: { ideal: 3072 } } })
+    const acquired = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: facingMode }, width: { ideal: dimensions?.width ?? 99999 }, height: { ideal: dimensions?.height ?? 99999 } } })
     if (generation !== current) { acquired.getTracks().forEach(track => track.stop()); throw new Error('capture.cancelled') }
     stream = acquired
     video.srcObject = stream
@@ -41,13 +41,17 @@ export function cameraController(video: HTMLVideoElement) {
     const current = generation
     if (!stream || video.readyState < 2) throw new Error('capture.not_ready')
     const track = stream.getVideoTracks()[0]!
-    type Still = new (track: MediaStreamTrack) => { takePhoto?: () => Promise<Blob> }
+    type Still = new (track: MediaStreamTrack) => { takePhoto?: (settings?: { imageWidth?: number; imageHeight?: number }) => Promise<Blob>; getPhotoCapabilities?: () => Promise<{ imageWidth?: { max: number }; imageHeight?: { max: number } }> }
     const ImageCaptureAPI = (window as unknown as { ImageCapture?: Still }).ImageCapture
     let photo: Capture | undefined
     if (ImageCaptureAPI) {
       const still = new ImageCaptureAPI(track)
       if (still.takePhoto) {
-        try { photo = await prepare(await still.takePhoto(), 'image-capture') }
+        try {
+          const capabilities = await still.getPhotoCapabilities?.().catch(() => undefined)
+          const width = capabilities?.imageWidth?.max; const height = capabilities?.imageHeight?.max
+          photo = await prepare(await still.takePhoto(width && height ? { imageWidth: width, imageHeight: height } : undefined), 'image-capture')
+        }
         catch (error) { if (!(error instanceof DOMException && error.name === 'NotSupportedError')) throw error }
       }
     }
@@ -64,7 +68,7 @@ export function cameraController(video: HTMLVideoElement) {
     if (generation !== current) throw new Error('capture.cancelled')
     return photo
   }
-  return { start, stop, capture }
+  return { start, stop, capture, source: () => stream?.getVideoTracks()[0]?.label.slice(0, 120) ?? '' }
 }
 
 // An explicitly labelled, generated test scene. No camera or downloaded media.

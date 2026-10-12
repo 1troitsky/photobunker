@@ -9,6 +9,14 @@ import { photos } from '../src/local/library'
 import { captureDemo, cameraController } from '../src/local/camera'
 import { listPhotos, savePhoto } from '../src/local/photos'
 
+vi.mock('../src/profiles/store', async () => {
+  const { ref, computed } = await import('vue')
+  const { defaultRules } = await import('../src/profiles/model')
+  const profile = { id: 'fixture-profile', name: 'Личная съёмка', description: '', version: 1, rules: defaultRules() }
+  return { profiles: ref([profile]), activeProfile: computed(() => profile), refreshProfiles: vi.fn(async () => undefined), selectProfile: vi.fn(), profilesLoading: ref(false), profilesError: ref(false), saveProfile: vi.fn() }
+})
+vi.mock('../src/profiles/image', async importOriginal => ({ ...await importOriginal<typeof import('../src/profiles/image')>(), applyProfile: vi.fn(async (capture: unknown) => capture) }))
+
 vi.mock('../src/local/photos', () => ({
   localPrototype: true, listPhotos: vi.fn(async () => []), savePhoto: vi.fn(), readThumbnail: vi.fn(),
   readPhoto: vi.fn(), updatePhoto: vi.fn(), deletePhoto: vi.fn(), clearPhotos: vi.fn(),
@@ -18,7 +26,7 @@ vi.mock('../src/local/camera', () => ({
   drawDemo: vi.fn(), captureDemo: vi.fn(),
 }))
 const wrappers: ReturnType<typeof mount>[] = []
-async function openApp(path = '/') {
+async function openApp(path = '/camera') {
   const router = createAppRouter(createMemoryHistory())
   await router.push(path)
   await router.isReady()
@@ -52,7 +60,7 @@ describe('working local app', () => {
     const controller = vi.mocked(cameraController).mock.results[0]!.value
     expect(controller.start).not.toHaveBeenCalled()
     await button(wrapper, 'Включить камеру').trigger('click'); await flushPromises()
-    expect(controller.start).toHaveBeenCalledExactlyOnceWith('environment')
+    expect(controller.start).toHaveBeenCalledExactlyOnceWith('environment', undefined)
     await wrapper.get('nav a[href="/gallery"]').trigger('click'); await flushPromises()
     expect(controller.stop).toHaveBeenCalled()
   })
@@ -67,7 +75,7 @@ describe('working local app', () => {
     expect(wrapper.text()).not.toContain('Кадр сохранён')
     expect(wrapper.get('button[aria-label="Снять фото"]').attributes()).toHaveProperty('disabled')
     commit(); await flushPromises()
-    expect(wrapper.get('[role="status"]').text()).toBe('Кадр сохранён в этом браузере')
+    expect(wrapper.get('[role="status"]').text()).toContain('Кадр сохранён в этом браузере')
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:local-photo')
   })
 
@@ -80,7 +88,7 @@ describe('working local app', () => {
     expect(wrapper.get('.pending-capture img').attributes('src')).toBe('blob:local-photo')
     vi.spyOn(window, 'confirm').mockReturnValue(false)
     await router.push('/gallery'); await flushPromises()
-    expect(router.currentRoute.value.path).toBe('/')
+    expect(router.currentRoute.value.path).toBe('/camera')
     await button(wrapper, 'Повторить').trigger('click'); await flushPromises()
     expect(savePhoto).toHaveBeenCalledTimes(2)
     expect(captureDemo).toHaveBeenCalledOnce()
@@ -101,7 +109,7 @@ describe('working local app', () => {
     const { wrapper, router } = await openApp('/settings')
     await wrapper.get('button[lang="en"]').trigger('click')
     expect(wrapper.get('h1').text()).toBe('Settings')
-    expect(wrapper.findAll('nav a').map(link => link.attributes('aria-label'))).toEqual(['Camera', 'Gallery', 'Settings'])
+    expect(wrapper.findAll('nav a').map(link => link.attributes('aria-label'))).toEqual(['Profiles', 'Camera', 'Gallery', 'Settings'])
     expect(document.documentElement.lang).toBe('en')
     expect(document.title).toBe('Settings · PhotoBunker')
     locale.value = 'ru'; initializeLocale(); expect(locale.value).toBe('en')
