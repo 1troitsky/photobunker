@@ -1,6 +1,6 @@
 # PhotoBunker — план реализации через отдельные PR
 
-Дата: 12 октября 2026 года. Статус: I01 реализован и проверен локально; I02–I15 ожидают реализации.
+Дата: 12 октября 2026 года. Статус: I01 реализован, локальные проверки и CI прошли; I02 подготовлен для review, desktop spike проверен, device/security gates открыты; I03–I15 ожидают реализации.
 
 Основание: исходная [переписка](https://chatgpt.com/share/6acc82b8-f334-83eb-b082-955f687480dc), [_docs/README.md](_docs/README.md) и все спецификации 01–13. План намеренно находится вне `_docs`: требования остаются нормативными, а декомпозицию можно уточнять по результатам инженерных проверок.
 
@@ -23,6 +23,7 @@
 - Репозиторий: `https://github.com/1troitsky/photobunker.git`.
 - Рабочая папка: `/Users/ivan/Documents/www/photobunker`.
 - `origin` настроен на указанный репозиторий; реализация I01 находится в ветке `codex/local-foundation`, созданной от `docs/product-foundation`.
+- [Draft PR №2 — I01](https://github.com/1troitsky/photobunker/pull/2); [GitHub Actions I01](https://github.com/1troitsky/photobunker/actions/runs/38225245024) прошёл. Рабочая ветка I02 — `codex/protocol-and-browser-spike`, база — `codex/local-foundation`.
 - Исходный commit документации: `dc549a497e7ebcb7e4d460b8318b55ac9ce640c5`.
 - [PR №1 с документацией](https://github.com/1troitsky/photobunker/pull/1) открыт, ещё не merged. База реализационного PR — `docs/product-foundation`; нормативные `_docs` не изменены.
 - OrbStack запущен, Docker context — `orbstack`. PHP 8.4, Composer, PostgreSQL 17, Garage 2.4.1 и Node.js 22 работают в Compose; host PHP/Composer/psql не требуются.
@@ -87,7 +88,7 @@
 
 ### I01 — каркас проекта и воспроизводимая разработка
 
-Статус: реализован локально. Команды и границы проверок: [README](README.md), [runbook](docs/operations/local-development.md), [ADR 0001](docs/adr/0001-local-foundation.md). CI-конфигурация добавлена; результат GitHub Actions проверяется отдельно от локального запуска.
+Статус: реализован; локальные проверки и GitHub Actions прошли. Команды и границы проверок: [README](README.md), [runbook](docs/operations/local-development.md), [ADR 0001](docs/adr/0001-local-foundation.md).
 
 - Создать Vue/TS/Vite client, тонкий Laravel API, конфигурацию PostgreSQL, примеры env без секретов, команды запуска и CI с lockfiles. Подготовить локальный Compose-контур для OrbStack с PostgreSQL/S3, persistent volumes, bucket bootstrap и health checks; PHP/Composer можно запускать в контейнере.
 - Добавить базовый PWA shell, маршрутизацию, локализуемые RU/EN тексты и основу security headers/CSP. Выбрать очередь/планировщик без дополнительных обязательных сервисов.
@@ -95,6 +96,8 @@
 - Основание: 03, 11, 13; acceptance 12.K. Пока нет пользовательской съёмки/хранения.
 
 ### I02 — архитектурные решения и ранняя матрица браузеров
+
+Статус: подготовлены [ADR 0002–0005](docs/adr/0002-object-encryption-format.md), [отдельный стенд](tools/browser-spike/README.md) и [матрица результатов](docs/operations/browser-compatibility.md). На macOS Chromium/Firefox/WebKit выполнены 10 tests, два camera tests явно skipped. В приватном WebKit обнаружен отказ Blob commit, в постоянном профиле suite и process restart прошли. Protocol review, реальные iPhone/Android, peak RAM, quota/eviction и kill mid-write остаются pending; I02 не объявлен полностью закрытым.
 
 - Зафиксировать ADR: crypto format/AAD/manifest/key hierarchy, auth vs decrypt, strong unlock/PIN, capture-only, epoch conflicts, storage/TTL/access и restore.
 - До crypto implementation завершить review выбора протокола. Отдельный compatibility spike с синтетическими данными: still-photo resolution/orientation, IndexedDB atomic Blob commit, lifecycle, память и CSP/WASM.
@@ -221,4 +224,4 @@
 3. Production hosting, первый storage provider, допустимый deletion SLO и остаточный срок backup — после технических измерений.
 4. Точные GB/цены/сроки prepaid пакетов, правила перекрывающихся покупок, сеть/приём платежей, юрисдикция и refund policy — до I14 с реальными деньгами.
 
-Следующий конкретный шаг: подготовить I01 на базе, содержащей спецификацию, затем завершить ADR/compatibility I02 до реализации криптографического протокола.
+Следующий конкретный шаг: review решений I02 и проверки на реальных устройствах; после разрешения protocol findings — I03 с codec vectors и негативными тестами. Merge предыдущих PR и смена баз выполняются отдельно.
