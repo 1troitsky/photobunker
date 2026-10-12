@@ -1,0 +1,69 @@
+name: Local foundation
+
+on:
+  pull_request:
+    branches: [main, docs/product-foundation]
+  push:
+    branches: [main, docs/product-foundation, 'codex/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: foundation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  local-foundation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Node.js 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Docker Compose availability
+        run: docker compose version
+
+      - name: Prepare local services
+        run: ./scripts/dev setup
+
+      - name: Tests, formatting, types and build
+        run: ./scripts/dev check
+
+      - name: Health and storage smoke
+        run: ./scripts/dev smoke
+
+      - name: Isolate container network
+        run: ./scripts/dev offline
+
+      - name: Smoke with application egress isolated
+        run: ./scripts/dev smoke
+
+      - name: Restore regular network
+        run: ./scripts/dev up
+
+      - name: Smoke after network restore
+        run: ./scripts/dev smoke
+
+      - name: Service status on failure
+        if: failure()
+        run: |
+          if [ -f .env ] && [ -f apps/api/.env ]; then
+            ./scripts/dev status
+          fi
+
+      - name: Stop services and preserve volumes
+        if: always()
+        run: |
+          if [ -f .env ] && [ -f apps/api/.env ]; then
+            ./scripts/dev down
+          fi
