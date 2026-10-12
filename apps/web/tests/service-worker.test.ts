@@ -36,6 +36,8 @@ describe('public app shell cache boundary', () => {
       expect(request(path)).not.toHaveBeenCalled()
     }
     expect(request('/api/v1/assets/private', 'navigate')).not.toHaveBeenCalled()
+    expect(request('/gallery/private.jpg', 'navigate')).not.toHaveBeenCalled()
+    expect(request('/gallery/81fc0686-b3b5-4d98-b59e-09ab1920398b?token=secret', 'navigate')).not.toHaveBeenCalled()
     expect(request('/assets/app-abc.js', 'cors', 'POST')).not.toHaveBeenCalled()
     expect(caches.open).not.toHaveBeenCalled()
   })
@@ -61,5 +63,12 @@ describe('public app shell cache boundary', () => {
     await event.waitUntil.mock.calls[0]![0]
     expect(caches.delete).toHaveBeenCalledExactlyOnceWith('photobunker-shell-old')
     expect(self.clients.claim).toHaveBeenCalledOnce()
+  })
+
+  it('opens a local photo route offline using only the public HTML shell', async () => {
+    const { request, cache, shell } = worker()
+    const response = await request('/gallery/81fc0686-b3b5-4d98-b59e-09ab1920398b', 'navigate').mock.calls[0]![0]
+    expect(response).toBe(shell)
+    expect(cache.match).toHaveBeenCalledExactlyOnceWith('/')
   })
 })

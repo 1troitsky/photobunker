@@ -21,7 +21,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (request.method !== 'GET' || url.origin !== self.location.origin || url.search) return;
 
-  if (request.mode === 'navigate' && APP_ROUTES.has(url.pathname)) {
+  if (request.mode === 'navigate' && (APP_ROUTES.has(url.pathname) || /^\\/gallery\\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(url.pathname))) {
     event.respondWith(fetch(request).catch(async () => {
       const cache = await caches.open(CACHE_NAME);
       return (await cache.match('/')) || Response.error();
