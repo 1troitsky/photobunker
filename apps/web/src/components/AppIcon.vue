@@ -1,5 +1,5 @@
 <script setup lang="ts">
-defineProps<{ name: 'camera' | 'gallery' | 'settings' | 'lock' | 'flip' | 'arrow' | 'offline' | 'globe' }>()
+defineProps<{ name: 'camera' | 'gallery' | 'settings' | 'lock' | 'flip' | 'arrow' | 'offline' | 'globe' | 'device' | 'close' | 'star' | 'back' | 'trash' | 'download' }>()
 </script>
 
 <template>
@@ -26,5 +26,11 @@ defineProps<{ name: 'camera' | 'gallery' | 'settings' | 'lock' | 'flip' | 'arrow
     <template v-else-if="name === 'globe'">
       <circle cx="12" cy="12" r="9" /><path d="M3 12h18m-9-9a17 17 0 0 0 0 18 17 17 0 0 0 0-18" />
     </template>
+    <template v-else-if="name === 'device'"><rect x="6" y="2" width="12" height="20" rx="3" /><path d="M11 18h2" /></template>
+    <path v-else-if="name === 'close'" d="m6 6 12 12M6 18 18 6" />
+    <path v-else-if="name === 'star'" d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z" />
+    <path v-else-if="name === 'back'" d="M19 12H5m5-5-5 5 5 5" />
+    <template v-else-if="name === 'trash'"><path d="M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7" /></template>
+    <template v-else-if="name === 'download'"><path d="M12 3v12m-5-5 5 5 5-5M5 17v4h14v-4" /></template>
   </svg>
 </template>
