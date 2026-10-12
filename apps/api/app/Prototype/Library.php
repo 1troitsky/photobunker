@@ -21,13 +21,16 @@ final class Library
 
     public static function serialize(object $photo): array
     {
-        return [
+        return array_filter([
             'id' => $photo->id, 'createdAt' => (int) $photo->captured_at,
             'width' => (int) $photo->width, 'height' => (int) $photo->height,
             'bytes' => (int) $photo->bytes, 'mime' => $photo->mime, 'method' => $photo->method,
             'title' => $photo->title, 'note' => $photo->note, 'favorite' => (bool) $photo->favorite,
             'remoteRevision' => (int) $photo->revision, 'remoteLibraryId' => $photo->library_id,
-        ];
+            'profile' => $photo->profile_snapshot ? json_decode($photo->profile_snapshot, true) : null,
+            'shortId' => $photo->short_id, 'category' => $photo->category, 'shot' => $photo->shot,
+            'metadata' => $photo->metadata ? (object) json_decode($photo->metadata, true) : null,
+        ], fn ($value) => $value !== null);
     }
 
     // Access is revoked by a committed tombstone before physical deletion starts.

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-defineProps<{ name: 'camera' | 'gallery' | 'settings' | 'lock' | 'flip' | 'arrow' | 'offline' | 'globe' | 'device' | 'close' | 'star' | 'back' | 'trash' | 'download' }>()
+defineProps<{ name: 'profiles' | 'camera' | 'gallery' | 'settings' | 'lock' | 'flip' | 'arrow' | 'offline' | 'globe' | 'device' | 'close' | 'star' | 'back' | 'trash' | 'download' }>()
 </script>
 
 <template>
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-    <template v-if="name === 'camera'">
+    <template v-if="name === 'profiles'"><rect x="4" y="3" width="16" height="18" rx="3" /><path d="M8 8h8M8 12h5M8 16h8" /></template>
+    <template v-else-if="name === 'camera'">
       <path d="M3 7h5l2-3h4l2 3h5v13H3z" /><circle cx="12" cy="13" r="4" />
     </template>
     <template v-else-if="name === 'gallery'">

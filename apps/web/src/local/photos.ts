@@ -5,7 +5,10 @@ export const DATABASE = 'photobunker-local-prototype-v1'
 const stores = ['photos', 'originals', 'thumbnails']
 
 export type Capture = { blob: Blob; thumbnail: Blob; width: number; height: number; method: 'image-capture' | 'video-frame' | 'demo' }
-export type Photo = { id: string; createdAt: number; width: number; height: number; bytes: number; mime: string; method: Capture['method']; title: string; note: string; favorite: boolean; remoteRevision?: number; remoteLibraryId?: string; uploadRequested?: boolean }
+import type { PhotoMetadata, Profile } from '../profiles/model'
+import { photoCode } from '../profiles/model'
+export type Photo = { id: string; createdAt: number; width: number; height: number; bytes: number; mime: string; method: Capture['method']; title: string; note: string; favorite: boolean; remoteRevision?: number; remoteLibraryId?: string; uploadRequested?: boolean; profile?: Profile; shortId?: string; metadata?: PhotoMetadata; category?: string; shot?: string }
+export type PhotoChanges = Pick<Photo, 'title' | 'note' | 'favorite'> & Partial<Pick<Photo, 'category' | 'metadata' | 'remoteRevision' | 'remoteLibraryId' | 'uploadRequested'>>
 
 async function open(): Promise<IDBDatabase> {
   if (!localPrototype) throw new DOMException('Local prototype disabled', 'NotSupportedError')
@@ -49,9 +52,10 @@ export function listPhotos(): Promise<Photo[]> {
   })
 }
 
-export async function savePhoto(capture: Capture): Promise<Photo> {
+export async function savePhoto(capture: Capture, details?: { profile: Profile; metadata: PhotoMetadata; category: string; shot: string; createdAt: number; libraryId: string }): Promise<Photo> {
   if (!capture.blob.size || capture.blob.size > 64 * 1024 * 1024 || capture.thumbnail.size > 2 * 1024 * 1024 || !capture.width || !capture.height) throw new DOMException('Invalid image size', 'DataError')
   const photo: Photo = { id: crypto.randomUUID(), createdAt: Date.now(), width: capture.width, height: capture.height, bytes: capture.blob.size, mime: capture.blob.type, method: capture.method, title: '', note: '', favorite: false }
+  if (details) Object.assign(photo, { profile: details.profile, metadata: details.metadata, category: details.category, shot: details.shot, createdAt: details.createdAt, shortId: photoCode(details.profile.rules.idPrefix), remoteLibraryId: details.libraryId || undefined })
   return transact(stores, 'readwrite', tx => {
     tx.objectStore('photos').add(photo, photo.id)
     tx.objectStore('originals').add(capture.blob, photo.id)
@@ -85,13 +89,15 @@ export function readMetadata(id: string): Promise<Photo | undefined> {
   })
 }
 
-export function updatePhoto(id: string, changes: Pick<Photo, 'title' | 'note' | 'favorite'> & Partial<Pick<Photo, 'remoteRevision' | 'remoteLibraryId' | 'uploadRequested'>>): Promise<Photo> {
+export function updatePhoto(id: string, changes: PhotoChanges): Promise<Photo> {
   return transact(['photos'], 'readwrite', tx => {
     const store = tx.objectStore('photos')
     const request = store.get(id)
     let updated: Photo | undefined
     request.onsuccess = () => {
       if (!request.result) { tx.abort(); return }
+      const current = request.result as Photo
+      if (current.profile && !current.profile.rules.descriptionEditable && (['title', 'note', 'category'] as const).some(field => current[field] && changes[field] !== undefined && current[field] !== changes[field]?.trim())) { tx.abort(); return }
       updated = { ...request.result as Photo, ...changes, title: changes.title.trim().slice(0, 120), note: changes.note.trim().slice(0, 2000), favorite: changes.favorite }
       store.put(updated, id)
     }
