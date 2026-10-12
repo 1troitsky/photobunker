@@ -1,3 +1,5 @@
 <?php
 
-// Domain schedules are introduced alongside their jobs and acceptance tests.
+use Illuminate\Support\Facades\Schedule;
+
+Schedule::command('photobunker:prototype-cleanup')->everyMinute()->withoutOverlapping();

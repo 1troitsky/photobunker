@@ -93,7 +93,7 @@ describe('working local app', () => {
     expect(wrapper.text()).toContain('Здесь будут ваши кадры')
     expect(wrapper.findAll('img, video')).toHaveLength(0)
     await router.push('/settings'); await flushPromises()
-    expect(wrapper.text()).toContain('Локальные фотографии')
+    expect(wrapper.text()).toContain('Фотографии в приложении')
     expect(wrapper.text()).toContain('0 KB')
   })
 
