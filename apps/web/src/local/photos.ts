@@ -5,7 +5,7 @@ export const DATABASE = 'photobunker-local-prototype-v1'
 const stores = ['photos', 'originals', 'thumbnails']
 
 export type Capture = { blob: Blob; thumbnail: Blob; width: number; height: number; method: 'image-capture' | 'video-frame' | 'demo' }
-export type Photo = { id: string; createdAt: number; width: number; height: number; bytes: number; mime: string; method: Capture['method']; title: string; note: string; favorite: boolean }
+export type Photo = { id: string; createdAt: number; width: number; height: number; bytes: number; mime: string; method: Capture['method']; title: string; note: string; favorite: boolean; remoteRevision?: number; remoteLibraryId?: string; uploadRequested?: boolean }
 
 async function open(): Promise<IDBDatabase> {
   if (!localPrototype) throw new DOMException('Local prototype disabled', 'NotSupportedError')
@@ -78,14 +78,21 @@ export function readThumbnail(id: string): Promise<Blob> {
   })
 }
 
-export function updatePhoto(id: string, changes: Pick<Photo, 'title' | 'note' | 'favorite'>): Promise<Photo> {
+export function readMetadata(id: string): Promise<Photo | undefined> {
+  return transact(['photos'], 'readonly', tx => {
+    const request = tx.objectStore('photos').get(id)
+    return () => request.result as Photo | undefined
+  })
+}
+
+export function updatePhoto(id: string, changes: Pick<Photo, 'title' | 'note' | 'favorite'> & Partial<Pick<Photo, 'remoteRevision' | 'remoteLibraryId' | 'uploadRequested'>>): Promise<Photo> {
   return transact(['photos'], 'readwrite', tx => {
     const store = tx.objectStore('photos')
     const request = store.get(id)
     let updated: Photo | undefined
     request.onsuccess = () => {
       if (!request.result) { tx.abort(); return }
-      updated = { ...request.result as Photo, title: changes.title.trim().slice(0, 120), note: changes.note.trim().slice(0, 2000), favorite: changes.favorite }
+      updated = { ...request.result as Photo, ...changes, title: changes.title.trim().slice(0, 120), note: changes.note.trim().slice(0, 2000), favorite: changes.favorite }
       store.put(updated, id)
     }
     return () => updated!

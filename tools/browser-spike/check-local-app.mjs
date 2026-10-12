@@ -81,8 +81,8 @@ for (const [name, engine] of Object.entries({ chromium, firefox, webkit })) {
     assert.deepEqual((await snapshot(page)).counts, [0, 0, 0])
     await page.evaluate(() => window.restoreLocalWrites()); await button(page, 'Повторить').click(); await saved(page)
     assert.deepEqual((await snapshot(page)).counts, [1, 1, 1])
-    await nav(page, 'Настройки').click(); await button(page, 'Удалить все снимки').click()
-    await expect(page.getByRole('status')).toHaveText('Все локальные снимки удалены')
+    await nav(page, 'Настройки').click(); await button(page, 'Удалить копии в браузере').click()
+    await expect(page.getByRole('status')).toHaveText('Копии в браузере удалены')
     assert.deepEqual((await snapshot(page)).counts, [0, 0, 0])
     await page.goto(`${origin}/gallery/${id}`); await expect(page.getByRole('heading', { name: 'Снимок недоступен', exact: true })).toBeVisible()
     if (name === 'chromium') {

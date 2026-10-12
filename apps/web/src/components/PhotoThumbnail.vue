@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
-import { readThumbnail } from '../local/photos'
+import { readThumbnail } from '../server/photos'
 const props = defineProps<{ id: string; alt?: string }>()
 const url = ref('')
 let generation = 0

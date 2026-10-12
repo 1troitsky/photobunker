@@ -3,7 +3,8 @@ import { computed, onMounted, ref } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
 import PhotoThumbnail from '../components/PhotoThumbnail.vue'
 import { locale, t } from '../i18n'
-import { libraryError, libraryLoading, photos, refreshLibrary } from '../local/library'
+import { libraryError, libraryLoading, photos, refreshLibrary, serverError } from '../local/library'
+import { belongsToServer } from '../server/api'
 const search = ref('')
 const favorites = ref(false)
 const visible = computed(() => photos.value.filter(photo => (!favorites.value || photo.favorite) && `${photo.title} ${photo.note} ${photo.method === 'demo' ? t('testPhoto') : t('photo')}`.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase())))
@@ -23,6 +24,7 @@ onMounted(refreshLibrary)
       <div class="segmented-control"><button :aria-pressed="!favorites" @click="favorites = false">{{ t('allPhotos') }}</button><button :aria-pressed="favorites" @click="favorites = true"><AppIcon name="star" />{{ t('favorites') }}</button></div>
       <input v-model="search" type="search" :placeholder="t('searchPhotos')" :aria-label="t('searchPhotos')">
     </div>
+    <p v-if="serverError" class="server-warning" role="status">{{ t('serverUnavailable') }} <button class="quiet-button" @click="refreshLibrary">{{ t('retry') }}</button></p>
     <div v-if="libraryError" class="empty-gallery"><AppIcon name="offline" /><h2>{{ t('storageFailed') }}</h2><button class="text-button" @click="refreshLibrary">{{ t('retry') }}</button></div>
     <p v-else-if="libraryLoading && !photos.length" class="loading-state" role="status">{{ t('loading') }}</p>
     <template v-else-if="visible.length">
@@ -30,6 +32,7 @@ onMounted(refreshLibrary)
         <div class="photo-grid"><RouterLink v-for="photo in group.photos" :key="photo.id" :to="`/gallery/${photo.id}`" class="photo-card" :aria-label="`${t('viewPhoto')}: ${photo.title || (photo.method === 'demo' ? t('testPhoto') : t('photo'))}`">
           <div class="photo-card-image"><PhotoThumbnail :id="photo.id" :alt="photo.title || (photo.method === 'demo' ? t('testPhoto') : t('photo'))" /><span v-if="photo.favorite" class="favorite-marker"><AppIcon name="star" /></span><span v-if="photo.method === 'demo'" class="demo-marker">DEMO</span></div>
           <div class="photo-card-caption"><span>{{ photo.title || (photo.method === 'demo' ? t('testPhoto') : t('photoTitlePlaceholder')) }}</span><span>{{ new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(photo.createdAt) }}</span></div>
+          <p class="photo-delivery">{{ t(belongsToServer(photo) && photo.remoteRevision !== undefined ? 'serverSaved' : photo.uploadRequested ? 'serverPending' : 'browserOnly') }}</p>
         </RouterLink></div>
       </section>
     </template>

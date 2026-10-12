@@ -116,3 +116,19 @@ textarea { resize: vertical; line-height: 1.6; }
 }
 @media (max-height: 550px) and (orientation: landscape) { .viewfinder { min-height: 350px; height: 75svh; } .viewfinder-live { min-height: 260px; } }
 @media (prefers-reduced-motion: reduce) { .photo-card-image > img, .shutter span { transition: none; } }
+.server-delivery { display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid #d4e6b52b; border-radius: 12px; background: var(--surface); }
+.server-delivery p { color: var(--accent); font-size: 12px; line-height: 1.5; }
+.server-delivery small { color: var(--secondary); font-size: 11px; }
+.photo-delivery { color: var(--muted); font-size: 10px; margin-top: 8px; }
+.server-warning { color: var(--notice-text); font-size: 12px; line-height: 1.7; margin-top: 18px; }
+.server-settings { display: flex; flex-direction: column; gap: 16px; }
+.server-settings h2 { font-size: 16px; font-weight: 500; }
+.server-settings .supporting-copy { max-width: 620px; }
+.server-settings > button { align-self: flex-start; }
+.restore-form, .access-code { display: flex; flex-direction: column; gap: 12px; }
+.restore-form { padding-top: 20px; border-top: 1px solid var(--border); margin-top: 8px; }
+.restore-form h3 { margin: 0; font-weight: 500; font-size: 14px; }
+.restore-form label, .access-code label { font-size: 12px; color: var(--secondary); }
+.access-code textarea { font-family: ui-monospace, monospace; word-break: break-all; }
+@media (max-width: 1100px) and (min-width: 701px) { .server-delivery { grid-column: 1 / -1; } }
+@media (max-width: 700px) { .restore-form input, .access-code textarea { font-size: 16px; } }
