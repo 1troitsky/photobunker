@@ -29,10 +29,6 @@ Chromium дополнительно получает fake camera, измеряе
 
 ## Ручная проверка устройства
 
-У владельца доступен iPhone; Android пока недоступен и остаётся pending. Для iPhone подготовлен [локальный HTTPS запуск](../../tools/browser-spike/README.md#iphone-по-локальному-https) со своим test CA, отдельным port/origin и ручным доверием на телефоне. Настройка и проверка TLS на Mac не считаются проверкой iPhone.
-
-12 октября на Mac проверены loopback TLS с полной верификацией CA/SAN, CSP обоих HTML entries, точные bytes public CA download и 404 для остальных bootstrap paths; без CA TLS отклоняется. Повторный setup сохраняет CA, public/unassigned IP отвергается, private keys имеют mode 0600. Прямое подключение Mac к выбранному LAN IP пока сбрасывается до TLS (`ECONNRESET`); доступность с iPhone остаётся pending до проверки соединения/сетевых разрешений. Маршруты, firewall и системное доверие автоматически не менялись.
-
 1. Подготовить trusted HTTPS origin стенда, доступный телефону; указывать localhost Mac на телефоне нельзя. Записать OS/browser version, hardware model без serial/идентификаторов, tab или installed mode, дату и commit harness. Если HTTPS/доступность не готовы, результат pending, не менять browser security flags.
 2. На чистом origin запустить synthetic probes без camera permission. Скачать JSON явно. Проверить CSP/WASM, обе IDB records, abort и key clone; `persist()` нажать отдельно и записать как granted/denied/unsupported. Reload, закрытие/reopen и перезапуск браузера проверять отдельно.
 3. Навести камеру на test card: текст UP, разные углы/цвета, без людей/GPS/личных предметов. Явно разрешить camera. Измерить video settings и takePhoto (если доступен), затем Canvas. Повторить front/back через browser/device controls; lab пока не предоставляет переключатель камеры.
@@ -55,3 +51,25 @@ Chromium дополнительно получает fake camera, измеряе
 | Retention | stale anchor не продлевает TTL, clock uncertainty, Calendar UTC/clamp, read gateway, current deletion ledger до readiness | ADR предложен; I08 tests pending |
 
 I02 даёт reviewable решения и воспроизводимый spike; не помечает эти gates закрытыми без доказательств. До product codec I03 нужно разрешить format/key-lifecycle review findings; до заявления о надёжности capture — пройти реальные iPhone/Android. Независимый аудит не выполнен и не подразумевается desktop tests.
+
+## Приложение U04/B01, 15 октября 2026
+
+Отдельные сценарии приложения `check-account.mjs` проходят в Chromium и WebKit: реальный signed account/recovery, field visibility, contacts/block, Tuwunel provisioning/login/whoami, logout/login и device revoke. Chromium также подтвердил cold Matrix restore и outage/retry. `check-camera.mjs` прошёл реальный getUserMedia → ImageCapture → IDB → повторное открытие на **синтетической** камере Chromium (3840×2160), с остановкой tracks. Это не меняет pending-статус физических телефонов. [Camera contract/checklist](camera.md), [Identity/Matrix runbook](identity-matrix-local.md).
+
+
+15 октября 2026: B02 `check-messages.mjs` прошёл в Chromium/WebKit — Rust/WASM, реальные E2EE DM/group/reply/read/SAS, backup/recovery на новом устройстве, неверный ключ, encrypted-store reload, один crypto owner, offline/reconnect, logout с новой Matrix identity, live revoke, decline заблокированного приглашения и отмена при смене аккаунта. `check-profile-save.mjs` подтвердил name/username с пустым Email, reload, видимую ошибку/повтор и истёкшую сессию на обоих engines. Проверки выполнены на localhost, не на физических телефонах; [границы B02](matrix-messaging.md).
+
+## B03 account workspace (2026-10-15)
+
+`check-workspace.mjs` passed in Chromium and WebKit with real Identity/Matrix/S3: team/task invitations, upload-only, separate 80px thumbnail, private encrypted discussion and ID-only references, current ACL/revoke, source-preserving S3/device import and retry, TTL, full-to-thumbnail downgrade, cross-tab isolation and 320-1440px layouts. New local binary records use byte buffers with backward-compatible Blob reads after a reproduced WebKit IDB UnknownError/stalled Blob write. U03 API-unavailable regression passed in both engines. Physical iPhone/Android and installed-PWA lifecycle remain pending. [B03 details](account-workspace.md).
+
+
+## B04 photo protection (2026-10-15)
+
+Application suites `check-photo-crypto`, `check-photo-workspace`, `check-photo-recovery`, `check-photo-offline` pass in desktop Chromium/WebKit against real local Identity/Matrix/S3 and the dedicated libsodium worker. Covered: PB1 authority binding/PB4 backup/strong cold lock, ciphertext queue and ACK buffer/pending-envelope removal, owner-reviewed recipient plans, upload-only and independent 80px keys, review/response signer separation, Megolm ID-only references, immediate photo and Matrix revocation, unchanged ciphertext/deadline on pending rewrap, explicit migration/readback/local versions/separate cleanup, metadata/manual GPS, PIN five-attempt hard lock, PB4 rotation/history/new-device linking, cold API outage capture with no plaintext fallback and clock/resume expiry. Public shell remains online in the outage drill; this is not full offline PWA or physical-device proof. U03 API-unavailable regression passes in both engines and synthetic hardware capture passes in Chromium. [Exact boundaries](photo-protection.md).
+
+B04 rerun note: an extra WebKit basic pass produced one unexpected native `pageerror` while photo delivery/readback succeeded, with no window error or unhandled rejection. The diagnostic rerun passed; no new error suppression was added. [Recorded limitation](photo-protection.md). Full B02 messaging/recovery and profile save/session-expiry regressions pass on both engines after the account-form lifecycle fix.
+
+## B06 calls (2026-10-16)
+
+Chromium call QA passes with real local SFU and synthetic capture: direct/group encrypted audio/video, decoded remote frames and audio energy, no-key receiver with bytes but zero decoded frames, reconnect, mute/camera/end, PIN/rejoin and device revocation. WebKit media APIs exist but the tested loopback peer connection fails; WebKit/Safari call support remains open, independently of the passing WebKit E2EE messaging regression. Physical phones, production NAT/TURN/TLS, transport-specific TCP fallback and suspended/closed PWA incoming calls remain unverified. [Exact scope and results](matrixrtc-calls.md).

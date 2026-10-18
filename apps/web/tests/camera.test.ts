@@ -6,9 +6,10 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 function media(getUserMedia: ReturnType<typeof vi.fn>) {
   Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia } })
   const stop = vi.fn()
-  const stream = { getTracks: () => [{ stop }] } as unknown as MediaStream
+  const track = {stop, getCapabilities:vi.fn(()=>({})),getSettings:vi.fn(()=>({})),applyConstraints:vi.fn(async()=>{})}
+  const stream = { getTracks: () => [track], getVideoTracks:()=>[track] } as unknown as MediaStream
   const video = { srcObject: null, play: vi.fn(async () => undefined) } as unknown as HTMLVideoElement
-  return { stop, stream, video }
+  return { stop, stream, video, track }
 }
 describe('camera lifecycle', () => {
   it('stops a late permission result after leaving the camera', async () => {
@@ -34,4 +35,37 @@ describe('camera lifecycle', () => {
     expect(video.srcObject).toBeNull()
     expect(getUserMedia.mock.calls[0]![0].audio).toBe(false)
   })
+  it('uses only advertised hardware controls and enables continuous focus', async () => {
+    const getUserMedia = vi.fn()
+    const { stream, video, track } = media(getUserMedia)
+    getUserMedia.mockResolvedValue(stream)
+    track.getCapabilities.mockReturnValue({ focusMode: ['continuous'], zoom: { min: 1, max: 4, step: 0.1 }, torch: true })
+    track.getSettings.mockReturnValue({ width: 1920, height: 1080, zoom: 2, torch: false })
+    const controller = cameraController(video)
+    await controller.start('environment')
+    expect(track.applyConstraints).toHaveBeenCalledWith({ advanced: [{ focusMode: 'continuous' }] })
+    expect(controller.features()).toMatchObject({ width: 1920, height: 1080, zoomValue: 2, torch: true })
+    await controller.configure({ zoom: 3, torch: true })
+    expect(track.applyConstraints).toHaveBeenLastCalledWith({ advanced: [{ zoom: 3, torch: true }] })
+    await expect(controller.configure({ zoom: 5 })).rejects.toThrow('unsupported')
+    await expect(controller.configure({ zoom: NaN })).rejects.toThrow('unsupported')
+    controller.stop()
+    await expect(controller.configure({ torch: true })).rejects.toThrow('not_ready')
+  })
+  it('hides unsupported controls and rejects a setting completed after stop', async () => {
+    const getUserMedia = vi.fn()
+    const { stream, video, track } = media(getUserMedia)
+    getUserMedia.mockResolvedValue(stream)
+    const controller = cameraController(video)
+    await controller.start('user')
+    expect(controller.features()).toMatchObject({ torch: false, zoom: undefined })
+    await expect(controller.configure({ torch: true })).rejects.toThrow('unsupported')
+    track.getCapabilities.mockReturnValue({ zoom: { min: 1, max: 3, step: 1 } })
+    let finish!: () => void
+    track.applyConstraints.mockImplementation(()=>new Promise<void>(resolve=>{finish=resolve}))
+    const pending = controller.configure({ zoom: 2 })
+    controller.stop(); finish()
+    await expect(pending).rejects.toThrow('cancelled')
+  })
+
 })

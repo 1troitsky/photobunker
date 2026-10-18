@@ -1,83 +1,50 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
-import { defaultRules, aspectRatio, type Profile } from '../profiles/model'
-import { profiles, refreshProfiles, saveProfile, selectProfile } from '../profiles/store'
-import { p } from '../profiles/text'
-import { ServerError } from '../server/api'
-import { t } from '../i18n'
-const route = useRoute(); const router = useRouter()
-const profile = ref<Profile>({ id: crypto.randomUUID(), name: '', description: '', version: 0, rules: defaultRules() })
-const categories = ref(''); const shots = ref(''); const busy = ref(false); const loaded = ref(false)
-const error = ref<'failed' | 'conflict' | 'invalid'>(); let initial = ''; let saved = false
-const newProfile = computed(() => route.params.id === 'new')
-const dirty = computed(() => loaded.value && `${JSON.stringify(profile.value)}|${categories.value}|${shots.value}` !== initial)
+import { guardReload } from '../studio/unsaved'
+import ScreenHeader from '../components/ScreenHeader.vue'
+import FormTabs from '../components/FormTabs.vue'
+import ToggleRow from '../components/ToggleRow.vue'
+import { asLocalPreset, loadStudio, localPresets, savePreset } from '../studio/store'
+import { newPreset, retentionSeconds, validatePreset, type Preset } from '../studio/model'
+import { WorkspaceConflict } from '../studio/repository'
+import { refreshProfiles } from '../profiles/store'
+import { s } from '../studio/text'
+const route = useRoute(), router = useRouter()
+const draft = ref<Preset>(newPreset('')), tab = ref('basics'), ready = ref(false), busy = ref(false), error = ref('')
+let initial = '', saved = false
+const fresh = computed(() => route.params.id === 'new')
+const dirty = computed(() => ready.value && JSON.stringify(draft.value) !== initial)
+guardReload(dirty, busy)
+const tabs = computed(() => ['basics','image','metadata','retention'].map(id => ({ id, label: s(id as 'basics' | 'image' | 'metadata' | 'retention') })))
+const lifetimes = [0,3600,10800,43200,86400,432000,604800,1209600,1814400,2592000]
+const labels = ['never','hour','hours3','hours12','day','days5','days7','days14','days21','days30'] as const
 onMounted(async () => {
-  await refreshProfiles()
-  const id = newProfile.value ? route.query.copy : route.params.id
-  if (id) {
-    const source = profiles.value.find(item => item.id === id)
-    if (!source) { error.value = 'failed'; return }
-    profile.value = JSON.parse(JSON.stringify(source))
-    if (newProfile.value) { profile.value.id = crypto.randomUUID(); profile.value.version = 0; profile.value.archived = false; profile.value.name = (profile.value.name + p('copySuffix')).slice(0, 80) }
-  }
-  categories.value = profile.value.rules.categories.join('\n'); shots.value = profile.value.rules.shotList.join('\n')
-  initial = `${JSON.stringify(profile.value)}|${categories.value}|${shots.value}`; loaded.value = true
+  await Promise.all([loadStudio(), refreshProfiles()])
+  const source = String(route.query.copy ?? (fresh.value ? '' : route.params.id))
+  const item = source ? asLocalPreset(source) : newPreset(`${s('preset')} ${localPresets.value.length + 1}`)
+  if (!item) { error.value = s('required'); return }
+  if (fresh.value && source) { item.id = crypto.randomUUID(); item.revision = item.version = 0; item.originServer = false; item.hidden = false; item.name = `${item.name} (${s('duplicate')})`.slice(0, 80); item.archived = false }
+  draft.value = item; initial = JSON.stringify(item); ready.value = true
 })
-function metadataChanged() {
-  const rules = profile.value.rules
-  if (rules.metadata === 'none') { rules.keepDate = rules.keepCamera = false; rules.location = 'off' }
-  if (rules.metadata === 'all') { rules.keepDate = rules.keepCamera = true; if (rules.location === 'off') rules.location = 'optional' }
+function dimensions(axis = 'width') {
+  const rules = draft.value.rules
+  if (draft.value.options.size !== 'custom' || rules.aspect === 'native') return
+  const ratio = rules.aspect === 'custom' ? rules.aspectWidth / rules.aspectHeight : Number(rules.aspect.split(':')[0]) / Number(rules.aspect.split(':')[1])
+  if (axis === 'width') rules.height = Math.round(rules.width / ratio); else rules.width = Math.round(rules.height * ratio)
 }
-function dimensionsChanged(axis: 'width' | 'height' = 'width') {
-  const rules = profile.value.rules
-  if (rules.resolution !== 'fixed' || rules.aspect === 'native') return
-  const ratio = aspectRatio(rules)!
-  if (axis === 'width') rules.height = Math.round(rules.width / ratio)
-  else rules.width = Math.round(rules.height * ratio)
-}
-watch(() => profile.value.rules.aspect, () => dimensionsChanged())
+watch(() => draft.value.rules.aspect, () => { if (ready.value) dimensions() })
 async function save() {
-  if (busy.value || !loaded.value) return
-  error.value = undefined
-  const list = (value: string) => [...new Set(value.split('\n').map(item => item.trim()).filter(Boolean))]
-  const rules = { ...profile.value.rules, categories: list(categories.value), shotList: list(shots.value), idPrefix: profile.value.rules.idPrefix.trim().toUpperCase() }
-  if ([rules.categories, rules.shotList].some(items => items.length > 30 || items.some(item => item.length > 80)) || rules.categoryRequired && !rules.categories.length || rules.resolution === 'fixed' && rules.width * rules.height > 50_000_000) { error.value = 'invalid'; return }
-  busy.value = true
-  try { const result = await saveProfile({ ...profile.value, name: profile.value.name.trim(), rules }); selectProfile(result.id); saved = true; await router.push('/profiles') }
-  catch (cause) { error.value = cause instanceof ServerError && cause.status === 409 ? 'conflict' : cause instanceof ServerError && cause.status === 422 ? 'invalid' : 'failed' }
-  finally { busy.value = false }
+  if (busy.value || !ready.value) return
+  const invalid = validatePreset(draft.value)
+  if (invalid) { tab.value = invalid; error.value = s('required'); return }
+  busy.value = true; error.value = ''
+  try { draft.value.rules.retentionSeconds = retentionSeconds(draft.value); await savePreset(draft.value); saved = true; await router.replace('/camera/presets') }
+  catch (failure) { error.value = s(failure instanceof WorkspaceConflict ? 'conflict' : 'failed') } finally { busy.value = false }
 }
-onBeforeRouteLeave(() => saved || !busy.value && (!dirty.value || confirm(p('leave'))))
+onBeforeRouteLeave(() => saved || !busy.value && (!dirty.value || confirm(s('leave'))))
 </script>
-<template>
-  <section class="content-screen profile-editor">
-    <RouterLink to="/profiles" class="back-link">← {{ p('back') }}</RouterLink>
-    <header class="page-heading"><p class="eyebrow">{{ p('profile') }}</p><h1>{{ p(newProfile ? 'new' : 'edit') }}</h1></header>
-    <p v-if="!loaded && !error" class="loading-state">{{ t('loading') }}</p>
-    <form v-if="loaded" class="profile-form" @submit.prevent="save">
-      <fieldset :disabled="busy"><legend>{{ p('basics') }}</legend><label>{{ p('name') }}<input v-model="profile.name" required maxlength="80" autofocus></label><label>{{ p('description') }}<textarea v-model="profile.description" rows="2" maxlength="1000" /></label></fieldset>
-      <fieldset :disabled="busy"><legend>{{ p('image') }}</legend>
-        <div class="profile-fields"><label>{{ p('resolution') }}<select :aria-label="p('resolution')" v-model="profile.rules.resolution" @change="dimensionsChanged()"><option value="maximum">{{ p('maximum') }}</option><option value="fixed">{{ p('fixed') }}</option></select></label><label>{{ p('aspect') }}<select :aria-label="p('aspect')" v-model="profile.rules.aspect"><option value="native">{{ p('native') }}</option><option v-for="ratio in ['1:1', '4:3', '3:2', '16:9']" :key="ratio" :value="ratio">{{ ratio }}</option><option value="custom">{{ p('custom') }}</option></select></label></div>
-        <div v-if="profile.rules.aspect === 'custom'" class="profile-fields"><label>{{ p('ratioWidth') }}<input v-model.number="profile.rules.aspectWidth" type="number" required min="1" max="100" @change="dimensionsChanged()"></label><label>{{ p('ratioHeight') }}<input v-model.number="profile.rules.aspectHeight" type="number" required min="1" max="100" @change="dimensionsChanged()"></label></div>
-        <div v-if="profile.rules.resolution === 'fixed'" class="profile-fields"><label>{{ p('width') }}<input v-model.number="profile.rules.width" type="number" required min="64" max="16384" @change="dimensionsChanged('width')"></label><label>{{ p('height') }}<input v-model.number="profile.rules.height" type="number" required min="64" max="16384" @change="dimensionsChanged('height')"></label></div>
-        <div class="profile-fields"><label>{{ p('fit') }}<select :aria-label="p('fit')" v-model="profile.rules.fit"><option value="crop">{{ p('crop') }}</option><option value="contain">{{ p('contain') }}</option></select></label><label>{{ p('quality') }} · {{ Math.round(profile.rules.quality * 100) }}%<input v-model.number="profile.rules.quality" type="range" min="0.6" max="1" step="0.01"></label></div><p class="field-hint">{{ p('qualityHint') }}</p>
-      </fieldset>
-      <fieldset :disabled="busy"><legend>{{ p('data') }}</legend>
-        <label>{{ p('metadata') }}<select :aria-label="p('metadata')" v-model="profile.rules.metadata" @change="metadataChanged"><option value="selected">{{ p('selected') }}</option><option value="all">{{ p('all') }}</option><option value="none">{{ p('none') }}</option></select></label>
-        <div v-if="profile.rules.metadata === 'selected'" class="profile-checks"><label><input v-model="profile.rules.keepDate" type="checkbox">{{ p('date') }}</label><label><input v-model="profile.rules.keepCamera" type="checkbox">{{ p('camera') }}</label></div>
-        <p class="field-hint">{{ p('metadataHint') }}</p><p v-if="profile.rules.metadata === 'all'" class="field-hint">{{ p('allHint') }}</p>
-        <label>{{ p('location') }}<select :aria-label="p('location')" v-model="profile.rules.location" :disabled="profile.rules.metadata === 'none'"><option value="off" :disabled="profile.rules.metadata === 'all'">{{ p('off') }}</option><option value="optional">{{ p('optional') }}</option><option value="required">{{ p('required') }}</option></select></label>
-        <div v-if="profile.rules.location !== 'off'" class="profile-fields"><label>{{ p('accuracy') }}<input v-model.number="profile.rules.accuracy" required type="number" min="1" max="1000"></label><label>{{ p('window') }}<input v-model.number="profile.rules.locationWindow" required type="number" min="1" max="60"></label></div><p class="field-hint">{{ p('locationHint') }}</p>
-      </fieldset>
-      <fieldset :disabled="busy"><legend>{{ p('requirements') }}</legend>
-        <label>{{ p('categories') }}<textarea v-model="categories" rows="3" maxlength="2430" /></label><div class="profile-checks"><label><input v-model="profile.rules.categoryRequired" type="checkbox">{{ p('categoryRequired') }}</label><label><input v-model="profile.rules.descriptionRequired" type="checkbox">{{ p('noteRequired') }}</label></div>
-        <label>{{ p('shotList') }}<textarea v-model="shots" rows="3" maxlength="2430" /></label>
-      </fieldset>
-      <fieldset :disabled="busy"><legend>{{ p('changes') }}</legend><div class="profile-checks"><label><input v-model="profile.rules.descriptionEditable" type="checkbox">{{ p('editable') }}</label></div><p class="field-hint">{{ p('editableHint') }}</p></fieldset>
-      <fieldset :disabled="busy"><legend>{{ p('id') }}</legend><label>{{ p('prefix') }}<input v-model="profile.rules.idPrefix" maxlength="8" pattern="[A-Za-z0-9]*" autocapitalize="characters"></label><p class="field-hint">{{ p('prefixHint') }}</p></fieldset>
-      <div class="profile-save-bar"><RouterLink to="/profiles" class="quiet-button">{{ p('back') }}</RouterLink><button class="primary-button" type="submit" :disabled="busy">{{ p(busy ? 'saving' : 'save') }}</button></div>
-    </form>
-    <p v-if="error" class="server-warning" role="alert">{{ p(error) }}</p>
-  </section>
-</template>
+<template><section class="native-screen native-editor preset-editor"><ScreenHeader :title="s(fresh ? 'newPreset' : 'editPreset')" back="/camera/presets" /><template v-if="ready"><FormTabs v-model="tab" :items="tabs" /><form class="native-form editor-body" @submit.prevent="save"><div v-show="tab === 'basics'" class="form-section"><label>{{ s('name') }}<input v-model="draft.name" maxlength="80" :aria-label="s('name')"></label><label>{{ s('description') }}<textarea v-model="draft.description" rows="3" maxlength="1000" :placeholder="s('optional')" /></label><p class="field-hint">{{ s('localShort') }}</p></div>
+  <div v-show="tab === 'image'" class="form-section"><label>{{ s('resolution') }}<select :aria-label="s('resolution')" v-model="draft.options.size"><option v-for="size in (['maximum','high','medium','low','custom'] as const)" :key="size" :value="size">{{ s(size) }}</option></select></label><div v-if="draft.options.size === 'custom'" class="two-fields"><label>{{ s('width') }}<input v-model.number="draft.rules.width" type="number" min="64" max="16384" @change="dimensions()"></label><label>{{ s('height') }}<input v-model.number="draft.rules.height" type="number" min="64" max="16384" @change="dimensions('height')"></label></div><label>{{ s('ratio') }}<select :aria-label="s('ratio')" v-model="draft.rules.aspect"><option value="native">{{ s('native') }}</option><option v-for="ratio in ['1:1','4:3','3:2','16:9']" :key="ratio">{{ ratio }}</option><option value="custom">{{ s('custom') }}</option></select></label><div v-if="draft.rules.aspect === 'custom'" class="two-fields"><label>{{ s('ratioWidth') }}<input v-model.number="draft.rules.aspectWidth" type="number" min="1" max="100" @change="dimensions()"></label><label>{{ s('ratioHeight') }}<input v-model.number="draft.rules.aspectHeight" type="number" min="1" max="100" @change="dimensions()"></label></div><label>{{ s('fit') }}<select :aria-label="s('fit')" v-model="draft.rules.fit"><option value="crop">{{ s('crop') }}</option><option value="contain">{{ s('contain') }}</option></select></label><label>{{ s('quality') }} · {{ Math.round(draft.rules.quality * 100) }}%<input v-model.number="draft.rules.quality" type="range" min="0.6" max="1" step="0.01"></label><p class="field-hint">{{ s('sizeHint') }}</p></div>
+  <div v-show="tab === 'metadata'" class="form-section"><div class="form-card"><ToggleRow v-model="draft.options.date" :label="s('date')" /><ToggleRow v-model="draft.options.time" :label="s('time')" /><ToggleRow v-model="draft.rules.keepCamera" :label="s('cameraInfo')" /></div><label>{{ s('location') }}<select :aria-label="s('location')" v-model="draft.rules.location"><option value="off">{{ s('locationOff') }}</option><option value="optional">{{ s('locationOptional') }}</option><option value="required">{{ s('locationRequired') }}</option></select></label><div v-if="draft.rules.location !== 'off'" class="two-fields"><label>{{ s('accuracy') }}<input v-model.number="draft.rules.accuracy" type="number" min="1" max="1000"></label><label>{{ s('locationWindow') }}<input v-model.number="draft.rules.locationWindow" type="number" min="1" max="60"></label></div><p class="field-hint">{{ s('gpsHint') }}</p></div>
+  <div v-show="tab === 'retention'" class="form-section"><label>{{ s('deleteAfter') }}<select :aria-label="s('deleteAfter')" v-model="draft.options.retention"><option v-for="(seconds, i) in lifetimes" :key="seconds" :value="seconds">{{ s(labels[i]!) }}</option><option value="custom">{{ s('custom') }}</option></select></label><label v-if="draft.options.retention === 'custom'">{{ s('customHours') }}<input v-model.number="draft.options.customHours" type="number" min="1" max="8760"></label><p class="field-hint">{{ s('retentionHint') }}</p></div><p v-if="error" class="form-error" role="alert">{{ error }}</p><footer class="editor-footer"><button type="button" class="secondary-button" :disabled="busy" @click="router.push('/camera/presets')">{{ s('cancel') }}</button><button class="primary-button" :disabled="busy" type="submit">{{ s(busy ? 'saving' : 'save') }}</button></footer></form></template><p v-else-if="error" class="form-error screen-body" role="alert">{{ error }}</p></section></template>

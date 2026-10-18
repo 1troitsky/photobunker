@@ -1,6 +1,8 @@
 # Domain Model, Vaults & Permissions
 Статус: контракт сущностей и инвариантов; конкретные названия SQL-таблиц не предписаны.
 
+Уточнение 2026-10-14: [14](14-identity-matrix-and-product-model.md) дополняет сущности постоянным публичным ID, User Profile, Contacts, Team и связью Account↔MXID. Историческое `Profile` ниже означает Camera Preset. Team/Assignment/Vault/Matrix room membership — отдельные разрешения.
+
 ## 1. Сущности
 - **Account**: случайный непрозрачный ID, публичный(е) ключ(и), pseudonym optional, created_at, encrypted device/recovery key bundles, квота и статус; нет обязательного email, телефона, профиля личности.
 - **Device**: ID/публичный ключ, encrypted device credential (если нужен), дата доверия и отзыва, capability; привязка возможна лишь после доказательства владения учётной записью.

@@ -1,0 +1,17 @@
+# Данные и хранилище
+
+Профиль → Данные и хранилище; также Настройки → Данные и хранилище. Срок неактивности по умолчанию 180 дней, допустимы целые 30–360. Сохранение показывает успех или ошибку, после перезапуска срок сохраняется на аккаунте и действует на всех устройствах.
+
+Выход требует подтверждения с предупреждением об утрате доступа без ключа. Можно сохранить ключ, остаться в аккаунте или всё равно выйти. Обычное закрытие приложения не является выходом.
+
+«Удалить аккаунт и все данные» закрывает аккаунт, отзывает ссылки и запускает необратимую очистку. Приложение явно объясняет, что копии у собеседников могут сохраниться. Если удаление локальных SDK databases заблокировано другим окном, экран входа предлагает закрыть окна и завершить очистку. Не выдаётся сообщение, будто сервер уже физически стёр данные.
+
+`photobunker:account-maintain` запускается Laravel scheduler каждую минуту. `--account=<UUID>` ограничивает ручной проход одним точным аккаунтом. Нет debug вывода ключей, SQL, контента и exception bodies. `deletion_requested_at`, `deletion_retry_at`, `deletion_attempts`, `matrix_erased_at` показывают минимальное состояние retry. Для незавершённой очистки account row и object references сохраняются. Проверять работу scheduler, растущую очередь и доступность Matrix/blob store; после восстановления outage следующий проход продолжает очистку. После восстановления DB backup выполнить lifecycle/TTL sweep до открытия сервиса.
+
+Удаляются фото, созданные аккаунтом, и все фото его хранилищ; чужие фото вне этого scope остаются. Контакты, профили, собственные команды и задания, photo keys и account recovery bundle удаляются с аккаунтом. Внутренний публичный Matrix user tombstone и room events у собеседников не выдаются за удалённые с их устройств. Стирание Matrix backup versions и деактивация проверяются через текущую server API, а не только отзыв app cookie.
+
+Проверки: `apps/api/tests/Feature/AccountLifecycleTest.php` — bounds, background/foreground activity, stale scanner recheck, immediate revocation, Matrix outage/retry, blob delete failure/retry, orphan files, scope isolation, Megolm backup cleanup. `tools/browser-spike/check-data-storage.mjs` — Chromium/WebKit: настоящая настройка SDK backup, отсутствующий личный capture context после reload → автоматическая съёмка, stats, 30/360/reload, logout/delete cancellation, local scope purge и targeted server cleanup с проверкой отозванного Matrix token. `check-camera.mjs` — настоящий getUserMedia/ImageCapture с синтетическим hardware, отсутствующий context, открытие снимка, fallback и освобождение tracks. Физические камеры телефонов этим не подтверждены.
+
+Активность должна дойти до сервера. Offline-использование без подключения на протяжении всего выбранного срока не продлевает server deadline; это явно сказано в настройках.
+
+Результат локальной проверки 16 октября 2026: **103 API tests / 1474 assertions**, **131 client tests**. TypeScript, Vite build и Pint проходят. `check-data-storage.mjs` и `check-single-key.mjs` — Chromium/WebKit; `check-camera.mjs` — настоящий synthetic-hardware pipeline Chromium 3840×2160, ImageCapture/video fallback, tracks stop. `check-photo-workspace.mjs` — Chromium, включая новый sheet участников непосредственно в камере и прежний upload-only/thumbnail/rewrap сценарий. Для ограниченной памяти Docker клиентские тесты запускаются с `--maxWorkers=2`; не запускать тяжёлый Vite build одновременно с несколькими Matrix browser contexts. Миграция 000019 применена локально, scheduler работает.

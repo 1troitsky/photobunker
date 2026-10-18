@@ -11,6 +11,8 @@ final class ProfileRules
     public static function validate(array $input): array
     {
         $rules = Validator::make($input, [
+            'curatorDescriptionEditable' => 'sometimes|boolean',
+            'retentionSeconds' => 'sometimes|integer|min:3600|max:1209600',
             'resolution' => ['required', Rule::in(['maximum', 'fixed'])],
             'width' => 'required|integer|min:64|max:16384', 'height' => 'required|integer|min:64|max:16384',
             'aspect' => ['required', Rule::in(['native', '1:1', '4:3', '3:2', '16:9', 'custom'])],

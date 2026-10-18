@@ -1,146 +1,1189 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { onBeforeRouteLeave, useRouter } from 'vue-router'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import AppIcon from '../components/AppIcon.vue'
-import PhotoThumbnail from '../components/PhotoThumbnail.vue'
+import AppSheet from '../components/AppSheet.vue'
+import ScreenHeader from '../components/ScreenHeader.vue'
+import {
+  activeAssignment as legacyAssignment,
+  refreshAssignments,
+  selectAssignment,
+  replacesId,
+  taskId,
+} from '../collaboration/store'
+import { canCapture } from '../collaboration/access'
+import { c } from '../collaboration/text'
+import { pendingCount as accountPending } from '../workspace/state'
+import { w } from '../workspace/text'
+import { account, identityReady, offlineCaptureIdentity, publicCaptureUnknown } from '../identity/store'
+import { checkCapture } from '../crypto/protocol'
+import * as encryptedPhotos from '../crypto/photos'
+import { protectionEnabled, protectionReady, photoReadAllowed, cachedContext, planReview, untrustedKeys } from '../crypto/store'
+import { cameraContext } from '../crypto/camera'
+import { pendingAccess } from '../workspace/access'
+import { sessionFor } from '../studio/model'
+import { captureRetention } from '../delivery/clock'
+import { delivery, refreshClock, retryDelivery } from '../delivery/queue'
+import { d } from '../delivery/text'
 import { t } from '../i18n'
+import { q } from '../crypto/text'
 import { p } from '../profiles/text'
-import { activeProfile, profiles, refreshProfiles, selectProfile } from '../profiles/store'
-import { aspectRatio, snapshot, type Location, type PhotoMetadata } from '../profiles/model'
+import {
+  activeProfile as legacyProfile,
+  refreshProfiles,
+  selectProfile,
+} from '../profiles/store'
+import {
+  asLocalPreset,
+  choosePreset,
+  clearStudioSession,
+  personalCategories,
+  savePersonalCategories,
+  selectedCategory,
+  loadStudio,
+  localTasks,
+  presetChoices,
+  studioReady,
+  studioSession,
+  updateSessionCategory,
+} from '../studio/store'
+import {
+  captureProfile,
+  clone,
+  imageRules,
+  lines,
+  retentionSeconds,
+  type Preset,
+} from '../studio/model'
+import { s } from '../studio/text'
+import {
+  aspectRatio,
+  defaultRules,
+  snapshot,
+  type Location,
+  type PhotoMetadata,
+} from '../profiles/model'
 import { applyProfile, ResolutionError } from '../profiles/image'
 import { locationTracker } from '../profiles/location'
-import { cameraController, captureDemo, drawDemo } from '../local/camera'
-import { localPrototype, savePhoto, type Capture, type Photo } from '../local/photos'
-import { readPhoto, updatePhoto } from '../server/photos'
+import {
+  cameraController,
+  captureDemo,
+  drawDemo,
+  type CameraFeatures,
+} from '../local/camera'
+import {
+  localPrototype,
+  savePhoto,
+  readMetadata,
+  type Capture,
+  type Photo,
+} from '../local/photos'
+import { updatePhoto } from '../server/photos'
 import { accessLibraryId } from '../server/api'
-import { libraryChanged, photos } from '../local/library'
+import { libraryChanged } from '../local/library'
 
 const router = useRouter()
-const video = ref<HTMLVideoElement>(); const demo = ref<HTMLCanvasElement>()
-const mode = ref<'off' | 'live' | 'demo'>('off'); const starting = ref(false); const ready = ref(false)
-const saving = ref(false); const taking = ref(false); const facing = ref<'environment' | 'user'>('environment')
-const status = ref<Parameters<typeof t>[0]>(); const pending = ref<Capture>(); const pendingUrl = ref('')
-const rawPending = ref<Capture>(); const sizeError = ref<ResolutionError>()
-const category = ref(''); const shot = ref(''); const locationStatus = ref<'pending' | 'unavailable'>()
+const route = useRoute()
+const connectionOffline = ref(!navigator.onLine)
+function connectionChanged() {
+  connectionOffline.value = !navigator.onLine
+  if (navigator.onLine && account.value && !offlineCaptureReady.value) void prepareCamera()
+}
+const hardware = ref<CameraFeatures>(),
+  hardwareOpen = ref(false),
+  hardwareError = ref(false)
+async function configureHardware(value: { zoom?: number; torch?: boolean }) {
+  hardwareError.value = false
+  try {
+    hardware.value = await controller!.configure(value)
+  } catch {
+    hardwareError.value = true
+  }
+}
+const video = ref<HTMLVideoElement>()
+const demo = ref<HTMLCanvasElement>()
+const stage = ref<HTMLElement>(),
+  stageSize = ref({ width: 0, height: 0 })
+const presetOpen = ref(false),
+  contextOpen = ref(false),
+  categoryEdit = ref(false),
+  infoOpen = ref(false),
+  quickHidden = ref(false),
+  showGrid = ref(false),
+  categoriesText = ref('')
+const activeAssignment = computed(() =>
+  account.value || studioSession.value ? undefined : legacyAssignment.value,
+)
+const activeProfile = computed(() =>
+  account.value
+    ? captureProfile(studioSession.value ?? sessionFor(), s('standard'))
+    : studioSession.value
+      ? captureProfile(studioSession.value, s('standard'))
+      : legacyProfile.value,
+)
+const uiOnly = computed(
+  () =>
+    !!account.value ||
+    !!studioSession.value ||
+    (!activeProfile.value && !activeAssignment.value),
+)
+let pendingPreset: Preset | null = null
+let observer: ResizeObserver | undefined
+const mode = ref<'off' | 'live' | 'demo'>('off')
+const starting = ref(false)
+const ready = ref(false)
+const saving = ref(false)
+const taking = ref(false)
+const facing = ref<'environment' | 'user'>('environment')
+const status = ref<Parameters<typeof t>[0]>()
+const captureDescription=ref('')
+const pending = ref<Capture>()
+const pendingUrl = ref('')
+const rawPending = ref<Capture>()
+const sizeError = ref<ResolutionError>()
+const category = ref(studioSession.value?.category ?? selectedCategory.value)
+const shot = ref('')
+const locationStatus = ref<'pending' | 'unavailable'>()
 const lastPhoto = ref<Photo>()
 const sourceRatio = ref(4 / 3)
+const rules = computed(() => activeProfile.value?.rules ?? defaultRules())
+const offlineCaptureReady=ref(false)
+const cameraPreparing = ref(false), cameraError = ref(''), cameraReview = ref(false), cameraNeedsReview = ref(false)
+let preparation = 0
+function participantRole(role: string) { return c(role === 'owner' || role === 'curator' || role === 'contributor' ? role : 'viewer') }
+async function prepareCamera(approve = false) {
+  const generation = ++preparation, owner = account.value?.id
+  offlineCaptureReady.value = false; cameraError.value = ''; cameraReview.value = false; cameraNeedsReview.value = false
+  if (!owner) return
+  cameraPreparing.value = true
+  try {
+    await cameraContext(studioSession.value?.taskId || undefined, approve)
+    if (alive && generation === preparation) offlineCaptureReady.value = true
+  } catch (error) {
+    if (!alive || generation !== preparation) return
+    const code = error instanceof Error ? error.message : ''
+    cameraReview.value = code === 'crypto.review_required' || code === 'crypto.review_changed'
+    cameraNeedsReview.value = cameraReview.value
+    cameraError.value = q(code === 'crypto.participants_not_ready' ? 'Участник задания ещё не подключил фотографии. Попросите его открыть приложение.' : code === 'crypto.owner_must_prepare' ? 'Владелец задания должен подтвердить участников перед общей съёмкой.' : cameraReview.value ? 'Подтвердите участников задания перед общей съёмкой.' : 'Не удалось подготовить съёмку. Проверьте соединение и повторите.')
+  } finally { if (generation === preparation) cameraPreparing.value = false }
+}
+const captureAllowed = computed(() =>
+  !identityReady.value || !protectionReady.value || (account.value && !offlineCaptureReady.value) ? false : offlineCaptureIdentity.value ? offlineCaptureReady.value : !account.value&&publicCaptureUnknown.value ? false : studioSession.value
+    ? !studioSession.value.taskId ||
+      (studioReady.value &&
+        !!localTasks.value.find(
+          (task) =>
+            task.id === studioSession.value!.taskId &&
+            !task.completed &&
+            (!task.accountId ||
+              ['owner', 'curator', 'contributor'].includes(task.role || '')) &&
+            (!task.finishesAt || task.finishesAt > Date.now()) &&
+            (!task.startsAt || task.startsAt <= Date.now()),
+        ))
+    : !taskId.value || !!activeAssignment.value,
+)
+const categoryOptions = computed(() =>
+  studioSession.value?.taskId && studioSession.value.rules.particularCategory
+    ? studioSession.value.rules.categories
+    : personalCategories.value,
+)
+const categorySaveError = ref(false)
+const requiredShots = computed(
+  () =>
+    studioSession.value?.shots ??
+    activeAssignment.value?.shots ??
+    activeProfile.value?.rules.shotList ??
+    [],
+)
 let details: Parameters<typeof savePhoto>[1]
 let controller: ReturnType<typeof cameraController> | undefined
 let alive = true
-const ratio = computed(() => activeProfile.value ? aspectRatio(activeProfile.value.rules) ?? sourceRatio.value : sourceRatio.value)
-const waiting = new Map<string, { timer: ReturnType<typeof setTimeout>; busy: boolean; next?: { location?: Location } }>()
+const ratio = computed(() => aspectRatio(rules.value) ?? sourceRatio.value)
+const frameStyle = computed(() => {
+  if (mode.value === 'off' || !stageSize.value.height)
+    return { width: '100%', height: '100%' }
+  const width = Math.min(
+    stageSize.value.width,
+    stageSize.value.height * ratio.value,
+  )
+  return { width: `${width}px`, height: `${width / ratio.value}px` }
+})
+function measure() {
+  if (stage.value)
+    stageSize.value = {
+      width: stage.value.clientWidth,
+      height: stage.value.clientHeight,
+    }
+}
+function choose(item?: Parameters<typeof selectProfile>[0]) {
+  stop()
+  if (!item) choosePreset(null)
+  else if (
+    presetChoices.value.find((value) => value.id === item && 'uiOnly' in value)
+  )
+    choosePreset(asLocalPreset(item)!)
+  else {
+    clearStudioSession()
+    selectProfile(item)
+  }
+  presetOpen.value = false
+  category.value = studioSession.value?.category ?? selectedCategory.value
+  shot.value = ''
+  status.value = undefined
+}
+function editCategories() {
+  categoriesText.value = personalCategories.value.join('\n')
+  categorySaveError.value = false
+  contextOpen.value = false
+  categoryEdit.value = true
+}
+async function saveCategories() {
+  categorySaveError.value = false
+  try {
+    await savePersonalCategories(lines(categoriesText.value))
+    categoryEdit.value = false
+    contextOpen.value = true
+  } catch {
+    categorySaveError.value = true
+  }
+}
+function hide() {
+  stop()
+  captureDescription.value = ''
+  presetOpen.value =
+    contextOpen.value =
+    infoOpen.value =
+    hardwareOpen.value =
+      false
+  if (pendingUrl.value) URL.revokeObjectURL(pendingUrl.value)
+  pendingUrl.value = ''
+  quickHidden.value = true
+  window.dispatchEvent(
+    new CustomEvent('photobunker-privacy-screen', { detail: true }),
+  )
+}
+function resume() {
+  quickHidden.value = false
+  if (pending.value) pendingUrl.value = URL.createObjectURL(pending.value.blob)
+  window.dispatchEvent(
+    new CustomEvent('photobunker-privacy-screen', { detail: false }),
+  )
+  void nextTick(measure)
+}
+const waiting = new Map<
+  string,
+  {
+    timer: ReturnType<typeof setTimeout>
+    busy: boolean
+    next?: { location?: Location }
+  }
+>()
 async function finishLocation(id: string, location?: Location) {
   const job = waiting.get(id)
   if (!job) return
-  if (job.busy) { job.next = { location }; return }
+  if (job.busy) {
+    job.next = { location }
+    return
+  }
   job.busy = true
   try {
-    const current = (await readPhoto(id)).photo
+    const current = account.value && protectionEnabled.value ? encryptedPhotos.recentCapture(id) : await readMetadata(id)
+    if (!current || current.deleteRequested) return
+    if (
+      current.metadata?.locationEditedAt ||
+      current.metadata?.location?.source === 'manual'
+    ) {
+      clearTimeout(job.timer)
+      waiting.delete(id)
+      return
+    }
     const previous = current.metadata?.location
-    const score = (value: Location) => value.accuracy + Math.abs(value.measuredAt - current.createdAt) / 1000 * 3
-    const use = location && Math.abs(location.measuredAt - current.createdAt) <= current.profile!.rules.locationWindow * 1000 && (!previous || score(location) < score(previous)) ? location : previous
-    const complete = !location || !!use && use.accuracy <= current.profile!.rules.accuracy
-    const metadata: PhotoMetadata = { ...current.metadata, location: use, locationStatus: complete ? use ? undefined : 'unavailable' : 'pending' }
-    await updatePhoto(id, { title: current.title, note: current.note, favorite: current.favorite, metadata }, current.remoteRevision)
-    if (complete) { clearTimeout(job.timer); waiting.delete(id) }
+    const score = (value: Location) =>
+      value.accuracy +
+      (Math.abs(value.measuredAt - current.createdAt) / 1000) * 3
+    const use =
+      location &&
+      Math.abs(location.measuredAt - current.createdAt) <=
+        current.profile!.rules.locationWindow * 1000 &&
+      (!previous || score(location) < score(previous))
+        ? location
+        : previous
+    const complete =
+      !location || (!!use && use.accuracy <= current.profile!.rules.accuracy)
+    const metadata: PhotoMetadata = {
+      ...current.metadata,
+      location: use,
+      locationStatus: complete ? (use ? undefined : 'unavailable') : 'pending',
+    }
+    if (account.value && protectionEnabled.value) {
+      if (complete) await encryptedPhotos.recordGps(id, metadata)
+      else encryptedPhotos.rememberCaptureMetadata(id, metadata)
+    } else {
+    await updatePhoto(
+      id,
+      {
+        title: current.title,
+        note: current.note,
+        favorite: current.favorite,
+        metadata,
+      },
+      current.remoteRevision,
+      current,
+    )
+    }
+    if (complete) {
+      clearTimeout(job.timer)
+      waiting.delete(id)
+    }
     libraryChanged()
-  } catch { /* The photo stays saved; a later sample or timeout can retry. */ }
-  finally { job.busy = false; if (job.next && waiting.has(id)) { const next = job.next; job.next = undefined; void finishLocation(id, next.location) } }
+  } catch {
+    /* The photo stays saved; a later sample or timeout can retry. */
+  } finally {
+    job.busy = false
+    if (job.next && waiting.has(id)) {
+      const next = job.next
+      job.next = undefined
+      void finishLocation(id, next.location)
+    }
+  }
 }
 const geo = locationTracker((location, permanent) => {
-  locationStatus.value = location ? undefined : permanent ? 'unavailable' : 'pending'
-  if (location || permanent) for (const id of waiting.keys()) void finishLocation(id, location)
+  locationStatus.value = location
+    ? undefined
+    : permanent
+      ? 'unavailable'
+      : 'pending'
+  if (location || permanent)
+    for (const id of waiting.keys()) void finishLocation(id, location)
 })
-function stop() { controller?.stop(); geo.stop(); for (const id of waiting.keys()) void finishLocation(id); mode.value = 'off'; ready.value = false }
-function startLocation() { if (activeProfile.value?.rules.location !== 'off') { locationStatus.value = 'pending'; geo.start() } else locationStatus.value = undefined }
-function releasePending() { pending.value = rawPending.value = undefined; sizeError.value = undefined; details = undefined; if (pendingUrl.value) URL.revokeObjectURL(pendingUrl.value); pendingUrl.value = '' }
-async function start() {
-  if (starting.value || !localPrototype || !activeProfile.value) return
-  if (!globalThis.isSecureContext || !navigator.mediaDevices?.getUserMedia) { status.value = 'cameraNeedsSecure'; return }
-  starting.value = true; status.value = undefined; stop()
-  const rules = activeProfile.value.rules
-  try { await controller!.start(facing.value, rules.resolution === 'fixed' ? { width: rules.width, height: rules.height } : undefined); if (alive) { mode.value = 'live'; startLocation() } }
-  catch (error) {
-    if (alive && error instanceof DOMException) status.value = error.name === 'NotAllowedError' ? 'cameraDenied' : error.name === 'NotFoundError' ? 'cameraMissing' : 'cameraBusy'
-    else if (alive) status.value = 'cameraBusy'
-  } finally { starting.value = false }
+function stop() {
+  controller?.stop()
+  geo.stop()
+  for (const id of waiting.keys()) void finishLocation(id)
+  mode.value = 'off'
+  ready.value = false
+  hardware.value = undefined
 }
-async function showDemo() { if (!activeProfile.value) return; stop(); await nextTick(); drawDemo(demo.value!); mode.value = 'demo'; ready.value = true; status.value = undefined; startLocation() }
-async function flip() { facing.value = facing.value === 'environment' ? 'user' : 'environment'; await start() }
-function changedProfile(event: Event) { stop(); selectProfile((event.target as HTMLSelectElement).value); category.value = shot.value = ''; status.value = undefined }
+function startLocation() {
+  if (rules.value.location !== 'off') {
+    locationStatus.value = 'pending'
+    geo.start()
+  } else locationStatus.value = undefined
+}
+function releasePending() {
+  pending.value = rawPending.value = undefined
+  sizeError.value = undefined
+  details = undefined
+  if (pendingUrl.value) URL.revokeObjectURL(pendingUrl.value)
+  pendingUrl.value = ''
+}
+async function start() {
+  if (
+    starting.value ||
+    !localPrototype ||
+    !captureAllowed.value ||
+    (activeProfile.value && !canCapture(activeProfile.value))
+  )
+    return
+  if (!globalThis.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    status.value = 'cameraNeedsSecure'
+    return
+  }
+  starting.value = true
+  status.value = undefined
+  stop()
+  const settings = rules.value
+  try {
+    await controller!.start(
+      facing.value,
+      settings.resolution === 'fixed'
+        ? { width: settings.width, height: settings.height }
+        : undefined,
+    )
+    if (alive) {
+      mode.value = 'live'
+      hardware.value = controller!.features?.()
+      startLocation()
+    }
+  } catch (error) {
+    if (alive && error instanceof DOMException)
+      status.value =
+        error.name === 'NotAllowedError'
+          ? 'cameraDenied'
+          : error.name === 'NotFoundError'
+            ? 'cameraMissing'
+            : 'cameraBusy'
+    else if (alive) status.value = 'cameraBusy'
+  } finally {
+    starting.value = false
+  }
+}
+async function showDemo() {
+  if (
+    !captureAllowed.value ||
+    (activeProfile.value && !canCapture(activeProfile.value))
+  )
+    return
+  stop()
+  await nextTick()
+  drawDemo(demo.value!)
+  mode.value = 'demo'
+  ready.value = true
+  status.value = undefined
+  startLocation()
+}
+async function flip() {
+  facing.value = facing.value === 'environment' ? 'user' : 'environment'
+  await start()
+}
 async function persist() {
   if (!pending.value || saving.value) return
-  saving.value = true; status.value = 'saving'
+  saving.value = true
+  status.value = 'saving'
   try {
     const photo = await savePhoto(pending.value, details)
-    lastPhoto.value = photo
-    if (photo.profile?.rules.location !== 'off' && photo.metadata?.locationStatus === 'pending') {
-      const remaining = Math.max(0, photo.createdAt + photo.profile!.rules.locationWindow * 1000 - Date.now())
-      const timer = setTimeout(() => { void finishLocation(photo.id) }, remaining)
+    captureDescription.value=''
+    lastPhoto.value = !account.value || photoReadAllowed() ? photo : undefined
+    if (
+      photo.profile &&
+      photo.profile.rules.location !== 'off' &&
+      photo.metadata?.locationStatus === 'pending'
+    ) {
+      const remaining = Math.max(
+        0,
+        photo.createdAt +
+          photo.profile!.rules.locationWindow * 1000 -
+          Date.now(),
+      )
+      const timer = setTimeout(() => {
+        void finishLocation(photo.id)
+      }, remaining)
       waiting.set(photo.id, { timer, busy: false })
       const location = geo.at(photo.createdAt)
       if (location) void finishLocation(photo.id, location)
     }
-    releasePending(); libraryChanged(); status.value = 'saved'
-  } catch { status.value = 'saveFailed' }
-  finally { saving.value = false }
+    if (details?.replacesId) selectAssignment(details.assignmentId ?? '')
+    const local = details?.uiOnly
+    const accountCapture = !!details?.accountId
+    releasePending()
+    libraryChanged()
+    if (!local || accountCapture)
+      window.dispatchEvent(new Event('photobunker-outbox'))
+    status.value = 'saved'
+  } catch {
+    status.value = 'saveFailed'
+  } finally {
+    saving.value = false
+  }
 }
 async function process(allowSmaller = false) {
   if (!rawPending.value || !details) return
   try {
-    pending.value = await applyProfile(rawPending.value, details.profile.rules, details.metadata, allowSmaller)
-    if (!alive) return
-    rawPending.value = undefined; sizeError.value = undefined; pendingUrl.value = URL.createObjectURL(pending.value.blob)
+    const originalRules = details.profile?.rules ?? defaultRules()
+    const applied = details.uiOnly
+      ? imageRules(
+          details.profile ?? {
+            id: '',
+            version: 1,
+            name: '',
+            description: '',
+            rules: originalRules,
+          },
+          pendingPreset,
+          rawPending.value.width,
+          rawPending.value.height,
+        )
+      : originalRules
+    const context = details
+    const processed = await applyProfile(
+      rawPending.value,
+      applied,
+      details.metadata,
+      allowSmaller,
+    )
+    if (
+      !alive ||
+      context !== details ||
+      context.accountId !== account.value?.id
+    )
+      return
+    pending.value = processed
+    rawPending.value = undefined
+    sizeError.value = undefined
+    pendingUrl.value = URL.createObjectURL(pending.value.blob)
     await persist()
-  } catch (error) { if (alive) { if (error instanceof ResolutionError) sizeError.value = error; else { status.value = 'captureFailed'; releasePending() } } }
+  } catch (error) {
+    if (alive) {
+      if (error instanceof ResolutionError) sizeError.value = error
+      else {
+        status.value = 'captureFailed'
+        releasePending()
+      }
+    }
+  }
 }
-async function useAvailable() { taking.value = true; try { await process(true) } finally { taking.value = false } }
+async function useAvailable() {
+  taking.value = true
+  try {
+    await process(true)
+  } finally {
+    taking.value = false
+  }
+}
 async function capture() {
-  if (!ready.value || taking.value || saving.value || pending.value || rawPending.value || !activeProfile.value) return
-  taking.value = true; status.value = undefined
-  const profile = snapshot(activeProfile.value); const createdAt = Date.now()
-  const candidate = profile.rules.location === 'off' ? undefined : geo.at(createdAt)
-  const location = candidate && Math.abs(candidate.measuredAt - createdAt) <= profile.rules.locationWindow * 1000 ? candidate : undefined
+  if (
+    !ready.value ||
+    taking.value ||
+    saving.value ||
+    pending.value ||
+    rawPending.value ||
+    !captureAllowed.value ||
+    (activeProfile.value && !canCapture(activeProfile.value))
+  )
+    return
+  if (account.value) {
+    try { const prepared=await cachedContext(studioSession.value?.taskId || undefined);checkCapture(prepared.plan,account.value.id) } catch { await prepareCamera(); return }
+  }
+  taking.value = true
+  status.value = undefined
+  const captureOwner = account.value?.id
+  const profile = activeProfile.value
+    ? snapshot(activeProfile.value)
+    : undefined
+  const settings = profile?.rules ?? defaultRules()
+  const createdAt = Date.now()
+  const candidate = settings.location === 'off' ? undefined : geo.at(createdAt)
+  const location =
+    candidate &&
+    Math.abs(candidate.measuredAt - createdAt) <= settings.locationWindow * 1000
+      ? candidate
+      : undefined
   const metadata: PhotoMetadata = {}
-  if (profile.rules.keepDate) metadata.capturedAt = createdAt
-  if (profile.rules.keepCamera) metadata.camera = mode.value === 'demo' ? 'PhotoBunker DEMO' : controller?.source() || 'Camera'
-  if (profile.rules.location !== 'off') { if (location) metadata.location = location; metadata.locationStatus = location && location.accuracy <= profile.rules.accuracy ? undefined : locationStatus.value === 'unavailable' ? 'unavailable' : 'pending' }
-  details = { profile, createdAt, metadata, category: category.value, shot: shot.value, libraryId: accessLibraryId.value }
-  try { const result = mode.value === 'demo' ? await captureDemo(demo.value!) : await controller!.capture(); if (alive) { rawPending.value = result; await process() } }
-  catch { if (alive) { releasePending(); status.value = 'captureFailed' } }
-  finally { taking.value = false }
+  if (settings.keepDate) metadata.capturedAt = createdAt
+  pendingPreset = studioSession.value?.preset
+    ? clone(studioSession.value.preset)
+    : null
+  if (pendingPreset) {
+    const time = new Date(createdAt)
+    if (pendingPreset.options.date)
+      metadata.date = `${time.getFullYear()}-${String(time.getMonth() + 1).padStart(2, '0')}-${String(time.getDate()).padStart(2, '0')}`
+    if (pendingPreset.options.time)
+      metadata.time = time.toTimeString().slice(0, 8)
+  }
+  if (settings.keepCamera)
+    metadata.camera =
+      mode.value === 'demo'
+        ? 'PhotoBunker DEMO'
+        : controller?.source() || 'Camera'
+  if (settings.location !== 'off') {
+    if (location) metadata.location = location
+    metadata.locationStatus =
+      location && location.accuracy <= settings.accuracy
+        ? undefined
+        : locationStatus.value === 'unavailable'
+          ? 'unavailable'
+          : 'pending'
+  }
+  const seconds = studioSession.value
+    ? retentionSeconds(studioSession.value.preset)
+    : (settings.retentionSeconds ?? 1209600)
+  const retention = uiOnly.value
+    ? seconds
+      ? {
+          retentionSeconds: seconds,
+          retentionAnchor: undefined,
+          expiresAt: createdAt + seconds * 1000,
+        }
+      : undefined
+    : captureRetention(accessLibraryId.value, createdAt, seconds)
+  details = {
+    accountId: account.value?.id,
+    note:captureDescription.value,
+    workspaceAssignmentId: account.value
+      ? studioSession.value?.taskId || undefined
+      : undefined,
+    uploadOnly:
+      account.value && studioSession.value?.taskId
+        ? !pendingAccess({
+            accountId: account.value.id,
+            workspaceAssignmentId: studioSession.value.taskId,
+          })
+        : false,
+    captureContext: uiOnly.value
+      ? {
+          presetName: profile?.name || s('standard'),
+          presetVersion: profile?.version,
+          standard: !studioSession.value?.preset,
+          teamId: studioSession.value?.teamId,
+          teamName: studioSession.value?.teamName,
+          author: account.value
+            ? { kind: 'account', publicId: account.value.publicId }
+            : { kind: 'device' },
+        }
+      : undefined,
+    profile,
+    createdAt,
+    metadata,
+    category: category.value,
+    shot: shot.value,
+    libraryId: account.value ? '' : accessLibraryId.value,
+    assignmentId: activeAssignment.value?.id,
+    replacesId: replacesId.value || undefined,
+    retention,
+    initialCapture: !uiOnly.value && !profile && !retention?.retentionAnchor,
+    uiOnly: uiOnly.value,
+    uiAssignmentId: studioSession.value?.taskId || undefined,
+    uiTaskRevision: studioSession.value?.taskRevision || undefined,
+    uiRules: studioSession.value?.rules
+      ? {
+          descriptionRequired: studioSession.value.rules.descriptionRequired,
+          minLength: studioSession.value.rules.minLength,
+          particularCategory: studioSession.value.rules.particularCategory,
+        }
+      : undefined,
+  }
+  try {
+    const result =
+      mode.value === 'demo'
+        ? await captureDemo(demo.value!)
+        : await controller!.capture()
+    if (alive && captureOwner === account.value?.id) {
+      rawPending.value = result
+      await process()
+    }
+  } catch {
+    if (alive) {
+      releasePending()
+      status.value = 'captureFailed'
+    }
+  } finally {
+    taking.value = false
+  }
 }
-function discard() { releasePending(); status.value = undefined }
-function pause() { if (document.hidden) { stop(); status.value = 'cameraPaused' } }
-function pagehide() { stop() }
-function beforeUnload(event: BeforeUnloadEvent) { if (pending.value || rawPending.value || saving.value) { event.preventDefault(); event.returnValue = '' } }
+function discard() {
+  releasePending()
+  status.value = undefined
+}
+function pause() {
+  if (document.hidden) {
+    stop()
+    if(account.value)captureDescription.value=''
+    if(account.value&&pendingUrl.value){URL.revokeObjectURL(pendingUrl.value);pendingUrl.value=''}
+    status.value = 'cameraPaused'
+  }
+}
+function pagehide() {
+  stop()
+}
+function beforeUnload(event: BeforeUnloadEvent) {
+  if (pending.value || rawPending.value || saving.value) {
+    event.preventDefault()
+    event.returnValue = ''
+  }
+}
 onMounted(async () => {
   controller = cameraController(video.value!)
-  document.addEventListener('visibilitychange', pause); window.addEventListener('pagehide', pagehide); window.addEventListener('beforeunload', beforeUnload)
-  await refreshProfiles()
-  if (alive && !activeProfile.value) await router.replace('/profiles')
+  window.addEventListener('online', connectionChanged)
+  window.addEventListener('offline', connectionChanged)
+  if (typeof ResizeObserver !== 'undefined') {
+    observer = new ResizeObserver(measure)
+    if (stage.value) observer.observe(stage.value)
+  }
+  measure()
+  document.addEventListener('visibilitychange', pause)
+  window.addEventListener('pagehide', pagehide)
+  window.addEventListener('beforeunload', beforeUnload)
+  void refreshClock(true).catch(() => {})
+  await Promise.all([refreshProfiles(), refreshAssignments(), loadStudio()])
+  if (alive) void prepareCamera()
+  if (
+    route.query.shot &&
+    requiredShots.value.includes(String(route.query.shot))
+  )
+    shot.value = String(route.query.shot)
+  if (alive && activeProfile.value && !canCapture(activeProfile.value))
+    await router.replace('/camera/presets')
 })
-onBeforeRouteLeave(() => { if (saving.value || taking.value) return false; return !(pending.value || rawPending.value) || confirm(t('discardQuestion')) })
+watch(
+  () =>
+    `${activeProfile.value?.id ?? ''}|${activeProfile.value?.access?.role ?? ''}|${studioSession.value?.taskId ?? ''}`,
+  () => {
+    stop()
+    category.value = studioSession.value?.category ?? selectedCategory.value
+    shot.value = ''
+  },
+)
+watch(category, (value) => {
+  updateSessionCategory(value)
+})
+watch(mode, () => {
+  void nextTick(measure)
+})
+watch(
+  () => account.value?.id,
+  () => {
+    stop()
+    releasePending()
+    lastPhoto.value = undefined
+  },
+)
+watch([()=>account.value?.id,()=>studioSession.value?.taskId], () => { void prepareCamera() })
+watch(photoReadAllowed, (allowed) => { if (!allowed) lastPhoto.value = undefined })
+onBeforeRouteLeave(() => {
+  if (saving.value || taking.value) return false
+  return !(pending.value || rawPending.value) || confirm(t('discardQuestion'))
+})
 onBeforeUnmount(() => {
-  alive = false; stop(); releasePending(); waiting.forEach(job => clearTimeout(job.timer))
-  document.removeEventListener('visibilitychange', pause); window.removeEventListener('pagehide', pagehide); window.removeEventListener('beforeunload', beforeUnload)
+  alive = false
+  stop()
+  releasePending()
+  waiting.forEach((job) => clearTimeout(job.timer))
+  observer?.disconnect()
+  window.dispatchEvent(
+    new CustomEvent('photobunker-privacy-screen', { detail: false }),
+  )
+  window.removeEventListener('online', connectionChanged)
+  window.removeEventListener('offline', connectionChanged)
+  document.removeEventListener('visibilitychange', pause)
+  window.removeEventListener('pagehide', pagehide)
+  window.removeEventListener('beforeunload', beforeUnload)
 })
 </script>
 <template>
-  <section class="camera-screen profile-camera" aria-labelledby="camera-title">
-    <div class="capture-profile-bar"><label>{{ p('profile') }}<select :aria-label="p('profile')" :value="activeProfile?.id" :disabled="saving || taking || !!pending || !!rawPending" @change="changedProfile"><option v-for="profile in profiles.filter(item => !item.archived)" :key="profile.id" :value="profile.id">{{ profile.name }}</option></select></label><RouterLink :to="activeProfile ? `/profiles/${activeProfile.id}` : '/profiles'" class="quiet-button">{{ p('editAction') }}</RouterLink></div>
-    <div v-if="activeProfile && (activeProfile.rules.categories.length || activeProfile.rules.shotList.length)" class="capture-context"><label v-if="activeProfile.rules.categories.length">{{ p('category') }}<select :aria-label="p('category')" v-model="category" :disabled="taking || saving || !!rawPending || !!pending"><option value="">{{ p('noCategory') }}</option><option v-for="item in activeProfile.rules.categories" :key="item">{{ item }}</option></select></label><label v-if="activeProfile.rules.shotList.length">{{ p('shot') }}<select :aria-label="p('shot')" v-model="shot" :disabled="taking || saving || !!rawPending || !!pending"><option value="">{{ p('noShot') }}</option><option v-for="item in activeProfile.rules.shotList" :key="item">{{ item }}</option></select></label></div>
-    <div :class="['viewfinder', { 'viewfinder-live': mode !== 'off' }]" :style="{ '--capture-ratio': ratio, aspectRatio: ratio }">
-      <video ref="video" v-show="mode === 'live'" class="camera-video" :class="{ mirrored: facing === 'user' }" :style="{ objectFit: activeProfile?.rules.fit === 'contain' ? 'contain' : 'cover' }" muted playsinline @loadeddata="ready = true; sourceRatio = video!.videoWidth / video!.videoHeight" aria-label="Camera preview" /><canvas ref="demo" v-show="mode === 'demo'" class="camera-video" :style="{ objectFit: activeProfile?.rules.fit === 'contain' ? 'contain' : 'cover' }" />
-      <div class="viewfinder-top"><AppIcon name="device" /><span>{{ mode === 'demo' ? t('demoMode') : t('localOnly') }}</span></div><button v-if="mode !== 'off'" class="camera-stop" :aria-label="t('stopCamera')" @click="stop"><AppIcon name="close" /></button>
-      <div v-if="mode === 'off'" class="camera-message"><span class="camera-emblem"><AppIcon name="camera" /></span><p class="eyebrow">{{ activeProfile?.name }}</p><h1 id="camera-title">{{ t('cameraTitle') }}</h1><p class="supporting-copy">{{ localPrototype ? t('cameraDescription') : t('prototypeDisabled') }}</p><div v-if="localPrototype" class="camera-start-actions"><button class="primary-button" :disabled="starting || saving || taking" @click="start">{{ t(starting ? 'cameraStarting' : 'enableCamera') }}</button><button class="quiet-button" :disabled="starting || saving || taking" @click="showDemo">{{ t('tryDemo') }}</button></div></div><h1 v-else id="camera-title" class="sr-only">{{ t('camera') }}</h1>
-      <div v-if="pendingUrl" class="pending-capture"><img :src="pendingUrl" alt=""><span>{{ t(saving ? 'saving' : 'saveFailed') }}</span></div>
+  <section
+    v-show="!quickHidden"
+    class="native-camera"
+    :data-protection="account&&protectionEnabled?'encrypted':'prototype'"
+    :aria-label="s('camera')"
+  >
+    <ScreenHeader :title="s('camera')"
+      ><button
+        class="app-icon-button"
+        :aria-label="s('grid')"
+        :aria-pressed="showGrid"
+        @click="showGrid = !showGrid"
+      >
+        <AppIcon name="grid" /></button
+      ><button
+        class="app-icon-button"
+        :aria-label="t('cameraFlip')"
+        :disabled="mode !== 'live' || starting || saving || taking"
+        @click="flip"
+      >
+        <AppIcon name="flip" /></button
+      ><button
+        v-if="mode === 'live'"
+        class="app-icon-button"
+        :aria-label="s('cameraSettings')"
+        @click="hardwareOpen = true"
+      >
+        <AppIcon name="settings" /></button
+      ><button
+        class="app-icon-button"
+        :aria-label="s('quickExit')"
+        @click="hide"
+      >
+        <AppIcon name="eye-off" /></button
+    ></ScreenHeader>
+    <div class="camera-status-row">
+      <button class="camera-state-chip" @click="infoOpen = true">
+        <AppIcon :name="'device'" />{{
+          connectionOffline
+            ? s('offline')
+            : account
+              ? accountPending
+                ? `${s('unsent')} · ${accountPending}`
+                : w('account')
+              : uiOnly
+                ? s('device')
+                : delivery.pending
+                  ? `${s('unsent')} · ${delivery.pending}`
+                  : s('device')
+        }}</button
+      ><button
+        v-if="studioSession?.taskId || activeAssignment"
+        class="camera-task-chip"
+        @click="infoOpen = true"
+      >
+        {{ studioSession?.taskName || activeAssignment?.name }}</button
+      ><span
+        v-if="mode !== 'off' && rules.location !== 'off'"
+        class="camera-gps-state"
+        >{{
+          locationStatus
+            ? s(locationStatus === 'pending' ? 'gpsPending' : 'gpsUnavailable')
+            : 'GPS'
+        }}</span
+      >
     </div>
-    <div class="camera-controls"><p class="photo-mode">{{ activeProfile?.rules.resolution === 'fixed' ? `${activeProfile.rules.width} × ${activeProfile.rules.height}` : p('maximum') }} · {{ activeProfile?.rules.aspect === 'native' ? p('native') : activeProfile?.rules.aspect }}</p>
-      <div class="capture-controls"><RouterLink :to="`/gallery?profile=${activeProfile?.id ?? ''}`" class="archive-button" :aria-label="t('gallery')"><PhotoThumbnail v-if="photos.find(photo => photo.profile?.id === activeProfile?.id)" :id="photos.find(photo => photo.profile?.id === activeProfile?.id)!.id" /><AppIcon v-else name="gallery" /></RouterLink><button type="button" class="shutter" :disabled="!localPrototype || !activeProfile || mode === 'off' || !ready || starting || taking || saving || !!pending || !!rawPending" :aria-label="t('capture')" :aria-busy="saving || taking" @click="capture"><span /></button><button class="flip-button" :disabled="mode !== 'live' || starting || taking || saving" :aria-label="t('cameraFlip')" @click="flip"><AppIcon name="flip" /></button></div>
-      <div v-if="sizeError" class="resolution-warning" role="alert"><strong>{{ p('resolutionLimited') }}: {{ sizeError.width }} × {{ sizeError.height }}</strong><p>{{ p('resolutionHint') }}</p><button class="primary-button" :disabled="taking" @click="useAvailable">{{ p('useAvailable') }}</button><button class="quiet-button" @click="discard">{{ t('discard') }}</button></div>
-      <p v-if="status" class="capture-feedback" role="status">{{ t(status) }}<template v-if="status === 'saved' && lastPhoto"> · {{ lastPhoto.shortId }} · {{ lastPhoto.width }} × {{ lastPhoto.height }}</template></p><p v-else class="capture-note">{{ t(localPrototype ? 'captureNote' : 'prototypeDisabled') }}</p><p v-if="mode !== 'off' && activeProfile?.rules.location !== 'off'" class="capture-note">{{ locationStatus ? p(locationStatus === 'pending' ? 'locationPending' : 'locationUnavailable') : p('location') }}</p>
-      <div v-if="pending && !saving" class="inline-actions"><button class="primary-button" @click="persist">{{ t('retry') }}</button><button class="quiet-button" @click="discard">{{ t('discard') }}</button></div>
+    <div ref="stage" class="camera-preview-stage">
+      <div
+        :class="['viewfinder', { 'viewfinder-live': mode !== 'off' }]"
+        :style="frameStyle"
+      >
+        <video
+          ref="video"
+          v-show="mode === 'live'"
+          class="camera-video"
+          :class="{ mirrored: facing === 'user' }"
+          :style="{ objectFit: rules.fit === 'contain' ? 'contain' : 'cover' }"
+          muted
+          playsinline
+          @loadeddata="
+            () => {
+              ready = true
+              sourceRatio = video!.videoWidth / video!.videoHeight
+              measure()
+            }
+          "
+          aria-label="Camera preview"
+        /><canvas
+          ref="demo"
+          v-show="mode === 'demo'"
+          class="camera-video"
+          :style="{ objectFit: rules.fit === 'contain' ? 'contain' : 'cover' }"
+        />
+        <span v-if="mode === 'demo'" class="camera-demo-tag">DEMO</span>
+        <div
+          v-if="showGrid && mode !== 'off'"
+          class="viewfinder-grid"
+          aria-hidden="true"
+        />
+        <div v-if="mode === 'off'" class="camera-message">
+          <span class="camera-emblem"><AppIcon name="camera" /></span>
+          <p class="supporting-copy">
+            {{
+              localPrototype ? t('cameraDescription') : t('prototypeDisabled')
+            }}
+          </p>
+          <div v-if="localPrototype" class="camera-start-actions">
+            <button
+              class="primary-button"
+              :disabled="starting || saving || taking || !captureAllowed"
+              @click="start"
+            >
+              {{ t(starting ? 'cameraStarting' : 'enableCamera') }}</button
+            ><button
+              class="quiet-button"
+              :disabled="starting || saving || taking || !captureAllowed"
+              @click="showDemo"
+            >
+              {{ t('tryDemo') }}
+            </button>
+          </div>
+        </div>
+        <div v-if="pendingUrl" class="pending-capture">
+          <img :src="pendingUrl" alt="" /><span>{{
+            t(saving ? 'saving' : 'saveFailed')
+          }}</span>
+        </div>
+      </div>
     </div>
+    <div class="native-camera-controls">
+      <p class="camera-format">
+        {{
+          rules.aspect === 'native'
+            ? s('native')
+            : rules.aspect === 'custom'
+              ? `${rules.aspectWidth}:${rules.aspectHeight}`
+              : rules.aspect
+        }}<span v-if="studioSession?.preset">
+          ·
+          {{
+            s(
+              studioSession.preset.options.size === 'custom'
+                ? 'custom'
+                : studioSession.preset.options.size,
+            )
+          }}</span
+        >
+      </p>
+      <div class="capture-controls">
+        <button
+          class="camera-context-button"
+          :aria-label="s('preset')"
+          :disabled="saving || taking || !!pending || !!rawPending"
+          @click="presetOpen = true"
+        >
+          <AppIcon name="settings" /><span>{{
+            activeProfile?.name || s('standard')
+          }}</span></button
+        ><button
+          class="shutter"
+          :disabled="
+            !localPrototype ||
+            (activeProfile && !canCapture(activeProfile)) ||
+            !captureAllowed ||
+            mode === 'off' ||
+            !ready ||
+            starting ||
+            taking ||
+            saving ||
+            !!pending ||
+            !!rawPending
+          "
+          :aria-label="t('capture')"
+          :aria-busy="saving || taking"
+          @click="capture"
+        >
+          <span /></button
+        ><button
+          class="camera-context-button"
+          :aria-label="s('category')"
+          :disabled="saving || taking || !!pending || !!rawPending"
+          @click="contextOpen = true"
+        >
+          <AppIcon name="filter" /><span>{{
+            category || shot || s('category')
+          }}</span>
+        </button>
+      </div>
+      <p v-if="cameraPreparing" class="capture-feedback" role="status">{{ q('Готовим съёмку…') }}</p>
+      <div v-if="cameraError" class="form-error" role="alert">
+        <p>{{ cameraError }}</p>
+        <button class="secondary-button" :disabled="cameraPreparing" @click="prepareCamera()">{{ t('retry') }}</button>
+        <button v-if="cameraNeedsReview" class="secondary-button" @click="cameraReview = true">{{ q('Проверить участников') }}</button>
+      </div>
+      <p v-if="status" class="capture-feedback" role="status">
+        {{ t(status)
+        }}<span v-if="status === 'saved' && lastPhoto">
+          · {{ lastPhoto.shortId }}</span
+        >
+      </p>
+      <p v-else class="capture-note">
+        {{ uiOnly ? s('localShort') : t('captureNote') }}
+      </p>
+      <div v-if="pending && !saving" class="inline-actions">
+        <button class="primary-button" @click="persist">{{ t('retry') }}</button
+        ><button class="quiet-button" @click="discard">
+          {{ t('discard') }}
+        </button>
+      </div>
+    </div>
+    <AppSheet :open="cameraReview && !!planReview" :title="q('Участники общей съёмки')" :busy="cameraPreparing" @close="cameraReview = false">
+      <p>{{ q('Эти участники получат доступ к снимкам в соответствии с правами задания. Сверьте их перед подтверждением.') }}</p>
+      <p v-for="member in planReview?.members" :key="member.accountId"><strong>{{ member.publicId }}</strong> · {{ participantRole(member.role) }}</p>
+      <p v-for="key in untrustedKeys" :key="key.publicId"><strong>{{ key.publicId }}</strong><br /><code>{{ key.fingerprint }}</code></p>
+      <button class="primary-button" :disabled="cameraPreparing" @click="prepareCamera(true)">{{ q('Подтвердить участников') }}</button>
+    </AppSheet>
+    <AppSheet
+      :open="hardwareOpen"
+      :title="s('cameraSettings')"
+      @close="hardwareOpen = false"
+      ><div class="native-form">
+        <p class="field-hint">
+          {{ hardware?.width }} × {{ hardware?.height }} ·
+          {{ s(hardware?.still ? 'stillCamera' : 'videoCamera') }}
+        </p>
+        <label v-if="hardware?.zoom"
+          >{{ s('zoom') }} · {{ hardware.zoomValue.toFixed(1) }}×<input
+            type="range"
+            :min="hardware.zoom.min"
+            :max="hardware.zoom.max"
+            :step="hardware.zoom.step || 0.1"
+            :value="hardware.zoomValue"
+            @change="
+              ($event) => {
+                configureHardware({
+                  zoom: Number(($event.target as HTMLInputElement).value),
+                })
+              }
+            " /></label
+        ><button
+          v-if="hardware?.torch"
+          class="secondary-button"
+          :aria-pressed="hardware.torchValue"
+          @click="configureHardware({ torch: !hardware?.torchValue })"
+        >
+          {{ s('torch') }}
+        </button>
+        <p class="field-hint">{{ s('cameraHardwareHint') }}</p>
+        <p v-if="hardwareError" class="form-error" role="alert">
+          {{ s('cameraHardwareError') }}
+        </p>
+      </div></AppSheet
+    >
+    <AppSheet
+      :open="presetOpen"
+      :title="s('preset')"
+      @close="presetOpen = false"
+      ><button class="picker-row" @click="choose()">
+        <AppIcon name="camera" /><span>{{ s('standard') }}</span
+        ><AppIcon
+          v-if="
+            !activeProfile ||
+            (studioSession && !studioSession.preset && !studioSession.taskId)
+          "
+          name="check"
+        /></button
+      ><button
+        v-for="preset in presetChoices.filter(
+          (item) => !item.archived && canCapture(item),
+        )"
+        :key="preset.id"
+        class="picker-row"
+        @click="choose(preset.id)"
+      >
+        <AppIcon name="settings" /><span>{{ preset.name }}</span
+        ><AppIcon v-if="activeProfile?.id === preset.id" name="check" /></button
+      ><button
+        class="row-add"
+        @click="
+          () => {
+            presetOpen = false
+            router.push('/camera/presets')
+          }
+        "
+      >
+        <AppIcon name="edit" />{{ s('presets') }}
+      </button></AppSheet
+    >
+    <AppSheet
+      :open="contextOpen"
+      :title="s('photoData')"
+      @close="contextOpen = false"
+      ><div class="native-form"><label>{{s('description')}}<textarea v-model="captureDescription" maxlength="2000" :aria-label="s('description')" rows="3"/></label><p v-if="studioSession?.rules.descriptionRequired" class="field-hint">{{s('descriptionRequired')}} · {{studioSession.rules.minLength}}</p></div><div v-if="requiredShots.length" class="native-form">
+        <label
+          >{{ s('shot')
+          }}<select :aria-label="s('shot')" v-model="shot">
+            <option value="">{{ s('freeShot') }}</option>
+            <option v-for="item in requiredShots" :key="item">
+              {{ item }}
+            </option>
+          </select></label
+        >
+      </div>
+      <div
+        v-if="uiOnly && !studioSession?.rules.particularCategory"
+        class="native-form"
+      >
+        <label
+          >{{ s('enterCategory')
+          }}<input v-model="category" maxlength="80" /></label
+        ><button class="primary-button" @click="contextOpen = false">
+          {{ s('done') }}
+        </button>
+      </div>
+      <div class="category-picker">
+        <button
+          class="picker-row"
+          @click="
+            () => {
+              category = ''
+              contextOpen = false
+            }
+          "
+        >
+          <span>{{ s('noCategory') }}</span
+          ><AppIcon v-if="!category" name="check" /></button
+        ><button
+          v-for="item in categoryOptions"
+          :key="item"
+          class="picker-row"
+          @click="
+            () => {
+              category = item
+              contextOpen = false
+            }
+          "
+        >
+          <span>{{ item }}</span
+          ><AppIcon v-if="category === item" name="check" /></button
+        ><button
+          v-if="
+            !studioSession?.taskId || !studioSession.rules.particularCategory
+          "
+          class="row-add"
+          @click="editCategories"
+        >
+          <AppIcon name="edit" />{{ s('editCategories') }}
+        </button>
+      </div></AppSheet
+    >
+    <AppSheet
+      :open="categoryEdit"
+      :title="s('categories')"
+      @close="categoryEdit = false"
+      ><form class="native-form" @submit.prevent="saveCategories">
+        <label
+          >{{ s('categories')
+          }}<textarea
+            v-model="categoriesText"
+            rows="6"
+            maxlength="2430"
+            :placeholder="s('onePerLine')"
+          />
+        </label>
+        <p class="field-hint">{{ s('globalCategories') }}</p>
+        <p v-if="categorySaveError" class="form-error" role="alert">
+          {{ s('failed') }}
+        </p>
+        <button class="primary-button full-button">{{ s('done') }}</button>
+      </form></AppSheet
+    >
+    <AppSheet :open="infoOpen" :title="s('info')" @close="infoOpen = false"
+      ><p v-if="uiOnly" class="field-hint">
+        {{ account ? w('taskHint') : s('localShort') }}
+      </p>
+      <p class="field-hint">{{ protectionEnabled ? q('Фотографии шифруются на устройстве. Камера и геолокация зависят от разрешений браузера.') : t('prototypeNote') }}</p>
+      <p v-if="studioSession?.taskId" class="task-instructions">
+        {{
+          localTasks.find((item) => item.id === studioSession?.taskId)
+            ?.instructions
+        }}
+      </p>
+      <p v-if="activeAssignment" class="task-instructions">
+        {{ activeAssignment.instructions }}
+      </p>
+      <p v-if="locationStatus">
+        {{ s(locationStatus === 'pending' ? 'gpsPending' : 'gpsUnavailable') }}
+      </p>
+      <button
+        v-if="delivery.pending"
+        class="secondary-button full-button"
+        @click="retryDelivery"
+      >
+        {{ d('retry') }} · {{ delivery.pending }}</button
+      ><button
+        v-if="studioSession?.taskId || activeAssignment"
+        class="row-add"
+        @click="
+          () => {
+            infoOpen = false
+            selectAssignment('')
+            choosePreset(null)
+            stop()
+          }
+        "
+      >
+        {{ c('clearTask') }}
+      </button></AppSheet
+    >
+    <AppSheet
+      :open="!!sizeError"
+      :title="p('resolutionLimited')"
+      :busy="taking"
+      @close="discard"
+      ><template v-if="sizeError"
+        ><p>{{ sizeError.width }} × {{ sizeError.height }}</p>
+        <p class="field-hint">{{ p('resolutionHint') }}</p>
+        <button
+          class="primary-button full-button"
+          :disabled="taking"
+          @click="useAvailable"
+        >
+          {{ p('useAvailable') }}</button
+        ><button class="quiet-button full-button" @click="discard">
+          {{ t('discard') }}
+        </button></template
+      ></AppSheet
+    >
+  </section>
+  <section v-if="quickHidden" class="quick-exit-screen">
+    <AppIcon name="eye-off" />
+    <h1>{{ s('hidden') }}</h1>
+    <p>{{ s('hiddenHint') }}</p>
+    <p v-if="delivery.pending">{{ s('unsent') }} · {{ delivery.pending }}</p>
+    <button class="secondary-button" @click="resume">{{ s('resume') }}</button>
   </section>
 </template>

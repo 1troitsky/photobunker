@@ -36,12 +36,15 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   return {
     plugins: [vue(), appShellWorker()],
+    optimizeDeps: { exclude: ['@matrix-org/matrix-sdk-crypto-wasm'] },
     server: {
       host: '0.0.0.0',
       port: 5173,
       strictPort: true,
       allowedHosts: ['localhost', 'photobunker.orb.local'],
       cors: false,
+      // Docker Desktop/OrbStack bind mounts can miss native file watcher events.
+      watch: { usePolling: true, interval: 500 },
       // Vite infers ws/wss and the client port from the requested module URL.
       // The gateway forwards Upgrade on the same origin as the app.
       proxy: {

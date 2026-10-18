@@ -133,6 +133,7 @@ final class PrototypeLibraryTest extends TestCase
         $this->getJson('/api/v1/prototype/photos/'.$id.'/original', $this->headers($token))->assertGone();
         Storage::swap(new FilesystemManager($this->app));
         Storage::set('s3', $disk);
+        $this->travel(3)->seconds();
         $this->artisan('photobunker:prototype-cleanup')->assertSuccessful();
         $this->assertSame([], $disk->allFiles());
         $this->assertNotNull(DB::table('prototype_photos')->where('id', $id)->value('delete_verified_at'));

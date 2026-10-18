@@ -1,3 +1,5 @@
+import { spaceAccess } from '../collaboration/access'
+import type { Space } from '../collaboration/model'
 import { ref } from 'vue'
 import { localPrototype } from '../local/photos'
 import type { Photo, PhotoChanges } from '../local/photos'
@@ -23,6 +25,7 @@ async function request(path: string, init: RequestInit = {}, code = accessCode.v
 }
 export const prototypeRequest = request
 function remember(code: string, library: string) {
+  spaceAccess.value = undefined
   accessCode.value = code
   accessLibraryId.value = library
   try { localStorage.setItem(KEY, code); localStorage.setItem(`${KEY}-library`, library); accessSaved.value = true } catch { accessSaved.value = false }
@@ -34,7 +37,8 @@ export async function ensureAccess() {
     const response = await request('/libraries', { method: 'POST' }, '')
     const data = await response.json() as { accessCode: string; libraryId: string }
     if (!/^[a-f0-9]{64}$/.test(data.accessCode)) throw new Error('prototype.invalid_response')
-    remember(data.accessCode, data.libraryId)
+    // A library restored while this request was in flight must win.
+    if (!accessCode.value) remember(data.accessCode, data.libraryId)
   })().finally(() => { creating = undefined })
   await creating
 }
@@ -44,9 +48,11 @@ export async function restoreAccess(code: string) {
   const data = await (await request('/photos', {}, normalized)).json()
   remember(normalized, data.libraryId)
 }
-export async function listServerPhotos(): Promise<{ photos: Photo[]; deleted: string[] }> {
+export async function listServerPhotos(): Promise<{ photos: Photo[]; deleted: string[]; spaces?: Space[] }> {
   if (!accessCode.value) return { photos: [], deleted: [] }
-  return (await request('/photos')).json()
+  const result = await (await request('/photos')).json()
+  spaceAccess.value = result.spaces
+  return result
 }
 export async function serverPhoto(id: string): Promise<Photo> { return (await (await request(`/photos/${encodeURIComponent(id)}`)).json()).photo }
 export async function serverContent(id: string, kind: 'original' | 'thumbnail', mime: string, bytes?: number): Promise<Blob> {
@@ -56,13 +62,30 @@ export async function serverContent(id: string, kind: 'original' | 'thumbnail', 
 }
 export async function uploadPhoto(photo: Photo, blob: Blob, thumbnail: Blob): Promise<Photo> {
   await ensureAccess()
+  if (photo.remoteLibraryId && !belongsToServer(photo)) throw new ServerError(403)
+  // Re-materialize IDB file-backed blobs before WebKit's multipart serializer.
+  const originalBytes = await blob.arrayBuffer(); const thumbnailBytes = await thumbnail.arrayBuffer()
+  if (blob.size !== originalBytes.byteLength || thumbnail.size !== thumbnailBytes.byteLength) throw new ServerError(503)
+  const checksum = async (bytes: ArrayBuffer) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(value => value.toString(16).padStart(2, '0')).join('')
+  const originalChecksum = await checksum(originalBytes); const thumbnailChecksum = await checksum(thumbnailBytes)
+  if (photo.remoteLibraryId && !belongsToServer(photo)) throw new ServerError(403)
   const form = new FormData()
-  form.set('manifest', JSON.stringify(photo))
-  form.set('original', blob, 'original')
-  form.set('thumbnail', thumbnail, 'thumbnail')
+  form.set('manifest', JSON.stringify({ ...photo, originalChecksum, thumbnailChecksum }))
+  form.set('original', new Blob([originalBytes], { type: blob.type }), 'original')
+  form.set('thumbnail', new Blob([thumbnailBytes], { type: thumbnail.type }), 'thumbnail')
   return (await (await request('/photos', { method: 'POST', body: form })).json()).photo
 }
 export async function updateServerPhoto(photo: Photo, changes: PhotoChanges): Promise<Photo> {
+  if (photo.remoteLibraryId && !belongsToServer(photo)) throw new ServerError(403)
   return (await (await request(`/photos/${photo.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...changes, revision: photo.remoteRevision }) })).json()).photo
 }
-export async function deleteServerPhoto(id: string): Promise<void> { await request(`/photos/${id}`, { method: 'DELETE' }) }
+export async function deleteServerPhoto(id: string, spaceId?: string): Promise<boolean> { const response = await request(`/photos/${id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ spaceId }) }); return response.status === 200 }
+
+export async function fetchClock(): Promise<{ id: string; issuedAt: number }> {
+  return (await request('/clock', { method: 'POST' })).json()
+}
+
+export function forgetLegacyLibraryAccess() {
+  accessCode.value = ''; accessLibraryId.value = ''
+  localStorage.removeItem(KEY); localStorage.removeItem(`${KEY}-library`)
+}

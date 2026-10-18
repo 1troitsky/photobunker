@@ -4,7 +4,7 @@ function encode(canvas: HTMLCanvasElement, quality = 0.94): Promise<Blob> {
   return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('capture.encode')), 'image/jpeg', quality))
 }
 
-async function prepare(blob: Blob, method: Capture['method']): Promise<Capture> {
+export async function prepare(blob: Blob, method: Capture['method']): Promise<Capture> {
   const url = URL.createObjectURL(blob)
   const image = new Image()
   try {
@@ -23,6 +23,7 @@ async function prepare(blob: Blob, method: Capture['method']): Promise<Capture> 
   } finally { image.src = ''; URL.revokeObjectURL(url) }
 }
 
+export type CameraFeatures = { zoom?: {min:number; max:number; step:number}; torch:boolean; zoomValue:number; torchValue:boolean; width:number; height:number; still:boolean }
 export function cameraController(video: HTMLVideoElement) {
   let stream: MediaStream | undefined
   let generation = 0
@@ -33,6 +34,10 @@ export function cameraController(video: HTMLVideoElement) {
     const acquired = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: facingMode }, width: { ideal: dimensions?.width ?? 99999 }, height: { ideal: dimensions?.height ?? 99999 } } })
     if (generation !== current) { acquired.getTracks().forEach(track => track.stop()); throw new Error('capture.cancelled') }
     stream = acquired
+    const track = acquired.getVideoTracks()[0]
+    const capabilities = track?.getCapabilities?.() as (MediaTrackCapabilities & {focusMode?:string[]}) | undefined
+    if (capabilities?.focusMode?.includes('continuous')) await track!.applyConstraints({advanced:[{focusMode:'continuous'} as MediaTrackConstraintSet]}).catch(() => {})
+    if (generation !== current) { acquired.getTracks().forEach(track => track.stop()); throw new Error('capture.cancelled') }
     video.srcObject = stream
     try { await video.play(); if (generation !== current) throw new Error('capture.cancelled') }
     catch (error) { acquired.getTracks().forEach(track => track.stop()); if (stream === acquired) { stream = undefined; video.srcObject = null }; throw error }
@@ -45,15 +50,14 @@ export function cameraController(video: HTMLVideoElement) {
     const ImageCaptureAPI = (window as unknown as { ImageCapture?: Still }).ImageCapture
     let photo: Capture | undefined
     if (ImageCaptureAPI) {
-      const still = new ImageCaptureAPI(track)
-      if (still.takePhoto) {
-        try {
+      try {
+        const still = new ImageCaptureAPI(track)
+        if (still.takePhoto) {
           const capabilities = await still.getPhotoCapabilities?.().catch(() => undefined)
           const width = capabilities?.imageWidth?.max; const height = capabilities?.imageHeight?.max
           photo = await prepare(await still.takePhoto(width && height ? { imageWidth: width, imageHeight: height } : undefined), 'image-capture')
         }
-        catch (error) { if (!(error instanceof DOMException && error.name === 'NotSupportedError')) throw error }
-      }
+      } catch (error) { if (!(error instanceof DOMException && error.name === 'NotSupportedError')) throw error }
     }
     if (!photo) {
       const canvas = document.createElement('canvas')
@@ -68,7 +72,22 @@ export function cameraController(video: HTMLVideoElement) {
     if (generation !== current) throw new Error('capture.cancelled')
     return photo
   }
-  return { start, stop, capture, source: () => stream?.getVideoTracks()[0]?.label.slice(0, 120) ?? '' }
+  function features(): CameraFeatures {
+    const track = stream?.getVideoTracks()[0]
+    const caps = track?.getCapabilities?.() as (MediaTrackCapabilities & {zoom?:{min:number;max:number;step:number};torch?:boolean}) | undefined
+    const settings = track?.getSettings?.() as (MediaTrackSettings & {zoom?:number;torch?:boolean}) | undefined
+    return { zoom: caps?.zoom && caps.zoom.max > caps.zoom.min ? caps.zoom : undefined, torch: caps?.torch === true, zoomValue:settings?.zoom ?? 1, torchValue:settings?.torch ?? false, width:settings?.width ?? video.videoWidth, height:settings?.height ?? video.videoHeight, still:!!(window as unknown as {ImageCapture?:unknown}).ImageCapture }
+  }
+  async function configure(value: {zoom?:number;torch?:boolean}) {
+    const current = generation, track = stream?.getVideoTracks()[0], available = features()
+    if (!track) throw new Error('capture.not_ready')
+    if (value.zoom !== undefined && (!available.zoom || !Number.isFinite(value.zoom) || value.zoom < available.zoom.min || value.zoom > available.zoom.max)) throw new Error('capture.unsupported')
+    if (value.torch !== undefined && !available.torch) throw new Error('capture.unsupported')
+    await track.applyConstraints({advanced:[value as MediaTrackConstraintSet]})
+    if (current !== generation) throw new Error('capture.cancelled')
+    return features()
+  }
+  return { start, stop, capture, features, configure, source: () => stream?.getVideoTracks()[0]?.label.slice(0, 120) ?? '' }
 }
 
 // An explicitly labelled, generated test scene. No camera or downloaded media.

@@ -10,7 +10,11 @@ require_env() {
 }
 
 compose_down() {
-  docker compose -f compose.yaml -f compose.offline.yaml down
+  if [ -f infra/rtc/.local/livekit.yaml ]; then
+    docker compose --profile matrix -f compose.yaml -f compose.offline.yaml -f compose.rtc.yaml down
+  else
+    docker compose --profile matrix -f compose.yaml -f compose.offline.yaml down
+  fi
 }
 
 ensure_network() {
@@ -47,6 +51,28 @@ case "${1:-help}" in
     require_env
     ensure_network false
     docker compose up -d --wait
+    ;;
+  matrix)
+    require_env
+    node scripts/setup-matrix.mjs
+    # Apply newly prepared env_file settings to API and long-running workers.
+    docker compose up -d --wait api worker scheduler gateway
+    docker compose --profile matrix up -d matrix
+    docker compose exec -T api php artisan migrate --force
+    identity_probe=0
+    until docker compose exec -T api php artisan photobunker:identity-maintain --health; do
+      identity_probe=$((identity_probe + 1))
+      if [ "$identity_probe" -ge 20 ]; then exit 1; fi
+      sleep 1
+    done
+    ;;
+  rtc)
+    require_env
+    node scripts/setup-rtc.mjs
+    docker compose -f compose.yaml -f compose.rtc.yaml config --quiet
+    docker compose -f compose.yaml -f compose.rtc.yaml up -d api scheduler gateway livekit rtc-openid rtc-jwt
+    docker compose exec -T api php artisan migrate --force
+    docker compose exec -T gateway nginx -s reload
     ;;
   down)
     require_env
@@ -85,6 +111,6 @@ case "${1:-help}" in
     docker compose exec -T web "$@"
     ;;
   *)
-    printf '%s\n' 'Usage: ./scripts/dev {setup|up|down|status|check|smoke|offline|api <command>|web <command>}'
+    printf '%s\n' 'Usage: ./scripts/dev {setup|up|matrix|rtc|down|status|check|smoke|offline|api <command>|web <command>}'
     ;;
 esac

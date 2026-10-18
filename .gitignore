@@ -12,3 +12,6 @@
 **/.phpunit.cache/
 **/.phpunit.result.cache
 *.log
+
+# Local RTC API keys and TLS private material
+infra/rtc/.local/

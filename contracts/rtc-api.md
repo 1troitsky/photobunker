@@ -1,0 +1,16 @@
+# Local MatrixRTC admission API (B06)
+
+Identity boundary: local/testing only, signed account/device session cookie, same-origin `X-PhotoBunker: identity-v1`, account binding as other Identity endpoints. No request may supply credentials, OpenID proof, device identity, homeserver, media key or SFU address. No recordings, media files or call keys enter Laravel/storage.
+
+- `GET /api/v1/identity/rtc/config`: enabled, fixed same-origin focus/signalling paths, short state-membership expiry and delayed-events capability. Disabled calls remain hidden in the UI.
+- `POST /api/v1/identity/rtc/join {roomId}`: requires actual joined, Megolm-encrypted PhotoBunker direct/group or authorized live assignment discussion. Registered creator/members, live assignment policy and bilateral blocks are checked. Legacy and room-v12 opaque IDs are accepted; state is fetched using the actor, never caller-supplied state. Returns admission `id`, verified/attenuated `jwt`, exact Matrix device `participant`, `expiresIn:60`, fixed `sfuPath` and `focusPath`.
+- `POST /api/v1/identity/rtc/admissions/{id}/check`: exact account/device/Identity-session binding; rechecks device/session/Matrix membership/blocks. Updates heartbeat only after authorization. 403 ends admission, 404 hides another device's ticket.
+- `DELETE /api/v1/identity/rtc/admissions/{id}`: same binding, ends admission and removes SFU participant. 200 confirmed; 202 durable removal pending. Repeated deletion is safe.
+
+The private official lk-jwt-service validates Matrix OpenID over verified internal TLS and creates the exact SFU room. Laravel verifies its HS256 issuer/subject/room and replaces publication grants with only media publish/subscribe in that room, without admin/create/data/metadata-update rights. Its one-hour token is never returned. Browser admission has 60 seconds, plus immutable `attributes.pb_admission` binding to the durable ticket. LiveKit preserves this attribute in refreshed tokens; it carries no key or Identity cookie.
+
+Nginx authorizes every exposed SFU signalling/validation handshake with an internal subrequest to `GET /api/v1/rtc-gate`, passing `X-RTC-Token`. Gate verifies signature, issuer, join-only grants, exact admission ID/participant/room and current authorization. This works without the path-scoped Identity cookie on WebSockets. Ended/revoked/stale tickets reject both original and refreshed tokens; a new call does not reactivate the old token. Direct SFU/admin APIs and lk-jwt-service are not published. Gateway and service logging suppress token-bearing URLs and error chains.
+
+Tickets expire after two hours or 45 seconds without client heartbeat. Logout/device revoke removes participants immediately; maintenance runs every ten seconds, checks membership/blocks and retries failed removal, including the original admission window. Confirmed ended tickets are purged after a day. No chat/room membership grants photo access.
+
+Errors are fixed safe responses/statuses: 401 account/device unavailable, 403 room/grant denied, 404 ticket hidden, 422 invalid input, 503 RTC dependency unavailable. Exception details, proofs, JWTs and media are never error messages. Production remains closed until release configuration/review (R01).

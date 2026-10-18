@@ -1,6 +1,8 @@
 # Sharing, Collaboration, Profiles & Curation
 Статус: продуктовый контракт приватных и совместных сценариев.
 
+Уточнение новой модели — [14](14-identity-matrix-and-product-model.md): Profile ниже = Camera Preset; Team — постоянный состав людей, Assignment — отдельная работа. Matrix обеспечивает обсуждение, а фото-права и TTL остаются в PhotoBunker. Вступление в комнату не выдаёт ключи изображений.
+
 ## 1. Vault model
 Private Vault: default one account owner, no obligatory curator/profile, full archive and expiration. Shared Vault: owner invites curator/contributor/viewer, optionally creates profiles and assignments. Both have identical E2EE/storage/retention guarantees. Do not make separate organization/account product.
 

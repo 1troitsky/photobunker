@@ -1,6 +1,8 @@
 # System Architecture & API Contract (v1 proposed)
 Статус: engineering specification. Routes are proposed canonical names; agent may refine before implementation if all invariants remain.
 
+Актуальное дополнение — [14](14-identity-matrix-and-product-model.md): Laravel сохраняет владение аккаунтами, командами, заданиями и фото; Tuwunel/matrix-js-sdk обслуживают коммуникации, MatrixRTC/LiveKit — звонки. Постоянный Account не подменяется prototype library. Реальный локальный Identity v1 описан в [отдельном контракте](../contracts/identity-api.md), эксплуатация Matrix — в [runbook](../docs/operations/identity-matrix-local.md). Старые proposed endpoints ниже уточняются отдельными контрактами при реализации, а не объявляются уже доступными.
+
 ## 1. Shape
 - Frontend: **Vue 3 + TypeScript + Vite**, installable PWA, native-feeling full viewport camera and adaptive Gallery/Editor. Service worker only app shell/offline queues; no plaintext files in SW cache.
 - Backend: small maintainable API (Laravel is pragmatic option given project experience, not hard requirement), PostgreSQL, one delete/reconciliation worker using existing scheduler, no large distributed infrastructure mandatory.
@@ -52,3 +54,5 @@ Live gallery via polling or SSE event with opaque changed IDs. No plaintext even
 ## 9. Infra and config
 Single API service + Postgres + S3 adapter + scheduler/deletion worker; HTTPS reverse proxy. Config keys for: storage bucket, key lifetime, upload chunk, max file bytes, quotas, TTL plan templates, deletion cadence, content security policy, security alerts, CORS. Test with in-memory/local S3-compatible storage but production deployment should not require Docker.
 Strong CI for browser/mobile real-device and crypto round trips. Data migrations need rollback/forward compatibility, no re-encryption server-side.
+
+B06: [MatrixRTC admission API](../contracts/rtc-api.md) и [ADR 0012](../docs/adr/0012-matrixrtc-livekit-calls.md). Только проверенный device/Identity/Matrix membership допускается к media SFU; JWT/refresh не заменяют текущую проверку прав. Медиа и ключи остаются на клиентах. Совместимость и ограничения описаны в [RTC runbook](../docs/operations/matrixrtc-calls.md).

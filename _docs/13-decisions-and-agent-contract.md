@@ -53,5 +53,14 @@ Opt-in future extensions must leave simple private Vault experience untouched.
 - **E2EE:** only sender/authorized recipient holds decrypt capabilities; server merely routes ciphertext.
 
 ## 6. Documentation precedence
+Актуальная модель аккаунта, терминология, Matrix и навигация определяются [14](14-identity-matrix-and-product-model.md) по документам владельца от 14 октября. Последнее указание владельца задаёт UX/UI-first порядок в `IMPLEMENTATION_PLAN3.md`; старые планы исторические. Требования 06/07 и запрет ложных security claims сохраняются. Текущий репозиторий уже содержит работающие camera/storage/tests: не считать его пустым и не переписывать без продуктовой причины.
+
 01 overall product intent; 06 security hard rules; 07 deletion/expiry; 02 permission invariants; 04/05 camera+GPS lifecycle; 08 editor; 09 sharing; 10 plans; 11 API; 03 UX; 12 acceptance. If descriptions seem contradictory, choose more restrictive confidentiality claim and surface discrepancy; do not silently omit requirements.
 Each PR agent prepares should point to changed docs, exact acceptance cases and threat implications. No code should depend on undocumented private vendor API.
+
+15 октября 2026 владелец явно разрешил U04 и B01: подключены Identity API и локальный Tuwunel по ADR 0006. UI-first не запрещает backend уже одобренного B01. Recovery signing key не является E2EE/photo/Matrix backup; перенос libraries требует явного доказательства и отдельной миграции B03/B04. Не считать локальные фото автоматически принадлежащими подключённому аккаунту.
+
+
+Следующий этап после исправления анкеты — B02, подключён локально 15 октября 2026 по ADR 0007: SDK/Rust, one-owner crypto DB, E2EE переписка и отдельный ключ истории Matrix. PB1 остаётся credential входа. Выход удаляет Matrix device; новый вход имеет новый crypto epoch и восстанавливает историю её ключом. [Фактические проверки и ограничения](../docs/operations/matrix-messaging.md). Account/Team/Assignment/Vault grants и фото E2EE остаются B03/B04; production release guard не снят.
+
+B03 (2026-10-15) explicitly authorized by the owner: account-owned teams/tasks/Vaults, real invitations, server photo grants, encrypted assignment discussions and explicit source-preserving import. [ADR 0008](../docs/adr/0008-account-workspace-and-assignment-discussions.md), [B03 boundaries](../docs/operations/account-workspace.md). Matrix membership never grants photo access. Photos remain plaintext until B04; the production guard stays.

@@ -1,0 +1,163 @@
+import { locale } from '../i18n'
+const copy = {
+  signOutHint: [
+    'Выход завершает сеанс переписки на устройстве. Для восстановления истории при следующем входе сохраните её отдельный ключ.',
+    'Signing out ends messaging on this device. Save the separate history key to restore your messages when you sign in again.',
+  ],
+  profileSaved: ['Анкета сохранена', 'Profile saved'],
+  sessionExpired: [
+    'Сессия закончилась или доступ устройства отозван. Войдите снова, чтобы продолжить.',
+    'Your session expired or this device was revoked. Sign in again to continue.',
+  ],
+  invalidEmail: [
+    'Проверьте Email: нужен полный адрес, например name@example.com, или оставьте поле пустым.',
+    'Enter a full email address, for example name@example.com, or leave the field empty.',
+  ],
+  invalidFields: [
+    'Проверьте заполненные поля. Изменения ещё не сохранены.',
+    'Check the fields. Your changes have not been saved yet.',
+  ],
+  saveUnavailable: [
+    'Нет связи с сервером. Изменения остались в форме; попробуйте сохранить ещё раз.',
+    'The server is unavailable. Changes remain in this form; try saving again.',
+  ],
+  saveDenied: [
+    'Сервер отклонил сохранение. Обновите приложение и войдите снова.',
+    'The server rejected the save. Refresh the app and sign in again.',
+  ],
+  profileConflict: [
+    'Анкета уже изменилась в другом окне. Обновите её перед повторным редактированием.',
+    'Your profile changed in another window. Reload it before editing again.',
+  ],
+  reloadProfile: ['Обновить анкету', 'Reload profile'],
+  messagesTitle: ['Сообщения готовятся', 'Messages are in development'],
+  messagesConnected: [
+    'Сервис сообщений подключён',
+    'Messaging service connected',
+  ],
+  messagesNext: [
+    'Аккаунт подключается автоматически. Переписка и звонки появятся на следующих этапах.',
+    'Your account connects automatically. Conversations and calls are coming in later stages.',
+  ],
+  messagesUnavailable: [
+    'Нет связи с сервисом сообщений. Камера и фотографии доступны.',
+    'Messaging is unavailable. Camera and photos remain available.',
+  ],
+  retryConnection: ['Повторить подключение', 'Retry connection'],
+  account: ['Аккаунт', 'Account'],
+  create: ['Создать аккаунт', 'Create account'],
+  recover: ['Восстановить доступ', 'Recover access'],
+  signIn: ['Войти', 'Sign in'],
+  signInKey: ['Войти с ключом аккаунта', 'Sign in with account key'],
+  signOut: ['Выйти', 'Sign out'],
+  publicId: ['Ваш ID PhotoBunker', 'Your PhotoBunker ID'],
+  deviceName: ['Название устройства', 'Device name'],
+  deviceDefault: ['Моё устройство', 'My device'],
+  noAccount: ['Аккаунт не подключён', 'No account connected'],
+  accountHint: [
+    'Войдите или создайте аккаунт, чтобы пользоваться PhotoBunker. Вход сохраняется на этом устройстве.',
+    'Sign in or create an account to use PhotoBunker. You stay signed in on this device.',
+  ],
+  kit: ['Ключ аккаунта', 'Account key'],
+  kitHint: [
+    'Сохраните этот ключ в надёжном месте до создания аккаунта. Без него и доступных устройств восстановление невозможно.',
+    'Save this key somewhere safe before creating your account. Without it and a registered device, recovery is impossible.',
+  ],
+  kitScope: [
+    'Один ключ подключает ваш аккаунт, фотографии и переписку на другом устройстве. Храните резервную копию ключа в надёжном месте.',
+    'One key connects your account, photos and messages on another device. Keep a backup of this key somewhere safe.',
+  ],
+  kitSaved: ['Я сохранил ключ восстановления', 'I saved the recovery key'],
+  downloadKit: ['Сохранить ключ в файл', 'Save key to a file'],
+  continue: ['Продолжить', 'Continue'],
+  copy: ['Скопировать ID', 'Copy ID'],
+  copied: ['ID скопирован', 'ID copied'],
+  failed: [
+    'Не удалось выполнить действие. Попробуйте ещё раз.',
+    'Could not complete the action. Try again.',
+  ],
+  invalidKit: ['Проверьте ключ восстановления', 'Check the recovery key'],
+  denied: [
+    'Доступ не подтверждён. Устройство может быть отозвано; используйте ключ восстановления.',
+    'Access was not verified. This device may have been revoked; use your recovery key.',
+  ],
+  unavailable: [
+    'Нет связи с сервисом аккаунтов',
+    'Account service unavailable',
+  ],
+  editProfile: ['Изменить анкету', 'Edit profile'],
+  name: ['Имя', 'Name'],
+  username: ['Псевдоним', 'Username'],
+  email: ['Email', 'Email'],
+  phone: ['Телефон', 'Phone'],
+  links: ['Ссылки', 'Links'],
+  about: ['О себе', 'About'],
+  visibility: ['Кто видит', 'Visible to'],
+  private: ['Только я', 'Only me'],
+  contacts: ['Контакты', 'Contacts'],
+  public: ['По вашему ID', 'Anyone with your ID'],
+  privacyHint: [
+    'Все поля необязательны и закрыты по умолчанию. Поиск доступен только по точному ID.',
+    'All fields are optional and private by default. Lookup uses an exact ID only.',
+  ],
+  devices: ['Устройства', 'Devices'],
+  current: ['Это устройство', 'This device'],
+  revoke: ['Отозвать устройство', 'Revoke device'],
+  revokeQuestion: [
+    'Отозвать доступ этого устройства? Для повторного подключения потребуется ключ восстановления.',
+    'Revoke this device? Reconnecting will require your recovery key.',
+  ],
+  revoked: ['Доступ отозван', 'Revoked'],
+  matrixPending: [
+    'Отзыв в Matrix ожидает связи',
+    'Matrix revocation awaits connectivity',
+  ],
+  search: ['Найти по ID', 'Find by ID'],
+  searchHint: [
+    'Введите точный ID PhotoBunker или @username. Поиска по email и телефону нет.',
+    'Enter an exact PhotoBunker ID or @username. Email and phone lookup is unavailable.',
+  ],
+  notFound: ['Пользователь недоступен', 'User unavailable'],
+  request: ['Запросить контакт', 'Request contact'],
+  sent: ['Запрос отправлен', 'Request sent'],
+  requests: ['Запросы', 'Requests'],
+  accept: ['Принять', 'Accept'],
+  decline: ['Отклонить', 'Decline'],
+  block: ['Заблокировать', 'Block'],
+  blocked: ['Заблокированные', 'Blocked'],
+  unblock: ['Разблокировать', 'Unblock'],
+  remove: ['Удалить контакт', 'Remove contact'],
+  emptyContacts: ['Контактов пока нет', 'No contacts yet'],
+  self: ['Это вы', 'This is you'],
+  matrixProvisioning: [
+    'Подключаем сервис общения. Камера и аккаунт работают независимо от него.',
+    'Connecting communication services. Camera and account remain independent.',
+  ],
+  infrastructure: ['Инфраструктура', 'Infrastructure'],
+  matrixReady: ['Matrix подключён', 'Matrix connected'],
+  matrixWaiting: ['Matrix ожидает подключения', 'Matrix awaiting connection'],
+  connect: ['Подключить Matrix', 'Connect Matrix'],
+  matrixNext: [
+    'Аккаунт Matrix связан. Защищённая переписка и восстановление истории подключаются на следующем этапе.',
+    'Your Matrix account is linked. Encrypted messaging and history recovery are the next stage.',
+  ],
+  security: ['Безопасность', 'Security'],
+  securityHint: [
+    'Вход подтверждается ключом устройства. Ключ истории доступен в Сообщениях → Защита переписки. PIN и шифрование фотографий подключаются отдельно.',
+    'A device key verifies sign-in. History recovery is in Messages → Messaging security. PIN and photo encryption are separate stages.',
+  ],
+  legacy: ['Прежняя библиотека', 'Previous library'],
+  legacyHint: [
+    'Подтверждение прежней библиотеки не переносит фотографии и не меняет их владельца.',
+    'Proving a previous library does not migrate photos or change ownership.',
+  ],
+  proveLibrary: ['Подтвердить владение библиотекой', 'Prove library ownership'],
+  libraryProved: [
+    'Владение подтверждено; фотографии сохранены на прежнем месте',
+    'Ownership proved; photos remain in their previous location',
+  ],
+} as const
+export type IdentityText = keyof typeof copy
+export function a(key: IdentityText) {
+  return copy[key][locale.value === 'ru' ? 0 : 1]
+}

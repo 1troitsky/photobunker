@@ -35,24 +35,61 @@ Fake camera test запускается только в Chromium. Для физ�
 
 Полная матрица, команды и pending checks: [browser compatibility runbook](../../docs/operations/browser-compatibility.md).
 
-## iPhone по локальному HTTPS
+## Проверки приложения
 
-Mac и iPhone должны быть доступны друг другу в одной локальной сети. На Mac нужен OpenSSL; облачный tunnel, внешний storage и изменение доверия в macOS не требуются.
+При работающем `./scripts/dev up`, из корня репозитория:
 
 ```sh
-cd tools/browser-spike
-npm run device:setup
-npm run device
+PLAYWRIGHT_BROWSERS_PATH=/private/tmp/photobunker-playwright-browsers node tools/browser-spike/check-ui-workspace.mjs
 ```
 
-Setup выбирает единственный private IPv4 физического интерфейса. При нескольких адресах укажите нужный явно: `npm run device:setup -- --ip 192.168.1.20` (это пример, нужен реальный адрес Mac). Создаются local CA на 90 дней и server certificate на 30 дней, RSA-3072/SHA-256 с IP SAN и serverAuth. Ключи имеют mode 0600 в игнорируемой `.local/browser-spike/tls`; CA при повторном setup сохраняется. Команда `device` собирает только lab и открывает HTTPS на выбранном IP:5443. Порт 5181 выдаёт исключительно публичный CA `.cer`; остальные пути — 404. Ни API приложения, ни исходники/env этим сервером не публикуются.
+Текущий сценарий U02–U03 выполняется в Chromium и WebKit: создание пресетов/заданий/команд, проверка полей, съёмка DEMO, категории, метаданные, редактор с неизменным оригиналом, экспорт файла, перезапуск, удаление, конфликты и отказ IDB. API перехватывается как недоступный; сценарий требует ноль API-запросов. `UI_BROWSERS=chromium` или `webkit` ограничивает запуск. Синтетические скриншоты сохраняются в OS temp directory, отдельные browser profiles удаляются. Этот сценарий включён в основной CI. [Границы и ручная проверка](../../docs/product/ui-through-u03.md).
 
-1. Передайте **публичный** `photobunker-lab-ca.cer` с Mac на iPhone через AirDrop либо откройте напечатанный HTTP download URL в доверенной локальной сети. Имя CA и SHA-256 напечатаны в терминале; приватные `.key` не передаются.
-2. Установите загруженный certificate profile в настройках iPhone. Затем **Настройки → Основные → Об этом устройстве → Доверие сертификатам**: включите полное доверие именно этому PhotoBunker Local Lab CA. Установка профиля сама по себе не включает SSL trust. [Инструкция Apple](https://support.apple.com/en-us/102390).
-3. Откройте напечатанный **HTTPS** URL в обычной Safari tab без обхода certificate warning. В отчёте должны быть `secureContext: true` и доступный WebCrypto. Нажмите «Запустить пробы», reload, затем «Проверить после reload». Ошибка считается результатом проверки, не успешным сохранением.
-4. В Safari: Поделиться → На экран «Домой»; если доступен переключатель «Открывать как веб-приложение», включите его. Откройте иконку и проверьте `standalone: true`. В этом режиме отдельно повторите probes, reload/reopen, test-card камеру и уход в background. Не предполагается, что storage Safari tab и установленного приложения обязательно общий. [Инструкция Apple](https://support.apple.com/en-euro/guide/iphone/iph42ab2f3a7/ios).
-5. Запишите модель/iOS, tab или installed mode и результат; JSON скачивается только явным действием. Непроверенные physical camera/queue сценарии остаются pending. Для удаления тестового доверия удалите этот certificate profile в настройках iPhone после завершения device tests.
+Предыдущие `check-local-app.mjs`, `check-server-library.mjs`, `check-profiles.mjs`, `check-delivery.mjs`, `check-collaboration.mjs`, `check-identity-ux.mjs` сохранены как сценарии прежних этапов. Их селекторы/маршруты требуют адаптации к новому UI; они не являются текущей регрессией и больше не запускаются основным UI step. Unit-тесты существующих адаптеров доставки и API, а также Laravel feature tests остаются в `./scripts/dev check`.
 
-Порты 5443/5181 также доступны на `127.0.0.1` для отдельной проверки на Mac, без bind на `0.0.0.0`. Доверие macOS не меняется; CLI может использовать `curl --cacert ../../.local/browser-spike/tls/ca.pem https://127.0.0.1:5443/` из package directory. Успех loopback не доказывает доступность с телефона.
+Физические iPhone/Android, установленная PWA и системное меню передачи файлов проверяются отдельно. Browser automation проверяет файловый fallback передачи; успешный вызов системного share не трактуется как подтверждение доставки получателю.
 
-Ctrl+C останавливает все слушатели. При смене IP повторите `device:setup` и `device`; CA сохранится, повторное доверие к тому же CA не требуется. Если CA истекает/повреждён, setup останавливается: сначала удалите старый профиль на iPhone, затем осознанно замените `.local/browser-spike/tls`. Старый IP — другой origin, автоматического переноса lab database между адресами нет. Если телефон не видит Mac, проверить общую сеть, guest isolation и разрешение входящего соединения Node в macOS; tunnel или отключение TLS checks не подменяют эту проверку.
+## U04/B01 local application QA
+
+With the app running and `./scripts/dev matrix` prepared, run `node tools/browser-spike/check-account.mjs` for Chromium/WebKit real Identity and Matrix, or `node tools/browser-spike/check-camera.mjs` for Chromium synthetic hardware through the actual capture pipeline. Set `PLAYWRIGHT_BROWSERS_PATH` to your installed browsers. Account QA creates synthetic identities, keeps credentials in memory, temporarily stops only local Matrix for outage/cold-copy restore, restores it in finally, and removes precisely known QA accounts/restore clones. Use a disposable local stand without active communication; it accepts loopback origins only. It does not validate physical phones. B02 messaging/history is covered separately by `check-messages.mjs`. [Runbook](../../docs/operations/identity-matrix-local.md).
+
+
+For profile save feedback and actual persistence, run `node tools/browser-spike/check-profile-save.mjs`. For Rust E2EE direct/group messages, SAS, backup/history recovery, device epochs, policy and cancellation, run `node tools/browser-spike/check-messages.mjs`. Both use real local APIs in Chromium/WebKit and precisely clean their synthetic accounts. `MESSAGE_BROWSERS=chromium` or `webkit` selects one messaging engine; `PLAYWRIGHT_BROWSERS_PATH` is required when browsers are installed outside the default cache. No secrets or message bodies belong in reports/screenshots. [B02 workflow and limitations](../../docs/operations/matrix-messaging.md).
+
+## B03 account workspace QA
+
+Run `node tools/browser-spike/check-workspace.mjs` against the running local app and Matrix. `WORKSPACE_BROWSERS=chromium` or `webkit` selects one engine. The scenario creates only synthetic accounts and a precisely fingerprinted old library, exercises real UI invitations/roles/capture, restricted thumbnails, encrypted assignment discussion and ID references, immediate revoke, source-preserving S3/device photo import, partial-failure retry, TTL, permission downgrade and cross-tab account isolation. It does not stop Matrix or require external services. Cleanup deletes only its exact account/library fixtures, including their known object keys. No private payloads/credentials/screenshots are reported. [B03 runbook](../../docs/operations/account-workspace.md).
+
+Messaging QA also monitors `window.error` and `unhandledrejection`. WebKit native cancelled-photo-poll diagnostics during full-document recovery are counted separately; other browser/runtime errors remain failures. See the [B03 regression note](../../docs/operations/matrix-messaging.md).
+
+
+## B04 application QA
+
+Run `check-photo-crypto.mjs`, `check-photo-workspace.mjs`, `check-photo-recovery.mjs`, `check-photo-offline.mjs` from the repository root with the same PLAYWRIGHT_BROWSERS_PATH as above. Local app, managed Matrix and S3 must be running. `PHOTO_BROWSERS=chromium` or `webkit` selects one engine; default both. These replace the historical plaintext B03 `check-workspace.mjs` for current account photo behavior. They cover real crypto worker/ACK cleanup, signed shared plans/upload-only/80px scope/review/revoke/rewrap and Matrix ID-only references, explicit migration with local editor versions/readback/cleanup, PIN hard lock/PB4 rotation/device linking, and cold API outage capture/restart/delivery. Only synthetic accounts/fixtures, strict fingerprint-bound cleanup, no secret artifacts. Full offline PWA caching/physical phones/external audit remain release gates. [Runbook](../../docs/operations/photo-protection.md).
+
+
+## Persistent app access and messenger actions
+
+`check-first-message.mjs`: первое E2EE сообщение отправляется до открытия Messages получателем, затем проверяются присоединение и расшифровка. Новая регистрация автоматически готовит сообщения под тем же ключом аккаунта. Диагностика содержит только enum states и event types, без контента/credentials.
+
+`check-person-profile.mjs`: полный профиль из поиска/контактов/заголовка, privacy после принятия/удаления, share и вход по ссылке, block/unblock, видимый сбой/повтор открытия DM, ответ из standalone profile в ту же комнату, E2EE сообщения, сохранение черновика и действие звонка. Скриншоты только с синтетическими данными: `/private/tmp/photobunker-person-profile-<engine>.png`.
+
+`check-app-access.mjs` and `check-messenger-actions.mjs` (APP_BROWSERS=chromium/webkit) cover mandatory authentication, no timed session expiry, cookie-loss PoP, automatic photo reopen, optional whole-app PIN after reload/background/logout, unique @username direct invites, pins, select-all/local delete, full-history search, synced archive, both-party redaction/empty-dialog hiding and account contact sync. `check-ui-workspace.mjs` is historical guest U03 coverage and is no longer a product/CI entry point. Camera tests now use an authenticated encrypted Vault; B04 scripts use automatic trusted-device reopening. General model/camera/cache tests remain in the client suite.
+
+WebKit's native aborted-load diagnostics can occur for API/module requests at a pagehide/visibility privacy transition. The monitor requires same-origin known API/module paths and observed AbortSignal/request cancellation or a tightly correlated privacy transition; window.error/unhandledrejection stay strict, as do unrelated native errors. No body/token/key is recorded. [Current behavior](../../docs/operations/messenger-actions.md).
+
+B06 calls: prepare `./scripts/dev rtc` after Matrix and run `node tools/browser-spike/check-calls.mjs` (Chromium synthetic hardware). Covers real encrypted remote video/audio, reconnect, group calls, a no-key ciphertext observer, narrow layout, capture release, declined/denied/outage/PIN and active device revocation. `CALL_BROWSERS=webkit` is a diagnostic compatibility run with generated canvas/oscillator media; a result is not physical Safari/iPhone certification. Optional `CALL_DIAGNOSTICS=1` reports fixed codes/states only. Never print WebSocket URLs, JWTs, OpenID proofs or raw RTP/media. [Runbook](../../docs/operations/matrixrtc-calls.md).
+
+
+`check-onboarding-messages.mjs` проверяет регистрацию с PB4, первый зашифрованный DM через встроенный поиск контактов **без** предварительного backup, повторное открытие, 320–1440 px, общий файл восстановления PB1/PB4 и запрет отправки до подтверждения второго устройства. `APP_BROWSERS` выбирает Chromium/WebKit.
+
+
+`check-single-key.mjs` — актуальный пользовательский сценарий одного ключа: автоматические фото/Matrix, удаление входящего сообщения у обоих, очистка UI/локальных credentials после выхода, восстановление фото и истории тем же ключом на том же и другом устройстве. `APP_BROWSERS` выбирает Chromium/WebKit. `check-photo-crypto.mjs` и `check-photo-recovery.mjs` проверяют прежний внутренний формат через protocol drills; отдельные PB4 формы больше не являются пользовательским UI. [Операции](../../docs/operations/single-account-key.md).
+
+`check-data-storage.mjs` проверяет Chromium/WebKit: автоматическую камеру после отсутствующего context/reload, policy 30–360, отмену logout/delete, удаление локального scope, targeted server cleanup и инвалидность прежнего Matrix token после настройки настоящего SDK backup. Только synthetic QA accounts; физические iPhone/Android этим не заменяются.
+
+`check-messenger-ui.mjs`: synthetic public sample profiles, новый список/превью, плюс/@username, touch hold actions, ответ/закрепление, scoped search, удаление incoming у обоих, черновики и 320–1440 layouts. Снимки в `/private/tmp/photobunker-messenger-<engine>-{chat,list,desktop,desktop-light}.png`; настоящие личные данные и recovery material на них не снимаются.
+
+`check-voice.mjs` exercises real MediaRecorder with a generated synthetic microphone stream, preview and capture release, ciphertext-only upload, automatic first receipt without acceptance, decryption/playback, playback speed and an encrypted text reply in Chromium/WebKit. No physical microphone is used. `check-first-message.mjs` tests a receiver who has never opened Messages, including SDK signature arrival and strict-policy retry. These are in `check:app`.
+
+`check-legacy-chat.mjs` creates a synthetic encrypted room with the previous joined-history/invitation format through the authenticated Matrix API. It verifies automatic legacy joining, normalization of future history visibility, and readable text/replies without accepting a request. Voice QA additionally covers slide cancellation, explicit permission refusal, pause/resume, failed upload with a retained preview and retry, and deletion of an incoming voice message for everyone. WebKit synthetic sources pin the MediaDevices wrapper on navigator so garbage collection cannot discard the test override.

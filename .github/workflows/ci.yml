@@ -17,7 +17,7 @@ concurrency:
 jobs:
   local-foundation:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -41,6 +41,75 @@ jobs:
 
       - name: Health and storage smoke
         run: ./scripts/dev smoke
+
+      - name: Install locked browser QA tools
+        working-directory: tools/browser-spike
+        run: npm ci --ignore-scripts --no-fund
+
+      - name: Install application test browsers
+        working-directory: tools/browser-spike
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Start managed local Matrix
+        run: ./scripts/dev matrix
+
+      - name: Start private local MatrixRTC services
+        run: ./scripts/dev rtc
+
+      - name: MatrixRTC media E2EE, call lifecycle and admission revocation
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
+        run: node tools/browser-spike/check-calls.mjs
+
+      - name: Direct first messages, legacy chat activation, profile privacy and encrypted voice
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
+        run: |
+          node tools/browser-spike/check-first-message.mjs
+          node tools/browser-spike/check-legacy-chat.mjs
+          node tools/browser-spike/check-person-profile.mjs
+          node tools/browser-spike/check-voice.mjs
+
+      - name: Required login, trusted photos, optional app PIN and messenger actions
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
+        run: |
+          node tools/browser-spike/check-app-access.mjs
+          node tools/browser-spike/check-single-key.mjs
+          node tools/browser-spike/check-onboarding-messages.mjs
+          node tools/browser-spike/check-messenger-actions.mjs
+
+      - name: Real Identity and Matrix in Chromium and WebKit, outage and cold restore
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
+        run: node tools/browser-spike/check-account.mjs
+
+      - name: Profile save feedback and real persistence
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
+        run: node tools/browser-spike/check-profile-save.mjs
+
+      - name: E2EE conversations, verification and new-device history recovery
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
+        run: node tools/browser-spike/check-messages.mjs
+
+      - name: Encrypted photo workspace, photo grants, import and assignment discussions
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
+        run: |
+          node tools/browser-spike/check-editor-sharing.mjs
+          node tools/browser-spike/check-photo-crypto.mjs
+          node tools/browser-spike/check-photo-workspace.mjs
+          node tools/browser-spike/check-photo-recovery.mjs
+          node tools/browser-spike/check-photo-offline.mjs
+
+      - name: Real capture pipeline with Chromium synthetic hardware
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
+        run: node tools/browser-spike/check-camera.mjs
 
       - name: Isolate container network
         run: ./scripts/dev offline

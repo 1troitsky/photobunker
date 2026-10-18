@@ -1,0 +1,36 @@
+// Synthetic accounts only. Recovery material never enters reports or screenshots.
+import {chromium,webkit,expect} from '@playwright/test'
+import assert from 'node:assert/strict'
+import {origin,headers,button,label,accountFixture,cleanupFixtures,monitorRuntime} from './account-qa.mjs'
+import {capture,received} from './photo-qa.mjs'
+const ready = async page => {
+ await expect(page.locator('.messages-screen')).toHaveAttribute('data-crypto-stage','ready',{timeout:90000})
+ await expect(page.locator('.messages-screen')).toHaveAttribute('data-device-verified','true')
+ await expect(page.locator('.messages-screen')).toHaveAttribute('data-history-backup','true')
+}
+async function send(page,text){await label(page,'Сообщение').fill(text);await button(page,'Отправить').click();await expect(page.locator('.message-body').filter({hasText:text})).toBeVisible({timeout:30000})}
+async function login(page,key,name){await page.goto(`${origin}/profile`);await button(page,'Войти с ключом аккаунта').click();await label(page,'Название устройства').fill(name);await label(page,'Ключ аккаунта').fill(key);await button(page,'Готово').click();await expect(page).toHaveURL(`${origin}/profile`,{timeout:30000})}
+for(const engine of(process.env.APP_BROWSERS??'chromium,webkit').split(',')){
+ const browser=await({chromium,webkit}[engine]).launch({headless:true}),fixtures=[],extra=[],errors=[],diagnostics={nativePhotoPoll:0};let stage='register',latest
+ try{
+  const a=await accountFixture(browser,`${engine} unified first`,fixtures),b=await accountFixture(browser,`${engine} unified second`,fixtures);latest=a.page
+  for(const f of fixtures)await monitorRuntime(f.page,engine,errors,diagnostics)
+  stage='automatic-photos';await capture(a);await received(a,1);await a.page.locator('a.nav-item[href="/gallery"]').click();await expect(a.page.locator('.native-photo-tile')).toHaveCount(1,{timeout:30000})
+  stage='automatic-message-backup';await a.page.goto(`${origin}/messages`);await ready(a.page);await b.page.goto(`${origin}/messages`);await ready(b.page)
+  await a.page.locator('.screen-header').getByRole('button',{name:'Новый чат',exact:true}).click();await label(a.page,'ID или @username').fill(b.me.account.publicId);await button(a.page,'Написать').click();await expect(a.page.locator('.message-composer')).toBeVisible({timeout:30000})
+  const room=await a.page.locator('.messages-screen').getAttribute('data-room')
+  await expect(b.page.locator('.chat-row')).toHaveCount(1,{timeout:30000});await b.page.locator('.chat-row').click();
+  await send(a.page,'QA single root outgoing');await send(b.page,'QA single root incoming');await expect(a.page.locator('.message-body').filter({hasText:'QA single root incoming'})).toBeVisible({timeout:30000})
+  stage='delete-incoming-for-both';await a.page.locator('.messenger-chat-header').getByRole('button',{name:'Действия с чатом',exact:true}).click();await button(a.page,'Выбрать сообщения').click();await a.page.locator('.message-bubble').filter({hasText:'QA single root incoming'}).getByRole('checkbox').check();await button(a.page,'Удалить у всех').click();await button(a.page.getByRole('dialog'),'Удалить у всех').click();await expect(a.page.locator('.message-body').filter({hasText:'QA single root incoming'})).toHaveCount(0);await expect(b.page.locator('.message-body').filter({hasText:'QA single root incoming'})).toHaveCount(0,{timeout:30000})
+  stage='logout';await a.page.goto(`${origin}/profile`);await button(a.page,'Выйти').click();await button(a.page,'Всё равно выйти').click();await expect(button(a.page,'Войти с ключом аккаунта')).toBeEnabled({timeout:30000});await expect(a.page.locator('.account-stats')).toHaveCount(0);await expect(a.page.getByRole('button',{name:/^Войти на этом устройстве/})).toHaveCount(0)
+  assert.equal((await a.context.request.get(`${origin}/api/v1/identity/me`,{headers})).status(),401)
+  assert.deepEqual(await a.page.evaluate(async()=>({devices:(await(await import('/src/identity/keys.ts')).credentials()).length,master:(await(await import('/src/crypto/database.ts')).entries('account-key:')).length,photos:(await import('/src/local/library.ts')).photos.value.length})),{devices:0,master:0,photos:0})
+  await a.page.reload();await expect(button(a.page,'Войти с ключом аккаунта')).toBeVisible();await expect(a.page.locator('.account-stats')).toHaveCount(0)
+  stage='same-device-one-key';await login(a.page,a.kit,`QA ${engine} unified returned`);await a.page.goto(`${origin}/gallery`);await expect(a.page.locator('.native-photo-tile')).toHaveCount(1,{timeout:30000});await a.page.goto(`${origin}/messages`);await ready(a.page);await a.page.locator('.chat-row').click();await expect(a.page.locator('.message-body').filter({hasText:'QA single root outgoing'})).toBeVisible({timeout:30000});await expect(a.page.locator('.message-body').filter({hasText:'QA single root incoming'})).toHaveCount(0);await send(a.page,'QA root after logout');await expect(b.page.locator('.message-body').filter({hasText:'QA root after logout'})).toBeVisible({timeout:30000})
+  stage='new-device-one-key';const context=await browser.newContext({locale:'ru-RU',viewport:{width:390,height:844}}),page=await context.newPage();extra.push(context);latest=page;await monitorRuntime(page,engine,errors,diagnostics);await login(page,a.kit,`QA ${engine} unified new device`);await page.goto(`${origin}/gallery`);await expect(page.locator('.native-photo-tile')).toHaveCount(1,{timeout:30000});await page.goto(`${origin}/messages`);await ready(page);await page.locator('.chat-row').click();await expect(page.locator('.message-body').filter({hasText:'QA single root outgoing'})).toBeVisible({timeout:30000});await send(page,'QA root from new device');await expect(b.page.locator('.message-body').filter({hasText:'QA root from new device'})).toBeVisible({timeout:30000})
+  stage='offline-navigation';await context.setOffline(true);await page.locator('.messenger-chat-header').getByRole('button',{name:'Назад',exact:true}).click();await page.locator('a.nav-item[href="/profile"]').click();await expect(page.locator('.identity-public-id')).toBeVisible();await context.setOffline(false);await page.goto(`${origin}/messages`);await ready(page);
+  stage='wire';const envelope=(await(await context.request.get(`${origin}/api/v1/identity/recovery`,{headers})).json()).envelope;assert.ok(envelope.statement.ciphertext);assert.ok(!JSON.stringify(envelope).includes('PB4.'));assert.ok(!JSON.stringify(envelope).includes(a.kit))
+  assert.deepEqual(errors,[]);console.log(`${engine}: one account key, automatic photo/message setup, incoming-message deletion for both, logout removes data/access, same/new device photo+history recovery and E2EE sending passed`)
+ }catch(error){console.error(`${engine}: single-key QA failed at ${stage} (${error.name}); ${error.stack?.match(/check-single-key.mjs:\d+:\d+/)?.[0]??''}`);console.error({errors,diagnostics,path:latest?new URL(latest.url()).pathname:'',stage:await latest?.locator('.messages-screen').getAttribute('data-crypto-stage',{timeout:500}).catch(()=>''),visibleError:await latest?.locator('.form-error').count()});throw new Error('single_key_qa_failed')}
+ finally{for(const context of extra)await context.close();await cleanupFixtures(fixtures);await browser.close()}
+}

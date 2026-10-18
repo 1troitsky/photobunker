@@ -111,4 +111,23 @@ final class PrototypeProfilesTest extends TestCase
         $this->patchJson($path, ['title' => 'Title', 'note' => 'Первое описание', 'favorite' => true, 'revision' => 2], $headers)->assertOk();
         $this->assertSame('Первое описание', DB::table('prototype_photos')->value('note'));
     }
+
+    public function test_retention_and_tags_obey_the_saved_profile_rules(): void
+    {
+        $headers = $this->access();
+        $data = $this->profile();
+        $data['rules']['retentionSeconds'] = 3600;
+        $id = (string) Str::uuid();
+        $profile = $this->putJson('/api/v1/prototype/profiles/'.$id, $data, $headers)->assertOk()->json('profile');
+        $anchor = $this->postJson('/api/v1/prototype/clock', [], $headers)->assertOk()->json();
+        $this->upload($headers, $profile)->assertUnprocessable();
+        $retention = ['createdAt' => $anchor['issuedAt'], 'retentionAnchor' => $anchor['id'], 'retentionSeconds' => 3600];
+        $this->upload($headers, $profile, [...$retention, 'retentionSeconds' => 86400])->assertUnprocessable();
+        $this->upload($headers, $profile, [...$retention, 'tags' => array_fill(0, 21, 'oversized')])->assertUnprocessable();
+        $photo = $this->upload($headers, $profile, $retention)->assertOk()->assertJsonPath('photo.expiresAt', $anchor['issuedAt'] + 3600000)->json('photo');
+        $changes = ['title' => '', 'note' => '', 'favorite' => false, 'revision' => 1, 'tags' => ['осмотр', 'проверка']];
+        $path = '/api/v1/prototype/photos/'.$photo['id'];
+        $this->patchJson($path, $changes, $headers)->assertOk()->assertJsonPath('photo.tags', ['осмотр', 'проверка']);
+        $this->patchJson($path, [...$changes, 'revision' => 2, 'tags' => ['замена']], $headers)->assertForbidden();
+    }
 }

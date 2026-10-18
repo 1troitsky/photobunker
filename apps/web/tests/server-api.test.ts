@@ -2,7 +2,9 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { accessCode, accessLibraryId, accessSaved, ensureAccess, restoreAccess, uploadPhoto } from '../src/server/api'
 import type { Photo } from '../src/local/photos'
-beforeEach(() => { localStorage.clear(); accessCode.value = ''; accessLibraryId.value = ''; accessSaved.value = true })
+import { Blob as NodeBlob } from 'node:buffer'
+import { webcrypto } from 'node:crypto'
+beforeEach(() => { vi.stubGlobal('Blob', NodeBlob); vi.stubGlobal('crypto', webcrypto); vi.stubGlobal('FormData', class { set() {} }); localStorage.clear(); accessCode.value = ''; accessLibraryId.value = ''; accessSaved.value = true })
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 it('creates only one anonymous library for simultaneous requests and remembers access', async () => {
   const code = 'a'.repeat(64)
@@ -24,6 +26,15 @@ it('validates recovery before replacing existing access and never sends the code
   expect(new Headers(init.headers).get('Authorization')).toBe(`Bearer ${'b'.repeat(64)}`)
   expect(init.credentials).toBe('omit')
   expect(init.cache).toBe('no-store')
+})
+it('preserves a restored library when an earlier creation request completes later', async () => {
+  let finish!: (response: Response) => void
+  vi.stubGlobal('fetch', vi.fn((url: string) => url.endsWith('/libraries') ? new Promise<Response>(resolve => { finish = resolve }) : Promise.resolve(new Response(JSON.stringify({ libraryId: 'restored' })))))
+  const creating = ensureAccess()
+  await restoreAccess('b'.repeat(64))
+  finish(new Response(JSON.stringify({ accessCode: 'a'.repeat(64), libraryId: 'new' }), { status: 201 }))
+  await creating
+  expect(accessLibraryId.value).toBe('restored'); expect(accessCode.value).toBe('b'.repeat(64))
 })
 it('does not acknowledge upload after a server failure', async () => {
   accessCode.value = 'a'.repeat(64)

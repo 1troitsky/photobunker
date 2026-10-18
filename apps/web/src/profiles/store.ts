@@ -1,3 +1,4 @@
+import { activeAssignment, selectAssignment } from '../collaboration/store'
 import { computed, ref, watch } from 'vue'
 import { accessCode, accessLibraryId, ensureAccess, prototypeRequest } from '../server/api'
 import type { Profile } from './model'
@@ -6,7 +7,7 @@ export const profiles = ref<Profile[]>([])
 export const profilesLoading = ref(false)
 export const profilesError = ref(false)
 const activeId = ref('')
-export const activeProfile = computed(() => profiles.value.find(profile => profile.id === activeId.value && !profile.archived))
+export const activeProfile = computed(() => activeAssignment.value?.profile ?? profiles.value.find(profile => profile.id === activeId.value && !profile.archived))
 let generation = 0
 const cacheKey = () => `photobunker-profiles-${accessLibraryId.value || 'none'}`
 function readCache() {
@@ -19,7 +20,7 @@ function readCache() {
 }
 function cache() { try { localStorage.setItem(cacheKey(), JSON.stringify({ profiles: profiles.value, activeId: activeId.value })) } catch { /* Server is the durable source. */ } }
 readCache()
-export function selectProfile(id: string) { activeId.value = id; cache() }
+export function selectProfile(id: string) { selectAssignment(''); activeId.value = id; cache() }
 export async function refreshProfiles() {
   const current = ++generation
   profilesLoading.value = true; profilesError.value = false

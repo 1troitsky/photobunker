@@ -3,15 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.12.0 <23 || >=24.0.0" },
+  "engines": {
+    "node": ">=22.12.0 <23 || >=24.0.0"
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5180 --strictPort",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 5180 --strictPort",
-    "device:setup": "node scripts/device.mjs setup",
-    "device": "npm run build && node scripts/device.mjs serve",
     "check": "npm run build",
-    "test": "playwright test"
+    "test": "playwright test",
+    "check:photos": "node check-photo-crypto.mjs && node check-photo-workspace.mjs && node check-photo-recovery.mjs && node check-photo-offline.mjs",
+    "check:app": "node check-first-message.mjs && node check-legacy-chat.mjs && node check-voice.mjs && node check-person-profile.mjs && node check-messenger-ui.mjs && node check-data-storage.mjs && node check-single-key.mjs && node check-onboarding-messages.mjs && node check-app-access.mjs && node check-messenger-actions.mjs",
+    "check:editor": "node check-editor-sharing.mjs",
+    "check:calls": "node check-calls.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",

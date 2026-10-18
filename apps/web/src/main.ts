@@ -2,11 +2,13 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import { createAppRouter } from './router'
 import { initializeLocale } from './i18n'
+import { initializePreferences } from './app/preferences'
 import './style.css'
 import './prototype.css'
 import './profiles.css'
 
 initializeLocale()
+initializePreferences()
 createApp(App).use(createAppRouter()).mount('#app')
 
 // The development server deliberately does not install an offline worker.
@@ -18,3 +20,8 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator && window.isSecureConte
     })
   })
 }
+
+import './collaboration.css'
+import './app.css'
+import './native.css'
+import './messages.css'

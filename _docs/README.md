@@ -2,7 +2,9 @@
 
 **PhotoBunker** — независимая privacy-first облачная камера и зашифрованное фотопространство (PWA). Документация здесь — **единый источник требований для AI-агента**, а не план реализации.
 
-**Читать по порядку:** 01 → 13; для security/storage changes обязательно сверяться с 06, 07 и 12. Пользовательская концепция сформирована по обсуждению до 11 октября 2026 года.
+**Обновление 14 октября 2026:** актуальная модель Account/Camera Preset/Assignment/Team и Matrix описана в [14-identity-matrix-and-product-model.md](14-identity-matrix-and-product-model.md). Она уточняет прежние понятия и навигацию по новым документам владельца. Текущий порядок работ — [IMPLEMENTATION_PLAN3](../IMPLEMENTATION_PLAN3.md): UX/UI, затем внутренние интеграции. Старые планы сохранены как история.
+
+**Читать:** сначала актуальное уточнение 14, затем 01 → 13; для security/storage changes обязательно сверяться с 06, 07 и 12. Базовая концепция сформирована до 11 октября, модель аккаунта и коммуникаций обновлена 14 октября 2026 года.
 
 ## Индекс спецификаций
 
@@ -21,6 +23,7 @@
 | [11-architecture-api-contracts.md](11-architecture-api-contracts.md) | Слои системы, Vue PWA, thin API, storage, предложенный протокол endpoints |
 | [12-quality-acceptance-and-operations.md](12-quality-acceptance-and-operations.md) | Проверки, матрица ошибок, reliability, безопасность, операции |
 | [13-decisions-and-agent-contract.md](13-decisions-and-agent-contract.md) | Подтверждённые решения, открытые вопросы и правила работы AI-агента |
+| [14-identity-matrix-and-product-model.md](14-identity-matrix-and-product-model.md) | Актуальная модель аккаунта, пресетов, команд, заданий, Matrix и нового Dock |
 
 ## Неотменяемые требования (tl;dr)
 
@@ -48,3 +51,5 @@
 ## Источники и caveats
 
 Официальные внешние API/стандарты и их ограничения перечислены в соответствующих технических файлах. Стек и конкретные endpoints в 11 — предложения архитектуры, а не утверждение, что такие сервисы уже существуют. Цифры GB, долларовые цены, SLA, конкретный хостинг и криптографический протокол финализируются после инженерной проверки; утверждённые пользователем принципы зафиксированы в 13.
+
+B03 local implementation: [account workspace contract](../contracts/account-workspace-api.md), [ADR 0008](../docs/adr/0008-account-workspace-and-assignment-discussions.md), [usage and validation](../docs/operations/account-workspace.md). Photo E2EE remains B04; requirements above are not a claim that encryption has shipped.

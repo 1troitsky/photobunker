@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Identity\AccountLifecycle;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -30,7 +31,9 @@ final class LocalPrototype
             RateLimiter::hit($invalid, 60);
             abort(401);
         }
-        $this->limit('prototype:library:'.$library, 120);
+        $owner = DB::table('identity_legacy_claims')->join('identity_accounts', 'identity_accounts.id', '=', 'identity_legacy_claims.account_id')->where('library_id', $library)->select('identity_accounts.*')->first();
+        abort_if($owner && AccountLifecycle::unavailable($owner), 410);
+        $this->limit('prototype:library:'.$library, config('prototype.requests_per_minute'));
         $request->attributes->set('prototype_library', $library);
 
         return $next($request);

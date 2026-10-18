@@ -25,8 +25,9 @@ async function snapshot(page) {
 }
 const button = (page, name) => page.getByRole('button', { name, exact: true })
 const nav = (page, name) => page.getByRole('navigation').getByRole('link', { name, exact: true })
+async function openSettings(page) { await nav(page, 'Профиль').click(); await page.locator('.account-link[href="/settings"]').click() }
 async function capture(page) { await button(page, 'Попробовать без камеры').click(); await button(page, 'Снять фото').click() }
-const saved = page => expect(page.getByRole('status')).toContainText('Кадр сохранён в этом браузере')
+const saved = page => expect(page.locator('.camera-screen .capture-feedback')).toContainText('Кадр сохранён в этом браузере')
 for (const [name, engine] of Object.entries({ chromium, firefox, webkit })) {
   const profile = await mkdtemp(join(tmpdir(), `photobunker-app-${name}-`))
   const options = { headless: true, locale: 'ru-RU', viewport: { width: 1280, height: 900 }, ...(name === 'chromium' ? { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] } : {}) }
@@ -36,18 +37,18 @@ for (const [name, engine] of Object.entries({ chromium, firefox, webkit })) {
     let page = context.pages()[0]
     page.on('pageerror', error => errors.push(error.message))
     await page.goto(origin)
-    await button(page, 'Начать с личной съёмки').click()
+    await expect(page).toHaveURL(`${origin}/camera`)
     await expect(button(page, 'Включить камеру')).toBeVisible()
     assert.equal(await page.locator('video').evaluate(video => video.srcObject), null)
     await capture(page); await saved(page)
     const before = await snapshot(page), id = before.photos[0].id
     assert.deepEqual(before.counts, [1, 1, 1])
-    await nav(page, 'Галерея').click(); await expect(page.locator('.photo-card')).toHaveCount(1)
+    await nav(page, 'Фото').click(); await expect(page.locator('.photo-card')).toHaveCount(1)
     await expect.poll(() => page.locator('.photo-card img').evaluate(img => img.complete && img.naturalWidth > 0)).toBe(true)
     await page.locator('.photo-card').click(); await expect(page.locator('.original-preview img')).toBeVisible()
     await page.getByLabel('Название', { exact: true }).fill('Первый кадр')
     await page.getByLabel('Заметка', { exact: true }).fill('Локальная заметка')
-    await button(page, 'Сохранить изменения').click(); await expect(page.getByRole('status')).toHaveText('Изменения сохранены')
+    await button(page, 'Сохранить изменения').click(); await expect(page.locator('.photo-screen .capture-feedback')).toHaveText('Изменения сохранены')
     await button(page, 'В избранное').click(); await expect(button(page, 'Убрать из избранного')).toHaveAttribute('aria-pressed', 'true')
     assert.deepEqual((await snapshot(page)).hashes, before.hashes)
     const downloaded = page.waitForEvent('download'); await button(page, 'Скачать оригинал').click()
@@ -67,8 +68,8 @@ for (const [name, engine] of Object.entries({ chromium, firefox, webkit })) {
     assert.deepEqual((await snapshot(page)).hashes, before.hashes)
     page.on('dialog', dialog => dialog.accept())
     await button(page, 'Удалить снимок').click(); await expect(page).toHaveURL(`${origin}/gallery`)
-    assert.deepEqual((await snapshot(page)).counts, [0, 0, 0])
-    await page.goto(origin)
+    await expect.poll(async () => (await snapshot(page)).counts).toEqual([0, 0, 0])
+    await page.goto(`${origin}/camera`)
     await page.evaluate(() => {
       const add = IDBObjectStore.prototype.add
       window.restoreLocalWrites = () => { IDBObjectStore.prototype.add = add }
@@ -77,28 +78,31 @@ for (const [name, engine] of Object.entries({ chromium, firefox, webkit })) {
         return add.apply(this, args)
       }
     })
-    await capture(page); await expect(page.getByRole('status')).toContainText('Он пока только в памяти')
+    await capture(page); await expect(page.locator('.camera-screen .capture-feedback')).toContainText('Он пока только в памяти')
     await expect(page.locator('.pending-capture img')).toBeVisible()
     assert.deepEqual((await snapshot(page)).counts, [0, 0, 0])
     await page.evaluate(() => window.restoreLocalWrites()); await button(page, 'Повторить').click(); await saved(page)
     assert.deepEqual((await snapshot(page)).counts, [1, 1, 1])
-    await nav(page, 'Настройки').click(); await button(page, 'Удалить копии в браузере').click()
-    await expect(page.getByRole('status')).toHaveText('Копии в браузере удалены')
+    await openSettings(page); await button(page, 'Удалить копии в браузере').click()
+    await expect(page.locator('.settings-screen .capture-feedback').filter({ hasText: 'Копии в браузере удалены' })).toHaveText('Копии в браузере удалены')
     assert.deepEqual((await snapshot(page)).counts, [0, 0, 0])
     await page.goto(`${origin}/gallery/${id}`); await expect(page.getByRole('heading', { name: 'Снимок недоступен', exact: true })).toBeVisible()
     if (name === 'chromium') {
-      await page.goto(origin); await button(page, 'Включить камеру').click(); await expect(button(page, 'Снять фото')).toBeEnabled()
+      await page.goto(`${origin}/camera`); await button(page, 'Включить камеру').click(); await expect(button(page, 'Снять фото')).toBeEnabled()
       await page.evaluate(() => { window.testCameraTrack = document.querySelector('video').srcObject.getVideoTracks()[0] })
-      await button(page, 'Снять фото').click(); await saved(page); await nav(page, 'Галерея').click()
+      await button(page, 'Снять фото').click(); await saved(page); await nav(page, 'Фото').click()
       assert.equal(await page.evaluate(() => window.testCameraTrack.readyState), 'ended')
     }
-    await page.setViewportSize({ width: 375, height: 812 }); await page.goto(origin)
+    await page.setViewportSize({ width: 375, height: 812 }); await page.goto(`${origin}/camera`)
     await page.evaluate(() => { navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Test permission denial', 'NotAllowedError') } })
-    await button(page, 'Включить камеру').click(); await expect(page.getByRole('status')).toContainText('Доступ к камере запрещён')
+    await button(page, 'Включить камеру').click(); await expect(page.locator('.camera-screen .capture-feedback')).toContainText('Доступ к камере запрещён')
     await button(page, 'Попробовать без камеры').click()
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
     if (process.env.LOCAL_APP_SCREENSHOT) await page.screenshot({ path: join(tmpdir(), `photobunker-app-${name}.png`), fullPage: true })
     assert.deepEqual(errors, [])
     console.log(`${name}: capture, reload, process restart, immutable original, notes/favorite/search/download, atomic rollback/retry/delete/clear, missing photo, permission denial and mobile layout passed`)
-  } finally { await context?.close(); await rm(profile, { recursive: true, force: true }) }
+  } finally {
+    const page = context?.pages()[0]
+    if (page && !page.isClosed()) await page.evaluate(async () => { const api = await import('/src/server/api.ts'); for (const photo of (await api.listServerPhotos()).photos) await api.deleteServerPhoto(photo.id) }).catch(() => {})
+    await context?.close(); await rm(profile, { recursive: true, force: true }) }
 }

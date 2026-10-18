@@ -38,8 +38,6 @@ jobs:
           package-manager-cache: false
       - name: Install locked lab dependencies
         run: npm ci --ignore-scripts --no-fund
-      - name: Validate local device launcher
-        run: node --check scripts/device.mjs
       - name: Install desktop browser engines
         run: npx playwright install --with-deps chromium firefox webkit
       - name: Build and test isolated lab

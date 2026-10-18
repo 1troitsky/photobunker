@@ -1,63 +1,458 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import {
+  appLockReady,
+  appLocked,
+  loadAppLock,
+  lockApp,
+  unlockApp,
+} from './app/lock'
+import { hardLock, resumeTrustedPhotos } from './crypto/store'
+import { deviceId } from './identity/store'
+import { q } from './crypto/text'
+import AccountPhotoAccess from './components/AccountPhotoAccess.vue'
+import {
+  startProtection,
+  protectionEnabled,
+  protectionReady,
+  photoReadAllowed,
+} from './crypto/store'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { c } from './collaboration/text'
+import { startCollaboration } from './collaboration/store'
+import { account, identityReady, identityUnavailable } from './identity/store'
+import { useRoute, useRouter } from 'vue-router'
 import AppIcon from './components/AppIcon.vue'
 import { locale, t } from './i18n'
 import { localPrototype } from './local/photos'
 import { startLibrary } from './local/library'
 import { refreshProfiles } from './profiles/store'
 import { p } from './profiles/text'
+import { delivery, startDelivery, retryDelivery } from './delivery/queue'
+import { d } from './delivery/text'
 import { accessCode, accessSaved } from './server/api'
+import { u } from './app/text'
+import { rememberSection } from './app/preferences'
+import { a } from './identity/text'
+import { s } from './studio/text'
+import { startWorkspace } from './workspace/service'
+import {
+  pendingCount as workspacePending,
+  queueBusy as workspaceBusy,
+  queueError as workspaceError,
+} from './workspace/state'
+import { deliver as workspaceDeliver } from './workspace/photos'
+import { w } from './workspace/text'
+import { startStudio } from './studio/store'
+import { startActivity } from './identity/activity'
+import { selected as selectedConversation } from './messages/store'
+import { purgeAccountFromDevice } from './identity/storage'
 
-const route = useRoute()
+const route = useRoute(),
+  router = useRouter()
+const privatePhotoRoute = computed(() => route.path.startsWith('/gallery'))
+const appPin = ref(''),
+  appPinError = ref('')
+async function openApp() {
+  try {
+    await unlockApp(appPin.value)
+    appPin.value = ''
+    appPinError.value = ''
+  } catch (error) {
+    appPinError.value =
+      error instanceof Error ? error.message : 'Не удалось открыть приложение'
+  }
+}
+watch(
+  () => `${account.value?.id}:${deviceId.value}`,
+  () => {
+    void loadAppLock()
+  },
+  { immediate: true },
+)
+watch([appLockReady, appLocked], ([ready, locked]) => {
+  if (locked) {
+    hardLock()
+    appPin.value = ''
+  } else if (ready) resumeTrustedPhotos()
+})
+function backgroundLock() {
+  if (document.hidden) lockApp()
+}
 const offline = ref(!navigator.onLine)
 const main = ref<HTMLElement>()
+let stopDelivery: (() => void) | undefined
+let stopCollaboration: (() => void) | undefined
+let stopProtection: (() => void) | undefined
 let stopLibrary: (() => void) | undefined
+let stopWorkspace: (() => void) | undefined
+let stopStudio: (() => void) | undefined
+let stopActivity: (() => void) | undefined
+const hidden = ref(false)
+const native = computed(() =>
+  [
+    'camera',
+    'gallery',
+    'photo',
+    'photo-editor',
+    'profiles',
+    'profile-edit',
+    'assignments',
+    'assignment',
+    'assignment-edit',
+    'assignment-new',
+    'teams',
+    'profile',
+    'messages',
+    'conversation-profile',
+    'person-profile',
+    'settings',
+    'account-auth',
+    'account-edit',
+    'contacts',
+    'account-security',
+    'photo-security',
+    'data-storage',
+  ].includes(String(route.name)),
+)
+const editor = computed(() =>
+  [
+    'profile-edit',
+    'assignment-edit',
+    'assignment-new',
+    'photo-editor',
+    'account-auth',
+    'account-edit',
+  ].includes(String(route.name)),
+)
 const navigation = [
-  { name: 'profiles', to: '/profiles', icon: 'profiles' },
+  { name: 'assignments', to: '/assignments', icon: 'profiles' },
+  { name: 'messages', to: '/messages', icon: 'messages' },
   { name: 'camera', to: '/camera', icon: 'camera' },
   { name: 'gallery', to: '/gallery', icon: 'gallery' },
-  { name: 'settings', to: '/settings', icon: 'settings' },
+  { name: 'profile', to: '/profile', icon: 'user' },
 ] as const
+const immersive = computed(() => route.name === 'camera')
+function label(name: string) {
+  return u(
+    name === 'gallery'
+      ? 'photos'
+      : name === 'assignments' || name === 'messages' || name === 'profile'
+        ? name
+        : 'camera',
+  )
+}
+const identityTitle = computed(
+  () =>
+    ({
+      'account-auth': a('account'),
+      'account-edit': a('editProfile'),
+      contacts: a('contacts'),
+      'account-security': a('security'),
+    })[String(route.name) as 'account-auth'],
+)
+const title = computed(
+  () =>
+    identityTitle.value ||
+    ([
+      'assignments',
+      'assignment',
+      'assignment-edit',
+      'assignment-new',
+    ].includes(String(route.name))
+      ? c('tasks')
+      : route.name === 'teams'
+        ? s('teams')
+        : route.name === 'photo-editor'
+          ? s('editor')
+          : route.name === 'team'
+            ? c('team')
+            : route.name === 'join'
+              ? c('join')
+              : ['profiles', 'profile-edit'].includes(String(route.name))
+                ? p('profiles')
+                : route.name === 'settings'
+                  ? t('settings')
+                  : route.name === 'photo'
+                    ? u('photos')
+                    : label(String(route.name))),
+)
 
-function updateConnection() { offline.value = !navigator.onLine }
-function isActive(name: string) { return route.name === name || name === 'gallery' && route.name === 'photo' || name === 'profiles' && route.name === 'profile-edit' }
+function updateConnection() {
+  offline.value = !navigator.onLine
+}
+function privacy(event: Event) {
+  hidden.value = !!(event as CustomEvent<boolean>).detail
+}
+function isActive(name: string) {
+  return (
+    route.name === name ||
+    (name === 'gallery' && route.name === 'photo') ||
+    (name === 'camera' &&
+      ['profiles', 'profile-edit', 'team'].includes(String(route.name))) ||
+    (name === 'profile' &&
+      [
+        'settings',
+        'join',
+        'teams',
+        'contacts',
+        'account-security',
+        'photo-security',
+        'account-auth',
+        'account-edit',
+      ].includes(String(route.name))) ||
+    (name === 'assignments' && route.name === 'assignment')
+  )
+}
 onMounted(() => {
+  if (location.pathname.startsWith('/s/')) return
+  document.addEventListener('visibilitychange', backgroundLock)
+  window.addEventListener('pagehide', lockApp)
+  stopProtection = startProtection()
   stopLibrary = startLibrary()
+  stopDelivery = startDelivery()
+  stopCollaboration = startCollaboration()
+  stopStudio = startStudio()
+  stopWorkspace = startWorkspace()
+  stopActivity = startActivity()
+  const deletedOwner = localStorage.getItem('pb-deleted-account-cleanup')
+  if (deletedOwner) void purgeAccountFromDevice(deletedOwner).then(() => localStorage.removeItem('pb-deleted-account-cleanup')).catch(() => {})
   void refreshProfiles()
   window.addEventListener('online', updateConnection)
   window.addEventListener('offline', updateConnection)
+  window.addEventListener('photobunker-privacy-screen', privacy)
 })
 onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', backgroundLock)
+  window.removeEventListener('pagehide', lockApp)
+  stopProtection?.()
   stopLibrary?.()
+  stopDelivery?.()
+  stopCollaboration?.()
+  stopStudio?.()
+  stopWorkspace?.()
+  stopActivity?.()
   window.removeEventListener('online', updateConnection)
   window.removeEventListener('offline', updateConnection)
+  window.removeEventListener('photobunker-privacy-screen', privacy)
 })
-watch([() => route.name, locale], () => {
-  document.title = `${route.name === 'profiles' || route.name === 'profile-edit' ? p('profiles') : t(route.name === 'gallery' || route.name === 'photo' ? 'gallery' : route.name === 'settings' ? 'settings' : 'camera')} · PhotoBunker`
-}, { immediate: true })
-watch(() => route.path, () => { main.value?.focus() }, { flush: 'post' })
+watch(
+  [() => account.value?.id, identityReady, identityUnavailable],
+  ([id, ready, unavailable]) => {
+    // A cross-tab account refresh temporarily clears the old identity.
+    // Keep the route while resolving the replacement; private views remount.
+    if (
+      route.name &&
+      !id &&
+      ready &&
+      !unavailable &&
+      !['profile', 'account-auth', 'shared-photo'].includes(String(route.name))
+    )
+      void router.replace('/profile')
+  },
+)
+watch(
+  [title, locale],
+  () => {
+    document.title = `${title.value} · PhotoBunker`
+  },
+  { immediate: true },
+)
+watch(
+  () => route.path,
+  (path) => {
+    hidden.value = false
+    rememberSection(path)
+    main.value?.focus()
+    window.scrollTo?.(0, 0)
+  },
+  { flush: 'post' },
+)
 </script>
 
 <template>
-  <a class="skip-link" href="#main">{{ t('skip') }}</a>
-  <div class="app-shell">
-    <header class="brand">
-      <span class="brand-mark"><AppIcon name="camera" /></span>
-      <div class="brand-copy"><span class="brand-name">PhotoBunker</span><span class="brand-tagline">{{ t('tagline') }}</span></div>
-    </header>
+  <RouterView v-if="route.name === 'shared-photo'" :key="route.fullPath" />
+  <template v-else>
+    <a class="skip-link" href="#main">{{ t('skip') }}</a>
+    <div
+      :class="[
+        'app-shell',
+        {
+          'camera-shell': immersive,
+          'native-shell': native,
+          'editor-shell': editor,
+          'privacy-screen': hidden,
+          'messenger-shell': route.matched.some(record => record.name === 'messages'),
+          'messenger-thread-open': (route.name === 'messages' && !!selectedConversation) || route.name === 'conversation-profile',
+        },
+      ]"
+    >
+      <header v-if="!native && !hidden" class="app-bar">
+        <RouterLink to="/camera" class="app-wordmark" aria-label="PhotoBunker"
+          ><span class="brand-mark"><AppIcon name="camera" /></span
+          ><span>PhotoBunker</span></RouterLink
+        ><span class="app-context">{{ title }}</span
+        ><span v-if="localPrototype" class="app-mode">{{
+          u('localMode')
+        }}</span>
+      </header>
 
-    <span class="release-badge"><span class="release-dot" />{{ t(localPrototype ? 'prototype' : 'early') }}</span>
+      <nav
+        v-if="account && appLockReady && !appLocked && !editor && !hidden"
+        class="navigation"
+        :aria-label="t('navigation')"
+      >
+        <RouterLink
+          v-for="item in navigation"
+          :key="item.name"
+          :to="item.to"
+          :class="[
+            'nav-item',
+            {
+              active: isActive(item.name),
+              'dock-camera': item.name === 'camera',
+            },
+          ]"
+          :aria-label="label(item.name)"
+          :aria-current="isActive(item.name) ? 'page' : undefined"
+        >
+          <span class="dock-icon"><AppIcon :name="item.icon" /></span
+          ><span>{{ label(item.name) }}</span>
+        </RouterLink>
+      </nav>
 
-    <nav class="navigation" :aria-label="t('navigation')">
-      <RouterLink v-for="item in navigation" :key="item.name" :to="item.to" :class="['nav-item', { active: isActive(item.name) }]" :aria-label="item.name === 'profiles' ? p('profiles') : t(item.name)" :aria-current="isActive(item.name) ? 'page' : undefined">
-        <AppIcon :name="item.icon" /><span>{{ item.name === 'profiles' ? p('profiles') : t(item.name) }}</span><span class="nav-indicator" />
-      </RouterLink>
-    </nav>
+      <p
+        v-if="offline && !immersive && !hidden && !route.matched.some(record => record.name === 'messages')"
+        class="offline-notice"
+        role="status"
+      >
+        <AppIcon name="offline" /><span
+          ><strong>{{ t('offline') }}</strong
+          ><span>{{
+            t(localPrototype ? 'offlineHint' : 'prototypeDisabled')
+          }}</span></span
+        >
+      </p>
 
-    <p v-if="offline" class="offline-notice" role="status"><AppIcon name="offline" /><span><strong>{{ t('offline') }}</strong><span>{{ t(localPrototype ? 'offlineHint' : 'prototypeDisabled') }}</span></span></p>
-
-    <main id="main" ref="main" class="main-content" tabindex="-1"><p v-if="localPrototype" class="prototype-note">{{ t('prototypeNote') }}</p><p v-if="localPrototype && accessCode && !accessSaved" class="server-warning" role="status">{{ t('accessNotSaved') }} <RouterLink to="/settings">{{ t('settings') }}</RouterLink></p><RouterView /></main>
-    <span class="sidebar-caption">{{ t('version') }}</span>
-  </div>
+      <main id="main" ref="main" class="main-content" tabindex="-1">
+        <p
+          v-if="account && !appLocked && localPrototype && accessCode && !accessSaved"
+          class="server-warning"
+          role="status"
+        >
+          {{ t('accessNotSaved') }}
+          <RouterLink to="/settings">{{ t('settings') }}</RouterLink>
+        </p>
+        <div
+          v-if="
+            account &&
+            !appLocked &&
+            !immersive &&
+            !hidden &&
+            (delivery.pending || delivery.deleting || delivery.storageFailed)
+          "
+          class="delivery-notice"
+          role="status"
+        >
+          <p v-if="delivery.storageFailed">{{ d('storage') }}</p>
+          <p v-if="delivery.pending">
+            {{ d(delivery.busy ? 'sending' : 'pending') }} ·
+            {{ delivery.pending }}
+          </p>
+          <p v-if="delivery.deleting">
+            {{ d('deleting') }} · {{ delivery.deleting }}
+          </p>
+          <button
+            class="quiet-button"
+            :disabled="delivery.busy"
+            @click="retryDelivery"
+          >
+            {{ d('retry') }}
+          </button>
+        </div>
+        <div
+          v-if="account && !appLocked && !immersive && !hidden && workspacePending"
+          class="delivery-notice"
+          role="status"
+        >
+          <p>
+            {{ w(workspaceBusy ? 'sending' : 'pendingPhotos') }} ·
+            {{ workspacePending }}
+          </p>
+          <p v-if="workspaceError">
+            {{
+              w(
+                workspaceError === 'keys'
+                  ? 'cryptoChanged'
+                  : workspaceError === 'quota'
+                    ? 'encryptedQuota'
+                    : workspaceError === 'retention'
+                      ? 'retention'
+                      : workspaceError === 'permission'
+                        ? 'accessChanged'
+                        : 'unavailable',
+              )
+            }}
+          </p>
+          <button
+            class="quiet-button"
+            :disabled="workspaceBusy"
+            @click="workspaceDeliver"
+          >
+            {{ w('retry') }}</button
+          ><button
+            v-if="workspaceError === 'keys'"
+            class="quiet-button"
+            @click="router.push('/profile/photos-security')"
+          >
+            {{ q('Фотографии и резервная копия') }}
+          </button>
+        </div>
+        <section
+          v-if="
+            account &&
+            (!appLockReady || appLocked) &&
+            route.name !== 'account-auth'
+          "
+          class="native-screen"
+        >
+          <form class="native-form screen-body" @submit.prevent="openApp">
+            <h1>
+              {{
+                appLockReady
+                  ? 'PhotoBunker заблокирован'
+                  : 'Открываем приложение…'
+              }}
+            </h1>
+            <template v-if="appLockReady"
+              ><label
+                >PIN приложения<input
+                  v-model="appPin"
+                  type="password"
+                  inputmode="numeric"
+                  autocomplete="off"
+                  maxlength="8"
+                  required /></label
+              ><button class="primary-button">Открыть приложение</button
+              ><button
+                type="button"
+                class="quiet-button"
+                @click="router.push('/profile/account?mode=recover')"
+              >
+                Забыли PIN? Восстановить с PB1
+              </button>
+              <p v-if="appPinError" role="alert">{{ appPinError }}</p></template
+            >
+          </form>
+        </section>
+        <template v-else-if="account && privatePhotoRoute && (!protectionReady || !protectionEnabled || !photoReadAllowed())">
+          <section v-if="!protectionReady" class="native-screen"><div class="screen-body"><p>{{ q('Подключаем фотографии…') }}</p></div></section>
+          <AccountPhotoAccess v-else />
+        </template>
+        <RouterView
+          v-else
+          :key="route.name === 'account-auth' ? 'account-auth' : account?.id"
+        />
+      </main>
+    </div>
+  </template>
 </template>
