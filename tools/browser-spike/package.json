@@ -14,6 +14,7 @@
     "test": "playwright test",
     "check:photos": "node check-photo-crypto.mjs && node check-photo-workspace.mjs && node check-photo-recovery.mjs && node check-photo-offline.mjs",
     "check:app": "node check-first-message.mjs && node check-legacy-chat.mjs && node check-voice.mjs && node check-person-profile.mjs && node check-messenger-ui.mjs && node check-data-storage.mjs && node check-single-key.mjs && node check-onboarding-messages.mjs && node check-app-access.mjs && node check-messenger-actions.mjs",
+    "qa:interactive": "node interactive-qa.mjs",
     "check:editor": "node check-editor-sharing.mjs",
     "check:calls": "node check-calls.mjs"
   },

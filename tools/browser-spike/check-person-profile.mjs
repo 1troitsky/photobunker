@@ -16,7 +16,7 @@ async function profile(f, name, username) {
   } })).status(), 200)
 }
 for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(',')) {
-  const browser = await ({ chromium, webkit }[engine]).launch({ headless: true }), fixtures = [], extra = [], errors = [], diagnostics = { nativePhotoPoll: 0 }
+  const browser = await ({ chromium, webkit }[engine]).launch({ headless: true, ...(engine === 'chromium' && process.env.APP_CHROME_CHANNEL ? { channel: process.env.APP_CHROME_CHANNEL } : {}) }), fixtures = [], extra = [], errors = [], diagnostics = { nativePhotoPoll: 0 }
   let stage = 'accounts'
   try {
     const a = await accountFixture(browser, `${engine} full profile sender`, fixtures), b = await accountFixture(browser, `${engine} full profile receiver`, fixtures)
@@ -91,6 +91,15 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     await expect(b.page.locator('.message-body').filter({ hasText: 'QA profile message' })).toBeVisible({ timeout: 30000 })
     await label(b.page, 'Сообщение').fill('QA profile reply'); await button(b.page, 'Отправить').click()
     await expect(a.page.locator('.message-body').filter({ hasText: 'QA profile reply' })).toBeVisible({ timeout: 30000 })
+    stage = 'chat-to-camera-and-back'
+    await expect(b.page.locator('.message-bubble').filter({ hasText: 'QA profile reply' }).locator('.message-state')).toHaveAttribute('aria-label', /Принято сервером|Прочитано/, { timeout: 30000 })
+    await button(a.page.locator('.messenger-chat-header'), 'Назад').click()
+    await a.page.getByRole('navigation').getByRole('link', { name: 'Камера', exact: true }).click()
+    await expect(a.page).toHaveURL(`${origin}/camera`, { timeout: 30000 })
+    await a.page.getByRole('navigation').getByRole('link', { name: 'Сообщения', exact: true }).click()
+    await expect(a.page).toHaveURL(`${origin}/messages`, { timeout: 30000 })
+    await a.page.locator('.chat-row').click()
+    await expect(a.page.locator('.messages-screen')).toHaveAttribute('data-room', room)
     stage = 'chat-header-and-draft'
     await label(a.page, 'Сообщение').fill('QA draft stays in chat')
     await a.page.locator('.chat-heading').click(); await expect(screen).toHaveAttribute('data-person', b.me.account.publicId)

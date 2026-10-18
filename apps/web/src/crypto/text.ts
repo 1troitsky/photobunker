@@ -3,6 +3,7 @@ import { locale } from '../i18n'
 
 // Source-language message IDs keep security copy together with its translation.
 const english: Record<string, string> = {
+  "Снимок сохраняется на устройстве и синхронизируется с аккаунтом при наличии сети.": "The photo is saved on this device and syncs with your account when online.",
   "Аккаунт закрыт. Очистка данных на сервере выполняется автоматически.": "Your account is closed. Server data cleanup runs automatically.",
   "Закройте другие окна приложения, чтобы завершить удаление локальных данных.": "Close other app windows to finish deleting local data.",
   "Завершить очистку устройства": "Finish device cleanup",

@@ -951,7 +951,7 @@ onBeforeUnmount(() => {
         >
       </p>
       <p v-else class="capture-note">
-        {{ uiOnly ? s('localShort') : t('captureNote') }}
+        {{ account ? q('Снимок сохраняется на устройстве и синхронизируется с аккаунтом при наличии сети.') : uiOnly ? s('localShort') : t('captureNote') }}
       </p>
       <div v-if="pending && !saving" class="inline-actions">
         <button class="primary-button" @click="persist">{{ t('retry') }}</button

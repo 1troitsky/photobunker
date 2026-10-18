@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import {accountFixture,cleanupFixtures} from './account-qa.mjs'
 const origin=process.env.LOCAL_APP_URL??'http://localhost:8080'
 if(!['localhost','127.0.0.1','[::1]'].includes(new URL(origin).hostname))throw new Error('Use a loopback test origin')
-const browser=await chromium.launch({headless:true,args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']})
+const browser=await chromium.launch({headless:true,...(process.env.APP_CHROME_CHANNEL?{channel:process.env.APP_CHROME_CHANNEL}:{}),args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']})
 const fixtures=[]
 try{
  const fixture=await accountFixture(browser,'synthetic encrypted camera',fixtures);const context=fixture.context;await context.grantPermissions(['camera'])
