@@ -20,15 +20,11 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     await label(a.page, 'Сообщение').fill('Synthetic original message')
     await button(a.page, 'Отправить').click()
     await expect(a.page.locator('.message-bubble').filter({ hasText: 'Synthetic original message' })).toHaveCount(1, { timeout: 35000 })
-    const originalId = await a.page.evaluate(async () => {
+    await expect.poll(async () => a.page.evaluate(async () => {
       const store = await import('/src/messages/store.ts')
-      await new Promise(resolve => setTimeout(resolve, 600))
-      return store.messages.value.find(row => row.body === 'Synthetic original message')?.id
-    })
-    await expect.poll(async () => a.page.evaluate(async id => {
-      const store = await import('/src/messages/store.ts')
-      return store.canEditMessage(id)
-    }, originalId), { timeout: 35000 }).toBe(true)
+      return store.messages.value.some(row =>
+        row.body === 'Synthetic original message' && store.canEditMessage(row.id))
+    }), { timeout: 35000 }).toBe(true)
     stage = 'edit'
     const bubble = a.page.locator('.message-bubble').filter({ hasText: 'Synthetic original message' })
     await bubble.click({ button: 'right' })
