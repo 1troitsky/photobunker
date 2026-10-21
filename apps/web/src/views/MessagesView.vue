@@ -827,6 +827,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
             </template>
             <template #actions>
               <button class="app-icon-button" :aria-label="a('contacts')" :aria-pressed="tab === 'contacts'" @click="tab = tab === 'contacts' ? 'chats' : 'contacts'"><AppIcon name="users" /></button>
+              <button class="app-icon-button" :aria-label="ui('folderManage')" @click="foldersOpen = true"><AppIcon name="folder" /></button>
               <button class="app-icon-button messenger-compose-button" :aria-label="m('newChat')" @click="newOpen = true"><AppIcon name="plus" /></button>
             </template>
           </SidebarHeader>
@@ -848,8 +849,11 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
               :searching="searchBusy"
               @search-history="perform(() => searchMessages(listQuery))"
             />
-            <div v-if="archiveCount || tab !== 'chats'" class="messenger-filters" :aria-label="m('chats')">
+            <div class="messenger-filters" :aria-label="m('chats')">
               <button :aria-pressed="tab === 'chats'" @click="tab = 'chats'">{{ m('chats') }}</button>
+              <button :aria-pressed="tab === 'unread'" @click="tab = 'unread'">{{ ui('unreadOnly') }}</button>
+              <button :aria-pressed="tab === 'groups'" @click="tab = 'groups'">{{ ui('groupOnly') }}</button>
+              <button v-for="folder in privateFolders" :key="folder.id" :aria-pressed="tab === 'folder:' + folder.id" @click="tab = 'folder:' + folder.id">{{ folder.name }}</button>
               <button v-if="archiveCount || tab === 'archive'" :aria-pressed="tab === 'archive'" @click="tab = 'archive'">{{ ui('archive') }}<span v-if="archiveCount">{{ archiveCount }}</span></button>
             </div>
             <div class="messenger-chat-list">
@@ -858,7 +862,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                 <div v-for="room in listed" :key="room.id" class="chat-swipe-row" @touchstart="event => { swipeX = event.touches[0]?.clientX ?? 0; swipeY = event.touches[0]?.clientY ?? 0 }" @touchend="endSwipe($event, room.id)" @contextmenu.prevent="chatMenu = room.id">
                   <div v-if="swiped === room.id" class="chat-swipe-actions"><button :aria-label="ui(room.archived ? 'unarchive' : 'archiveAction')" @click="perform(() => archiveConversation(room.id, !room.archived)); swiped = ''"><AppIcon name="archive" /></button><button :aria-label="ui('deleteChat')" @click="askDelete(room.id)"><AppIcon name="trash" /></button></div>
                   <ConversationListItem
-                    :conversation="{ id: room.id, name: room.name, avatarClass: avatarColor(room.id), avatarInitials: initials(room.name), group: !room.direct, timeLabel: chatTime(room.lastTime), preview: (room.lastMine && room.preview ? m('you') + ': ' : '') + (room.preview || ui('noMessages')), unreadCount: room.unread }"
+                    :conversation="{ id: room.id, name: room.name, avatarClass: avatarColor(room.id), avatarInitials: initials(room.name), group: !room.direct, timeLabel: chatTime(room.lastTime), preview: (room.lastMine && room.preview ? m('you') + ': ' : '') + (room.preview || ui('noMessages')), unreadCount: room.unread, muted: room.muted }"
                     :active="selected === room.id"
                     :swiped="swiped === room.id"
                     @select="swiped ? swiped = '' : chooseRoom(room.id)"
@@ -866,7 +870,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                   <button v-if="swiped !== room.id" class="app-icon-button chat-row-menu" :aria-label="ui('chatActions')" @click="chatMenu = room.id"><AppIcon name="more" /></button>
                 </div>
                 <button v-for="hit in searchResults" :key="hit.id" class="search-result" @click="openSearchResult(hit.roomId, hit.id)"><span class="search-result-label">{{ hit.roomName }}</span><span>{{ hit.body }}</span><AppIcon name="search" /></button>
-                <div v-if="!listed.length && !searchResults.length" class="native-empty messenger-empty"><AppIcon :name="listQuery ? 'search' : tab === 'archive' ? 'archive' : 'messages'" /><h2>{{ listQuery ? ui('noMatches') : tab === 'archive' ? ui('archive') : m('empty') }}</h2><p>{{ listQuery ? ui('noMatchesHint') : ui('emptyHint') }}</p><button v-if="!listQuery && tab === 'chats'" class="primary-button" @click="newOpen = true">{{ ui('newMessage') }}</button></div>
+                <div v-if="!listed.length && !searchResults.length" class="native-empty messenger-empty"><AppIcon :name="listQuery ? 'search' : tab === 'archive' ? 'archive' : 'messages'" /><h2>{{ listQuery ? ui('noMatches') : tab === 'archive' ? ui('archive') : m('empty') }}</h2><p>{{ tab.startsWith('folder:') ? ui('folderEmpty') : listQuery ? ui('noMatchesHint') : ui('emptyHint') }}</p><button v-if="!listQuery && tab === 'chats'" class="primary-button" @click="newOpen = true">{{ ui('newMessage') }}</button></div>
               </template>
             </div>
           </template>
