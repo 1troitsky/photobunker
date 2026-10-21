@@ -5,7 +5,10 @@ import VoiceRecorder from '../components/VoiceRecorder.vue'
 import VoiceMessagePlayer from '../components/VoiceMessagePlayer.vue'
 import ConversationListItem from '../messages/shared-ui/ConversationListItem.vue'
 import MessageDateSeparator from '../messages/shared-ui/MessageDateSeparator.vue'
-import MessageStatusTicks from '../messages/shared-ui/MessageStatusTicks.vue'
+import MessageBubble from '../messages/shared-ui/MessageBubble.vue'
+import MessageList from '../messages/shared-ui/MessageList.vue'
+import ScrollToBottomButton from '../messages/shared-ui/ScrollToBottomButton.vue'
+import MessageActionList from '../messages/shared-ui/MessageActionList.vue'
 import ConversationSearch from '../messages/shared-ui/ConversationSearch.vue'
 import SidebarHeader from '../messages/shared-ui/SidebarHeader.vue'
 import ThreadHeader from '../messages/shared-ui/ThreadHeader.vue'
@@ -302,6 +305,7 @@ watch(selected, () => {
   selecting.value = false
   selectedMessages.value = []
   messageQuery.value = ''
+  cancelPress()
 })
 const listed = computed(() =>
   rooms.value.filter(
@@ -515,7 +519,7 @@ const archiveCount = computed(() => rooms.value.filter(room => !room.deleted && 
 const timeline = computed(() => displayedMessages.value.map((message, index, all) => {
   const previous = all[index - 1]
   const day = !previous || new Date(previous.time).toDateString() !== new Date(message.time).toDateString()
-  return { message, day, grouped: !day && previous?.mine === message.mine && previous.sender === message.sender && message.time - previous.time < 180000 }
+  return { message, day, dayLabel: day ? dayLabel(message.time) : '', grouped: !day && previous?.mine === message.mine && previous.sender === message.sender && message.time - previous.time < 180000 }
 }))
 function updateViewport() { viewport.value = window.visualViewport?.height ?? window.innerHeight; document.documentElement.style.setProperty('--messenger-viewport', viewport.value + 'px') }
 function scrollToLatest() { if (log.value && !profileOpen.value && !hidden.value) { log.value.scrollTop = log.value.scrollHeight; atBottom.value = true; void markRead() } }
@@ -528,14 +532,20 @@ function scrolled() {
   if (log.value.scrollTop < 60 && log.value.scrollHeight > log.value.clientHeight + 100 && olderAvailable.value && !historyBusy.value && !actionBusy.value) void older()
 }
 async function older() {
-  const height = log.value?.scrollHeight ?? 0, top = log.value?.scrollTop ?? 0
+  const element = log.value, roomId = selected.value
+  const height = element?.scrollHeight ?? 0, top = element?.scrollTop ?? 0
   await perform(olderMessages); await nextTick()
-  if (log.value) log.value.scrollTop = top + log.value.scrollHeight - height
+  if (element && log.value === element && selected.value === roomId) {
+    element.scrollTop = top + element.scrollHeight - height
+  }
 }
 async function jumpToMessage(id: string) {
+  const roomId = selected.value
   messageQuery.value = ''; messageSearchOpen.value = false
   if (!messages.value.some(message => message.id === id)) await perform(loadAllMessages)
+  if (selected.value !== roomId || hidden.value || profileOpen.value) return
   await nextTick()
+  if (selected.value !== roomId) return
   const element = [...log.value?.querySelectorAll<HTMLElement>('[data-event-id]') ?? []].find(item => item.dataset.eventId === id)
   element?.scrollIntoView({ block: 'center', behavior: 'smooth' })
   highlighted.value = id
@@ -554,6 +564,32 @@ function toggleMessage(id: string) {
 }
 function askMessageDelete(ids: string[], everyone = false) {
   deletingMessages.value = [...ids]; messageDeleteEveryone.value = everyone && canDeleteForEveryone(ids); messageDeleteOpen.value = true; messageMenu.value = undefined
+}
+type MessageActionId = 'reply' | 'copy' | 'pin' | 'select' | 'retry' | 'delete'
+const messageActions = computed(() => {
+  const item = messageMenu.value
+  const actions: { id: MessageActionId; label: string; destructive?: boolean }[] = []
+  if (!item) return actions
+  if (!item.locked) {
+    actions.push({ id: 'reply', label: m('reply') }, { id: 'copy', label: a('copy') })
+    if (canPinMessage()) actions.push({ id: 'pin', label: ui(pinnedIds.value.includes(item.id) ? 'unpin' : 'pin') })
+  }
+  actions.push({ id: 'select', label: ui('selectOne') })
+  if (item.status === 'notSent') actions.push({ id: 'retry', label: m('retrySend') })
+  actions.push({ id: 'delete', label: ui('delete'), destructive: true })
+  return actions
+})
+function handleMessageAction(id: MessageActionId) {
+  const item = messageMenu.value
+  if (!item || !messageActions.value.some(action => action.id === id)) return
+  switch (id) {
+    case 'reply': reply.value = item.id; messageMenu.value = undefined; break
+    case 'copy': void perform(copyMessage); messageMenu.value = undefined; break
+    case 'pin': void perform(() => pinMessage(item.id, !pinnedIds.value.includes(item.id))); messageMenu.value = undefined; break
+    case 'select': selectMessage(item); break
+    case 'retry': void perform(() => retryMessage(item.id)); messageMenu.value = undefined; break
+    case 'delete': askMessageDelete([item.id]); break
+  }
 }
 function composerKey(event: KeyboardEvent) {
   if (event.key === 'Enter' && !event.isComposing && !event.shiftKey && (event.ctrlKey || event.metaKey || matchMedia('(pointer:fine)').matches) && connection.value === 'ready' && security.value.verified && !actionBusy.value) {
@@ -677,21 +713,56 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                 <p v-if="historyBusy || openingHistory" class="history-loading" role="status">{{ ui('loadingHistory') }}</p>
                 <p v-if="openingHistoryError" class="form-error" role="alert">{{ ui('historyFailed') }}<button class="quiet-button" @click="loadInitialHistory(true)">{{ personText('retry') }}</button></p>
                 <div v-if="!messages.length" class="thread-start"><span>{{ ui('firstMessage') }}</span></div>
-                <template v-for="item in timeline" :key="item.message.id">
-                  <MessageDateSeparator v-if="item.day" :label="dayLabel(item.message.time)" />
-                  <article :class="['message-bubble', { 'message-mine': item.message.mine, 'message-locked': item.message.locked, 'message-grouped': item.grouped, 'message-highlighted': highlighted === item.message.id, 'message-selected': selectedMessages.includes(item.message.id) }]" :data-event-id="item.message.id" tabindex="0" aria-haspopup="dialog" :aria-label="ui('messageActions')" @contextmenu.prevent="messageMenu = item.message" @keydown.enter.self.prevent="messageMenu = item.message" @pointerdown="press($event, item.message)" @pointermove="movePress" @pointerup="releasePress($event, item.message)" @pointercancel="cancelPress" @click="selecting && toggleMessage(item.message.id)">
-                    <label v-if="selecting" class="message-select" @click.stop><input v-model="selectedMessages" :value="item.message.id" type="checkbox" :aria-label="ui('selectOne') + ': ' + item.message.body" /></label>
-                    <strong v-if="!activeChat.direct && !item.message.mine && !item.grouped" class="message-author">{{ item.message.sender }}</strong>
-                    <blockquote v-if="item.message.reply" @click.stop="jumpToMessage(item.message.reply)">{{ replyBody(item.message.reply) }}</blockquote>
-                    <VoiceMessagePlayer v-if="item.message.voice && !item.message.locked" :duration="item.message.voice.duration" :waveform="item.message.voice.waveform" :active="!profileOpen && !hidden" :load="signal => loadVoice(item.message, signal)" /><p v-else class="message-body">{{ item.message.body }}</p>
-                    <button v-if="item.message.photoId && !item.message.locked" class="message-photo" @click.stop="router.push(`/gallery/${item.message.photoId}`)"><AppIcon name="gallery" />{{ w('openPhoto') }}</button>
-                    <footer><time>{{ new Date(item.message.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</time><span v-if="item.message.mine" :class="['message-state', 'message-state-' + item.message.status]" :aria-label="m(item.message.status)"><svg v-if="item.message.status === 'sending'" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="6" /><path d="M8 4v4l3 2" /></svg><AppIcon v-else-if="item.message.status === 'notSent'" name="offline" /><MessageStatusTicks v-else :read="item.message.status === 'read'" /></span></footer>
-                    <button v-if="!selecting" class="app-icon-button message-menu-button" :aria-label="ui('messageActions')" @click.stop="messageMenu = item.message"><AppIcon name="more" /></button>
-                  </article>
-                </template>
+                <MessageList :items="timeline" v-slot="{ item }">
+                  <MessageBubble
+                    :id="item.message.id"
+                    :mine="item.message.mine"
+                    :locked="item.message.locked"
+                    :grouped="item.grouped"
+                    :highlighted="highlighted === item.message.id"
+                    :selected="selectedMessages.includes(item.message.id)"
+                    :selecting="selecting"
+                    :sender="item.message.sender"
+                    :show-sender="!activeChat.direct && !item.message.mine && !item.grouped"
+                    :body="item.message.body"
+                    :time-label="new Date(item.message.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })"
+                    :status="item.message.status"
+                    :status-label="m(item.message.status)"
+                    :menu-label="ui('messageActions')"
+                    :select-label="ui('selectOne') + ': ' + item.message.body"
+                    :reply-id="item.message.reply"
+                    :reply-preview="item.message.reply ? replyBody(item.message.reply) : undefined"
+                    :has-voice="!!item.message.voice"
+                    :has-photo="!!item.message.photoId"
+                    @menu="messageMenu = item.message"
+                    @toggle="toggleMessage(item.message.id)"
+                    @reply-jump="jumpToMessage"
+                    @press-start="press($event, item.message)"
+                    @press-move="movePress"
+                    @press-end="releasePress($event, item.message)"
+                    @press-cancel="cancelPress"
+                  >
+                    <template #voice>
+                      <VoiceMessagePlayer
+                        v-if="item.message.voice && !item.message.locked"
+                        :duration="item.message.voice.duration"
+                        :waveform="item.message.voice.waveform"
+                        :active="!profileOpen && !hidden"
+                        :load="signal => loadVoice(item.message, signal)"
+                      />
+                    </template>
+                    <template #photo>
+                      <button
+                        v-if="item.message.photoId && !item.message.locked"
+                        class="message-photo"
+                        @click.stop="router.push(`/gallery/${item.message.photoId}`)"
+                      ><AppIcon name="gallery" />{{ w('openPhoto') }}</button>
+                    </template>
+                  </MessageBubble>
+                </MessageList>
                 <div v-if="messageQuery && !displayedMessages.length" class="thread-start">{{ ui('noMatches') }}</div>
               </div>
-              <button v-if="!atBottom" class="app-icon-button message-jump" :aria-label="ui('jump')" @click="scrollToLatest"><AppIcon name="back" /></button>
+              <ScrollToBottomButton v-if="!atBottom" :label="ui('jump')" @click="scrollToLatest" />
               <div v-if="selecting" class="message-selection"><button class="quiet-button" :disabled="!selectedMessages.length || actionBusy" @click="askMessageDelete(selectedMessages, false)">{{ ui('deleteMine') }}</button><button v-if="canDeleteForEveryone(selectedMessages)" class="quiet-button" :disabled="!selectedMessages.length || actionBusy" @click="askMessageDelete(selectedMessages, true)">{{ ui('deleteAll') }}</button></div>
               <p v-else-if="!activeChat.encrypted || activeChat.blocked" class="message-error form-error" role="alert">{{ m(activeChat.blocked ? 'blocked' : 'unencrypted') }}</p>
               <div v-else-if="!security.verified" class="message-device-setup"><p>{{ m(diagnostic === 'ready' ? 'deviceRecoveryHint' : 'connecting') }}</p><button v-if="diagnostic === 'ready'" class="quiet-button" @click="securityOpen = true">{{ m(security.storage ? 'restore' : 'verifyDevice') }}</button></div>
@@ -733,14 +804,12 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
       </form>
     </AppSheet>
     <AppSheet :open="!!messageMenu && !hidden" :title="ui('messageActions')" :busy="actionBusy" @close="messageMenu = undefined">
-      <template v-if="messageMenu"><p class="message-action-preview">{{ messageMenu.body }}</p>
-        <button v-if="!messageMenu.locked" class="messenger-action" @click="reply = messageMenu.id; messageMenu = undefined"><AppIcon name="back" />{{ m('reply') }}</button>
-        <button v-if="!messageMenu.locked" class="messenger-action" @click="perform(copyMessage); messageMenu = undefined"><AppIcon name="copy" />{{ a('copy') }}</button>
-        <button v-if="canPinMessage() && !messageMenu.locked" class="messenger-action" @click="perform(() => pinMessage(messageMenu!.id, !pinnedIds.includes(messageMenu!.id))); messageMenu = undefined"><AppIcon name="star" />{{ ui(pinnedIds.includes(messageMenu.id) ? 'unpin' : 'pin') }}</button>
-        <button class="messenger-action" @click="selectMessage(messageMenu)"><AppIcon name="check" />{{ ui('selectOne') }}</button>
-        <button v-if="messageMenu.status === 'notSent'" class="messenger-action" @click="perform(() => retryMessage(messageMenu!.id)); messageMenu = undefined"><AppIcon name="send" />{{ m('retrySend') }}</button>
-        <button class="messenger-action subtle-danger" @click="askMessageDelete([messageMenu.id])"><AppIcon name="trash" />{{ ui('delete') }}</button>
-      </template>
+      <MessageActionList
+        v-if="messageMenu"
+        :preview="messageMenu.body"
+        :actions="messageActions"
+        @action="handleMessageAction"
+      />
     </AppSheet>
     <AppSheet :open="!!chatMenu && !hidden" :title="rooms.find(room => room.id === chatMenu)?.name || ui('chatActions')" :busy="actionBusy" @close="chatMenu = ''">
       <button v-if="chatMenu === selected" class="messenger-action" @click="messageSearchOpen = true; chatMenu = ''"><AppIcon name="search" />{{ ui('searchChat') }}</button>
