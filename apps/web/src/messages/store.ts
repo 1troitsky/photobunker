@@ -25,6 +25,7 @@ import { voiceText } from './voice-text'
 import { prepareAttachment, encryptAttachment, decryptAttachment, attachmentContent, MAX_ATTACHMENT_BYTES, type ChatAttachment } from './attachment'
 import { retrySignedEvent } from './trusted-decryption'
 import { visiblePendingText, type PendingText } from './optimistic'
+import { summarizeReactions, isReactionKey, type ReactionKey, type ReactionRecord, type ReactionSummary } from './reactions'
 export type Peer = {
   username?: string | null
   publicId: string
@@ -59,6 +60,8 @@ export type Message = {
   locked: boolean
   voice?: VoiceMessage
   attachment?: ChatAttachment
+  edited?: boolean
+  reactions?: ReactionSummary[]
   decryptionFailure?: string
 }
 export const connection = ref<
@@ -79,6 +82,7 @@ export const connection = ref<
 // Ephemeral preflight bubbles. The Matrix SDK owns all real local echoes,
 // retry IDs and E2EE. Nothing in this map is persisted or sent to analytics.
 const optimisticText = new Map<string, PendingText>()
+const reactionLocks = new Set<string>()
 export const messageBackupWarning = ref(false)
 export const olderAvailable = ref(false)
 export const openingHistory = ref(false), openingHistoryError = ref(false)
@@ -407,6 +411,8 @@ function refreshMessages() {
         decryptionFailure: event.decryptionFailureReason || undefined,
         voice: locked ? undefined : voiceContent(content),
         attachment: locked ? undefined : attachmentContent(content),
+        edited: !locked && !!event.replacingEvent() && !event.replacingEvent()!.isDecryptionFailure(),
+        reactions: locked ? [] : summarizeReactions(visibleReactionRecords(room, event.getId()!), client!.getUserId() || ''),
       }
     })
     .filter((event) => event.body || event.attachment)
@@ -469,6 +475,7 @@ async function securityStatus() {
 }
 export function stopMessaging(clearRequest = true) {
   optimisticText.clear()
+  reactionLocks.clear()
   messageBackupWarning.value = false
   joiningIncoming.clear(); failedIncoming.clear(); activatedConversations.clear(); incomingError.value = false
   initialHistoryRooms.clear(); initialHistoryPending.clear(); initialHistoryFailures.clear()
