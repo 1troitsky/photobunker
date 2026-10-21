@@ -6,6 +6,7 @@ import MessageComposer from '../messages/shared-ui/MessageComposer.vue'
 import VoiceMessagePlayer from '../components/VoiceMessagePlayer.vue'
 import EncryptedAttachmentView from '../messages/shared-ui/EncryptedAttachmentView.vue'
 import { validateAttachment } from '../messages/attachment'
+import { reactionKeys, isReactionKey, type ReactionKey } from '../messages/reactions'
 import ConversationListItem from '../messages/shared-ui/ConversationListItem.vue'
 import MessageBubble from '../messages/shared-ui/MessageBubble.vue'
 import MessageList from '../messages/shared-ui/MessageList.vue'
@@ -50,6 +51,9 @@ import {
   loadAllMessages,
   pinMessage,
   canPinMessage,
+  canEditMessage,
+  editMessage,
+  toggleReaction,
   pinnedIds,
   searchMessages,
   cancelMessageSearch,
@@ -179,6 +183,17 @@ const tab = ref('chats'),
   restoreInput = ref(''),
   hidden = ref(document.hidden),
   log = ref<HTMLElement>()
+const editingMessage = ref<{ id: string; roomId: string; original: string }>()
+let editSnapshot: { text: string; reply: string } | undefined
+function cancelEdit() {
+  if (!editingMessage.value) return
+  editingMessage.value = undefined
+  if (editSnapshot) {
+    draft.value = editSnapshot.text
+    reply.value = editSnapshot.reply
+  }
+  editSnapshot = undefined
+}
 const attachmentInput = ref<HTMLInputElement>()
 const chosenAttachment = ref<File>()
 const attachmentPreviewUrl = ref('')
@@ -332,6 +347,7 @@ watch(messages, () => {
   )
 })
 watch(selected, () => {
+  cancelEdit()
   messageSearchOpen.value = false
   messageMenu.value = undefined
   selecting.value = false
@@ -390,6 +406,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('pageshow', resume)
   restoreInput.value = ''
   cancelPress()
+  cancelEdit()
   clearAttachment()
   clearTimeout(searchTimer)
   window.visualViewport?.removeEventListener('resize', updateViewport)
@@ -418,6 +435,7 @@ watch(
       pendingPeer.value = ''
       directHandle.value = ''
       chatDrafts.clear()
+      cancelEdit()
       clearAttachment()
       contactQuery.value = ''
       listQuery.value = ''
