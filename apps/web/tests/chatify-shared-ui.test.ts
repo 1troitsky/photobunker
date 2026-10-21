@@ -145,7 +145,7 @@ describe('PB-U01 shared Chatify navigation composition', () => {
     expect(wrapper.emitted('open')).toHaveLength(1)
     await wrapper.setProps({ selecting: true, name: '3 selected', group: true })
     expect(wrapper.get('.chat-heading').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('.chat-avatar svg').exists()).toBe(true)
+    expect(wrapper.find('.chat-avatar svg').exists()).toBe(true)
     await wrapper.get('.chat-heading').trigger('click')
     expect(wrapper.emitted('open')).toHaveLength(1)
   })
@@ -154,7 +154,7 @@ describe('PB-U01 shared Chatify navigation composition', () => {
     const wrapper = mount(MessengerSplitLayout, {
       slots: { default: '<aside class="messenger-sidebar">Inbox</aside><main class="messenger-thread">Timeline</main>' },
     })
-    expect(wrapper.get('.messenger-workspace').exists()).toBe(true)
+    expect(wrapper.find('.messenger-workspace').exists()).toBe(true)
     expect(wrapper.get('aside').text()).toBe('Inbox')
     expect(wrapper.get('main').text()).toBe('Timeline')
     expect(wrapper.findAll('aside')).toHaveLength(1)
