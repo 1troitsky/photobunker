@@ -202,7 +202,9 @@ function roomChat(room: Room): Chat {
   const last = [...room.getLiveTimeline().getEvents(), ...room.getPendingEvents()].filter(event =>
     !event.isRedacted() && !clearMarker(event) && event.getTs() > (uiState(room).clearedAt ?? 0) &&
     !uiState(room).hidden?.includes(event.getId() || '') && !blocked.has(event.getSender() || '') &&
-    event.getContent().msgtype !== 'm.key.verification.request' && (event.isEncrypted() || event.getType() === 'm.room.message'),
+    event.getContent().msgtype !== 'm.key.verification.request' &&
+    ![sdk.RelationType.Replace, sdk.RelationType.Annotation].includes(event.getOriginalContent()['m.relates_to']?.rel_type) &&
+    (event.isEncrypted() || event.getType() === 'm.room.message'),
   ).at(-1)
   const preview = !last ? '' : last.isDecryptionFailure() || (!last.isEncrypted() && !last.status) ? m('locked')
     : String(last.getContent().body || '').replace(/^>.*(?:\n>.*)*\n\n/, '').replace(/\s+/g, ' ').trim()
@@ -384,6 +386,7 @@ function canInteractWithEvent(current: MatrixClient, room: Room, id: string) {
         !uiState(room).hidden?.includes(id) &&
         !blocked.has(event.getSender() || '') &&
         event.getContent().msgtype !== 'm.key.verification.request' &&
+        ![sdk.RelationType.Replace, sdk.RelationType.Annotation].includes(event.getOriginalContent()['m.relates_to']?.rel_type) &&
         (event.getType() === 'm.room.message' || event.isEncrypted())
       )
     })
@@ -1900,7 +1903,8 @@ export async function searchMessages(query: string) {
           !event.isEncrypted() ||
           event.getTs() <= (state.clearedAt ?? 0) ||
           state.hidden?.includes(event.getId()!) ||
-          blocked.has(event.getSender() ?? '')
+          blocked.has(event.getSender() ?? '') ||
+          [sdk.RelationType.Replace, sdk.RelationType.Annotation].includes(event.getOriginalContent()['m.relates_to']?.rel_type)
         )
           continue
         const body = event.getContent().body
@@ -2034,6 +2038,7 @@ function refreshMessages() {
         !uiState(room).hidden?.includes(id) &&
         !blocked.has(event.getSender() || '') &&
         event.getContent().msgtype !== 'm.key.verification.request' &&
+        ![sdk.RelationType.Replace, sdk.RelationType.Annotation].includes(event.getOriginalContent()['m.relates_to']?.rel_type) &&
         (event.getType() === 'm.room.message' || event.isEncrypted())
       )
     })
