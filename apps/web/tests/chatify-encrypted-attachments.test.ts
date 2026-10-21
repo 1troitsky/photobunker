@@ -81,8 +81,13 @@ describe('PB-U04 Chatify composer and on-demand attachment reader', () => {
   })
   it('does not fetch or decrypt on mount; aborts and revokes on lock', async () => {
     const load = vi.fn(async (_signal: AbortSignal) => new Blob(['decrypted'], { type: 'image/jpeg' }))
-    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:private')
-    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    // jsdom does not guarantee blob URL APIs. Supply them explicitly.
+    const oldCreate = Object.getOwnPropertyDescriptor(URL, 'createObjectURL')
+    const oldRevoke = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL')
+    const create = vi.fn().mockReturnValue('blob:private')
+    const revoke = vi.fn()
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: create })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revoke })
     const wrapper = mount(EncryptedAttachmentView, { props: {
       kind: 'image', name: 'pic.jpg', size: 100, active: true, load, openLabel: 'View',
       downloadLabel: 'Download', loadingLabel: 'Decrypting', errorLabel: 'Failed',
@@ -95,5 +100,9 @@ describe('PB-U04 Chatify composer and on-demand attachment reader', () => {
     await wrapper.setProps({ active: false })
     expect(wrapper.find('.chatify-attachment-image').exists()).toBe(false)
     expect(revoke).toHaveBeenCalledWith('blob:private')
+    if (oldCreate) Object.defineProperty(URL, 'createObjectURL', oldCreate)
+    else Reflect.deleteProperty(URL, 'createObjectURL')
+    if (oldRevoke) Object.defineProperty(URL, 'revokeObjectURL', oldRevoke)
+    else Reflect.deleteProperty(URL, 'revokeObjectURL')
   })
 })
