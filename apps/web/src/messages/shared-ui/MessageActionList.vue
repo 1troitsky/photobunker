@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Adapted from Chatify v2 MessageActionsMenu: authorized, host-supplied actions.
 // The host owns Matrix power levels and permissions, never this component.
-export type UiMessageAction = {
+type UiMessageAction = {
   id: 'reply' | 'copy' | 'pin' | 'select' | 'retry' | 'delete'
   label: string
   destructive?: boolean
