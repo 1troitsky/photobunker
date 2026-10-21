@@ -79,7 +79,18 @@ describe('PB-U04 Chatify composer and on-demand attachment reader', () => {
     await wrapper.get('.chatify-composer-attachment button').trigger('click')
     expect(wrapper.emitted('removeAttachment')).toHaveLength(1)
   })
-  it('does not fetch or decrypt on mount; aborts and revokes on lock', async () => {
+  it('accepts a pasted image or dropped document as a selection intent, not an upload', async () => {
+    const file = new File(['pdf'], 'doc.pdf', { type: 'application/pdf' })
+    const wrapper = mount(MessageComposer, { props: common })
+    await wrapper.get('form').trigger('drop', { dataTransfer: { files: [file] } })
+    expect(wrapper.emitted('selectFile')?.at(-1)).toEqual([file])
+    await wrapper.get('form').trigger('paste', { clipboardData: { files: [file] } })
+    expect(wrapper.emitted('selectFile')).toHaveLength(2)
+    await wrapper.setProps({ disabled: true })
+    await wrapper.get('form').trigger('drop', { dataTransfer: { files: [file] } })
+    expect(wrapper.emitted('selectFile')).toHaveLength(2)
+  })
+    it('does not fetch or decrypt on mount; aborts and revokes on lock', async () => {
     const load = vi.fn(async (_signal: AbortSignal) => new Blob(['decrypted'], { type: 'image/jpeg' }))
     // jsdom does not guarantee blob URL APIs. Supply them explicitly.
     const oldCreate = Object.getOwnPropertyDescriptor(URL, 'createObjectURL')
