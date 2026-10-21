@@ -77,6 +77,7 @@ export const connection = ref<
 // Ephemeral preflight bubbles. The Matrix SDK owns all real local echoes,
 // retry IDs and E2EE. Nothing in this map is persisted or sent to analytics.
 const optimisticText = new Map<string, PendingText>()
+export const messageBackupWarning = ref(false)
 export const olderAvailable = ref(false)
 export const openingHistory = ref(false), openingHistoryError = ref(false)
 export const incomingError = ref(false)
@@ -464,6 +465,7 @@ async function securityStatus() {
 }
 export function stopMessaging(clearRequest = true) {
   optimisticText.clear()
+  messageBackupWarning.value = false
   joiningIncoming.clear(); failedIncoming.clear(); activatedConversations.clear(); incomingError.value = false
   initialHistoryRooms.clear(); initialHistoryPending.clear(); initialHistoryFailures.clear()
   openingHistory.value = false; openingHistoryError.value = false
@@ -1049,8 +1051,11 @@ async function dispatchText(entry: PendingText, current: MatrixClient) {
     entry.serverEventId = ack.event_id
     entry.status = 'sent'
     refreshMessages()
-    // Key backup failure must never turn an ACKed message into "not sent".
-    void preserveMessageKeys().catch(() => {})
+    // Key backup failure must never turn an ACKed message into "not sent",
+    // but it remains an actionable recovery warning in the PhotoBunker UI.
+    void preserveMessageKeys()
+      .then(() => { if (client === current) messageBackupWarning.value = false })
+      .catch(() => { if (client === current) messageBackupWarning.value = true })
   } catch (error) {
     if (client === current && optimisticText.get(entry.id) === entry) {
       entry.status = 'notSent'
