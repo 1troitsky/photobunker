@@ -6,6 +6,10 @@ import VoiceMessagePlayer from '../components/VoiceMessagePlayer.vue'
 import ConversationListItem from '../messages/shared-ui/ConversationListItem.vue'
 import MessageDateSeparator from '../messages/shared-ui/MessageDateSeparator.vue'
 import MessageStatusTicks from '../messages/shared-ui/MessageStatusTicks.vue'
+import ConversationSearch from '../messages/shared-ui/ConversationSearch.vue'
+import SidebarHeader from '../messages/shared-ui/SidebarHeader.vue'
+import ThreadHeader from '../messages/shared-ui/ThreadHeader.vue'
+import MessengerSplitLayout from '../messages/shared-ui/MessengerSplitLayout.vue'
 import { voiceText } from '../messages/voice-text'
 import type { VoiceDraft } from '../messages/voice'
 import CallPanel from '../components/CallPanel.vue'
@@ -586,16 +590,20 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
     <RouterView v-else-if="profileOpen" v-slot="{ Component }"><component :is="Component" in-messages @message="profileMessage" @call="(id: string) => profileMessage(id, true)" /></RouterView>
     <template v-if="!hidden">
       <div v-if="!profileOpen && typeof route.query.peer === 'string'" class="messenger-opening" role="status"><p>{{ actionError || (actionBusy ? personText('opening') : m(connection === 'error' ? failure || 'failed' : connection === 'otherTab' ? 'otherTab' : connection === 'unsupported' ? 'unsupported' : connection === 'offline' ? 'offline' : 'connecting')) }}</p><button v-if="!actionBusy" class="quiet-button" @click="writeDirect(String(route.query.peer), route.query.call === 'audio')">{{ personText('retry') }}</button><button v-if="!actionBusy" class="quiet-button" @click="openPerson(String(route.query.peer))">{{ personText('open') }}</button></div>
-      <div v-show="!profileOpen" class="messenger-workspace">
+      <MessengerSplitLayout v-show="!profileOpen">
         <aside class="messenger-sidebar" :aria-label="m('chats')">
-          <header class="screen-header messenger-list-header">
-            <button v-if="tab === 'contacts'" class="app-icon-button" :aria-label="s('back')" @click="tab = 'chats'"><AppIcon name="back" /></button>
-            <div class="screen-title"><h1>{{ tab === 'contacts' ? a('contacts') : u('messages') }}</h1><small v-if="connection !== 'ready'">{{ connection === 'offline' ? ui('offlineShort') : m('connecting') }}</small></div>
-            <div class="screen-actions">
+          <SidebarHeader
+            :title="tab === 'contacts' ? a('contacts') : u('messages')"
+            :subtitle="connection === 'ready' ? '' : connection === 'offline' ? ui('offlineShort') : m('connecting')"
+          >
+            <template #leading>
+              <button v-if="tab === 'contacts'" class="app-icon-button" :aria-label="s('back')" @click="tab = 'chats'"><AppIcon name="back" /></button>
+            </template>
+            <template #actions>
               <button class="app-icon-button" :aria-label="a('contacts')" :aria-pressed="tab === 'contacts'" @click="tab = tab === 'contacts' ? 'chats' : 'contacts'"><AppIcon name="users" /></button>
               <button class="app-icon-button messenger-compose-button" :aria-label="m('newChat')" @click="newOpen = true"><AppIcon name="plus" /></button>
-            </div>
-          </header>
+            </template>
+          </SidebarHeader>
           <div v-if="['error', 'otherTab', 'unsupported'].includes(connection)" class="messenger-connection-error" role="status">
             <p>{{ m(connection === 'otherTab' ? 'otherTab' : connection === 'unsupported' ? 'unsupported' : failure || 'failed') }}</p>
             <button v-if="failure === 'keysUnavailable'" class="quiet-button" @click="router.push('/profile/account?mode=recover')">{{ m('newDevice') }}</button>
@@ -606,11 +614,14 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
           <div v-if="needsSecurity" class="message-backup-notice"><p>{{ m(accountRecoveryReady ? 'accountRecoveryPending' : 'accountKeyRequired') }}</p><button class="quiet-button" @click="accountRecoveryReady ? securityOpen = true : router.push('/profile/account?mode=connect')">{{ m(accountRecoveryReady ? 'security' : 'connectAccountKey') }}</button></div>
           <ContactsView v-if="tab === 'contacts'" embedded @profile="openPerson" />
           <template v-else>
-            <form class="messenger-search" role="search" @submit.prevent="perform(() => searchMessages(listQuery))">
-              <AppIcon name="search" /><input v-model="listQuery" type="search" :aria-label="ui('search')" :placeholder="ui('search')" autocomplete="off" />
-              <button v-if="listQuery" type="button" class="app-icon-button" :aria-label="ui('clearSearch')" @click="listQuery = ''"><AppIcon name="close" /></button>
-              <button v-if="listQuery.trim()" class="search-history" :disabled="searchBusy">{{ ui(searchBusy ? 'searching' : 'searchHistory') }}</button>
-            </form>
+            <ConversationSearch
+              v-model="listQuery"
+              :placeholder="ui('search')"
+              :clear-label="ui('clearSearch')"
+              :history-label="ui(searchBusy ? 'searching' : 'searchHistory')"
+              :searching="searchBusy"
+              @search-history="perform(() => searchMessages(listQuery))"
+            />
             <div v-if="archiveCount || tab !== 'chats'" class="messenger-filters" :aria-label="m('chats')">
               <button :aria-pressed="tab === 'chats'" @click="tab = 'chats'">{{ m('chats') }}</button>
               <button v-if="archiveCount || tab === 'archive'" :aria-pressed="tab === 'archive'" @click="tab = 'archive'">{{ ui('archive') }}<span v-if="archiveCount">{{ archiveCount }}</span></button>
@@ -636,18 +647,28 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
         </aside>
         <main class="messenger-thread" :class="{ 'messenger-thread-placeholder': !activeChat }" :aria-label="activeChat?.name || ui('threadEmpty')">
           <template v-if="activeChat">
-            <header class="screen-header messenger-chat-header">
-              <button class="app-icon-button messenger-back" :class="{ 'selection-back': selecting }" :aria-label="selecting ? ui('cancelSelection') : s('back')" @click="selecting ? cancelSelection() : chooseRoom('')"><AppIcon name="back" /></button>
-              <button class="chat-heading" :disabled="selecting" @click="directPeer ? openPerson(directPeer.id) : detailsOpen = true"><span :class="['chat-avatar', avatarColor(activeChat.id)]"><span v-if="activeChat.direct">{{ initials(activeChat.name) }}</span><AppIcon v-else name="users" /></span><span class="screen-title"><h1>{{ selecting ? selectedMessages.length + ' ' + ui('messageSelected').toLocaleLowerCase() : activeChat.name }}</h1><small>{{ connection === 'offline' ? ui('offlineShort') : activeChat.direct ? ui('direct') : activeChat.members.length + ' ' + ui('members') }}</small></span></button>
-              <div class="screen-actions">
+            <ThreadHeader
+              :name="selecting ? selectedMessages.length + ' ' + ui('messageSelected').toLocaleLowerCase() : activeChat.name"
+              :subtitle="connection === 'offline' ? ui('offlineShort') : activeChat.direct ? ui('direct') : activeChat.members.length + ' ' + ui('members')"
+              :avatar-class="avatarColor(activeChat.id)"
+              :initials="initials(activeChat.name)"
+              :group="!activeChat.direct"
+              :selecting="selecting"
+              :show-back="true"
+              :back-label="selecting ? ui('cancelSelection') : s('back')"
+              :open-label="activeChat.name"
+              @back="selecting ? cancelSelection() : chooseRoom('')"
+              @open="directPeer ? openPerson(directPeer.id) : detailsOpen = true"
+            >
+              <template #actions>
                 <template v-if="selecting"><button class="app-icon-button" :aria-label="ui('selectAll')" :disabled="historyBusy" @click="selectAll"><AppIcon name="check" /></button></template>
                 <template v-else>
                   <button v-if="callsEnabled && activeChat.membership === 'join' && activeChat.encrypted && !activeChat.blocked && security.verified" class="app-icon-button messenger-audio-call" :aria-label="callText('audio')" :disabled="connection !== 'ready' || callPhase !== 'idle'" @click="joinCall(selected, false)"><AppIcon name="phone" /></button>
                   <button v-if="!messageSearchOpen" class="app-icon-button" :aria-label="ui('searchChat')" @click="messageSearchOpen = !messageSearchOpen"><AppIcon name="search" /></button>
                   <button class="app-icon-button" :aria-label="ui('chatActions')" @click="chatMenu = selected"><AppIcon name="more" /></button>
                 </template>
-              </div>
-            </header>
+              </template>
+            </ThreadHeader>
             <div v-if="activeChat.membership !== 'join'" class="messenger-joining" role="status"><p>{{ personText('opening') }}</p><button v-if="incomingError" class="quiet-button" @click="joinIncomingConversations(true)">{{ personText('retry') }}</button></div>
             <div v-else class="conversation">
               <div v-if="messageSearchOpen" class="messenger-search conversation-search"><AppIcon name="search" /><input v-model="messageQuery" type="search" :aria-label="ui('searchChat')" :placeholder="ui('searchChat')" /><button class="app-icon-button" :aria-label="ui('closeSearch')" @click="messageSearchOpen = false"><AppIcon name="close" /></button></div>
@@ -684,7 +705,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
           </template>
           <div v-else class="messenger-desktop-empty"><span class="service-emblem"><AppIcon name="messages" /></span><h2>{{ ui('threadEmpty') }}</h2><p>{{ ui('threadEmptyHint') }}</p></div>
         </main>
-      </div>
+      </MessengerSplitLayout>
     </template>
     <AppSheet :open="newOpen && !hidden" :title="group ? ui('newGroup') : ui('newMessage')" :busy="actionBusy" @close="closeNewMessage">
       <form class="new-message-sheet" @submit.prevent="group ? newChat() : findPerson()">
