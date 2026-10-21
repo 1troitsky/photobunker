@@ -1571,6 +1571,21 @@ export async function deleteMessages(ids: string[], everyone = false) {
   const current = client,
     room = current?.getRoom(selected.value)
   if (!current || !room || !ids.length) throw new Error('not_ready')
+  // Never call server redaction/conversation deletion with a synthetic UI id.
+  // An unsent preflight item can be discarded locally. An SDK NOT_SENT event
+  // must be cancelled through Matrix rather than merely hidden.
+  const pendingUi = ids.map(id => optimisticText.get(id)).filter((entry): entry is PendingText => !!entry)
+  const sdkPending = ids.map(id => room.getPendingEvents().find(event => event.getId() === id))
+    .filter((event): event is NonNullable<typeof event> => !!event)
+  if (pendingUi.length || sdkPending.length) {
+    if (everyone || pendingUi.some(entry => entry.inFlight || entry.roomId !== room.roomId)
+      || sdkPending.some(event => event.status !== 'not_sent')) throw new Error('permission')
+    for (const event of sdkPending) current.cancelPendingEvent(event)
+    for (const entry of pendingUi) optimisticText.delete(entry.id)
+    ids = ids.filter(id => !pendingUi.some(entry => entry.id === id) && !sdkPending.some(event => event.getId() === id))
+    refreshMessages()
+    if (!ids.length) return
+  }
   if (everyone) {
     const direct = roomChat(room).direct
     if (direct)
@@ -1697,6 +1712,8 @@ export function canPinMessage() {
 export function canDeleteForEveryone(ids: string[]) {
   const current = client, room = current?.getRoom(selected.value)
   if (!current || !room || !ids.length) return false
+  // Synthetic and unacknowledged SDK echoes are never redactable events.
+  if (ids.some(id => optimisticText.has(id) || room.getPendingEvents().some(event => event.getId() === id))) return false
   if (roomChat(room).direct) return true
   return ids.every(id => {
     const event = room.findEventById(id)
