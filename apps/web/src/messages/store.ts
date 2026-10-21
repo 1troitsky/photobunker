@@ -44,6 +44,7 @@ export type Chat = {
   unread: number
   archived: boolean
   deleted: boolean
+  muted: boolean
   preview: string
   lastTime: number
   lastMine: boolean
@@ -225,6 +226,10 @@ function roomChat(room: Room): Chat {
     unread: room.getUnreadNotificationCount(),
     archived: !!uiState(room).archived,
     deleted: conversationDeleted(room),
+    muted: (() => {
+      try { return !!client?.getRoomPushRule('global', room.roomId)?.actions.includes(sdk.PushRuleActionName.DontNotify) }
+      catch { return false }
+    })(),
     preview,
     lastTime: last?.getTs() ?? 0,
     lastMine: last?.getSender() === client?.getUserId(),
@@ -1765,6 +1770,15 @@ async function saveConversation(id: string, patch: ConversationState) {
   await current.http.authedRequest(sdk.Method.Put, path, undefined, value)
   requireClient(current)
   conversationState.set(id, value)
+  refresh()
+}
+/** Real Matrix global push mute. No misleading device-notification toggles. */
+export async function setConversationMuted(id: string, muted: boolean) {
+  const current = client, room = current?.getRoom(id)
+  if (!current || !room || room.getMyMembership() !== 'join') throw new Error('not_ready')
+  const result = current.setRoomMutePushRule('global', id, muted)
+  if (result) await result
+  requireClient(current)
   refresh()
 }
 export async function archiveConversation(id: string, archived = true) {
