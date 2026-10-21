@@ -227,7 +227,7 @@ function roomChat(room: Room): Chat {
     archived: !!uiState(room).archived,
     deleted: conversationDeleted(room),
     muted: (() => {
-      try { return !!client?.getRoomPushRule('global', room.roomId)?.actions.includes(sdk.PushRuleActionName.DontNotify) }
+      try { return !!client?.getRoomPushRule('global', room.roomId)?.actions.some(action => action === 'dont_notify') }
       catch { return false }
     })(),
     preview,
