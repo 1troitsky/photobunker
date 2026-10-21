@@ -339,7 +339,7 @@ function visibleReactionRecords(room: Room, id: string): ReactionRecord[] {
   })
 }
 function canInteractWithEvent(current: MatrixClient, room: Room, id: string) {
-  if (!security.value.verified || roomChat(room).blocked || room.getMyMembership() !== 'join' ||
+  if (!current.getUserId() || !security.value.verified || roomChat(room).blocked || room.getMyMembership() !== 'join' ||
       !roomChat(room).encrypted || !id.startsWith('$')) return false
   const event = room.findEventById(id)
   return !!event && !!event.getId() && event.status == null &&
@@ -368,7 +368,7 @@ export async function editMessage(id: string, body: string) {
   const text = body.trim()
   const originalReply = room.findEventById(id)?.getContent()['m.relates_to']?.['m.in_reply_to']?.event_id
   const replacement = {
-    msgtype: sdk.MsgType.Text,
+    msgtype: sdk.MsgType.Text as import('matrix-js-sdk').MsgType.Text,
     body: text,
     ...(typeof originalReply === 'string' && originalReply.startsWith('$')
       ? { 'm.relates_to': { 'm.in_reply_to': { event_id: originalReply } } } : {}),
