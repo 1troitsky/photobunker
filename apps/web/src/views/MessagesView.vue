@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRouter, useRoute, RouterView } from 'vue-router'
 import VoiceRecorder from '../components/VoiceRecorder.vue'
+import MessageComposer from '../messages/shared-ui/MessageComposer.vue'
 import VoiceMessagePlayer from '../components/VoiceMessagePlayer.vue'
 import ConversationListItem from '../messages/shared-ui/ConversationListItem.vue'
 import MessageBubble from '../messages/shared-ui/MessageBubble.vue'
@@ -83,7 +84,7 @@ import {
   loadVoice,
   joinIncomingConversations,
   incomingError,
-  send,
+  queueTextMessage,
   retryMessage,
   olderMessages,
   olderAvailable,
@@ -414,18 +415,11 @@ watch(selected, (id, previous) => {
 watch(
   () => messages.value.at(-1)?.id,
   () => {
-    const latest = messages.value.at(-1)
-    const sentNow = !!(
-      latest?.mine &&
-      latest.status === 'sending' &&
-      latest.body === draft.value.trim()
-    )
-    if (sentNow) {
-      draft.value = ''
-      reply.value = ''
-    }
-    if (!profileOpen.value && (atBottom.value || sentNow)) void nextTick(scrollToLatest)
-    if (!profileOpen.value && (atBottom.value || sentNow)) void markRead()
+    // The composer clears only after its own queueTextMessage succeeds.
+    // Never erase typed text based on body equality: identical consecutive
+    // messages and interleaved local echoes must remain independent.
+    if (!profileOpen.value && atBottom.value) void nextTick(scrollToLatest)
+    if (!profileOpen.value && atBottom.value) void markRead()
   },
 )
 async function perform(action: () => Promise<unknown>) {
@@ -456,22 +450,27 @@ async function submitVoice(value: VoiceDraft) {
   try { await sendVoice(value, reply.value || undefined); if (version === actionGeneration) reply.value = '' }
   finally { if (version === actionGeneration) actionBusy.value = false }
 }
-async function submit() {
-  const body = draft.value,
-    version = actionGeneration,
-    roomId = selected.value
+function submit() {
+  if (actionBusy.value || voiceDirty.value || connection.value !== 'ready' || !security.value.verified) return
+  const body = draft.value
   if (!body.trim()) return
-  await perform(async () => {
-    await send(body, reply.value || undefined, linkedPhoto.value || undefined)
-    if (version !== actionGeneration) return
+  const roomId = selected.value
+  try {
+    // Synchronous validation + local queue insert; network preflight happens
+    // afterwards. A rejected queue never clears a draft.
+    queueTextMessage(body, reply.value || undefined, linkedPhoto.value || undefined)
     chatDrafts.delete(roomId)
     if (selected.value !== roomId) return
-    if (version === actionGeneration) linkedPhoto.value = ''
-    if (version === actionGeneration && draft.value === body) {
+    if (draft.value === body) {
       draft.value = ''
       reply.value = ''
+      linkedPhoto.value = ''
     }
-  })
+    if (atBottom.value) void nextTick(scrollToLatest)
+  } catch (error) {
+    actionError.value = m(error instanceof Error && error.message === 'not_ready'
+      ? 'deviceRecoveryHint' : 'failed')
+  }
 }
 async function newChat() {
   if (!readyToWrite()) return
@@ -509,8 +508,6 @@ async function block() {
 const replyBody = (id: string) =>
   messages.value.find((message) => message.id === id)?.body || ui('deletedMessage')
 
-const composerInput = ref<HTMLTextAreaElement>()
-watch(draft, () => { void nextTick(() => { const input = composerInput.value; if (input) { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 140) + 'px' } }) })
 const messageSearchOpen = ref(false), messageMenu = ref<Message>(), chatMenu = ref(''), atBottom = ref(true), highlighted = ref('')
 const messageDeleteOpen = ref(false), messageDeleteEveryone = ref(false), deletingMessages = ref<string[]>([])
 const viewport = ref(window.visualViewport?.height ?? window.innerHeight)
@@ -588,11 +585,6 @@ function handleMessageAction(id: MessageActionId) {
     case 'select': selectMessage(item); break
     case 'retry': void perform(() => retryMessage(item.id)); messageMenu.value = undefined; break
     case 'delete': askMessageDelete([item.id]); break
-  }
-}
-function composerKey(event: KeyboardEvent) {
-  if (event.key === 'Enter' && !event.isComposing && !event.shiftKey && (event.ctrlKey || event.metaKey || matchMedia('(pointer:fine)').matches) && connection.value === 'ready' && security.value.verified && !actionBusy.value) {
-    event.preventDefault(); void submit()
   }
 }
 async function confirmMessageDelete() {
@@ -765,10 +757,31 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
               <div v-if="selecting" class="message-selection"><button class="quiet-button" :disabled="!selectedMessages.length || actionBusy" @click="askMessageDelete(selectedMessages, false)">{{ ui('deleteMine') }}</button><button v-if="canDeleteForEveryone(selectedMessages)" class="quiet-button" :disabled="!selectedMessages.length || actionBusy" @click="askMessageDelete(selectedMessages, true)">{{ ui('deleteAll') }}</button></div>
               <p v-else-if="!activeChat.encrypted || activeChat.blocked" class="message-error form-error" role="alert">{{ m(activeChat.blocked ? 'blocked' : 'unencrypted') }}</p>
               <div v-else-if="!security.verified" class="message-device-setup"><p>{{ m(diagnostic === 'ready' ? 'deviceRecoveryHint' : 'connecting') }}</p><button v-if="diagnostic === 'ready'" class="quiet-button" @click="securityOpen = true">{{ m(security.storage ? 'restore' : 'verifyDevice') }}</button></div>
-              <form v-else class="message-composer" @submit.prevent="submit">
-                <div v-if="reply" class="reply-preview"><AppIcon name="back" /><span><strong>{{ m('reply') }}</strong><span>{{ replyBody(reply) }}</span></span><button type="button" class="app-icon-button" :aria-label="m('cancelReply')" @click="reply = ''"><AppIcon name="close" /></button></div>
-                <label v-show="!voiceDirty" class="message-input"><span class="visually-hidden">{{ m('message') }}</span><textarea ref="composerInput" v-model="draft" :aria-label="m('message')" rows="1" maxlength="10000" :placeholder="m('message')" @input="event => { const input = event.target as HTMLTextAreaElement; input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 140) + 'px' }" @keydown="composerKey" /></label><VoiceRecorder v-show="!draft.trim() || voiceDirty" :key="selected" :disabled="actionBusy || connection !== 'ready'" :active="!profileOpen && !hidden" :send="submitVoice" @dirty="voiceDirty = $event" /><button v-if="draft.trim() && !voiceDirty" class="app-icon-button message-send" :aria-label="m('send')" :disabled="actionBusy || !draft.trim() || connection !== 'ready'"><AppIcon name="send" /></button>
-              </form>
+              <MessageComposer
+                v-else
+                v-model="draft"
+                :placeholder="m('message')"
+                :input-label="m('message')"
+                :send-label="m('send')"
+                :cancel-reply-label="m('cancelReply')"
+                :reply-label="m('reply')"
+                :reply-preview="reply ? replyBody(reply) : undefined"
+                :voice-dirty="voiceDirty"
+                :disabled="actionBusy || connection !== 'ready' || !security.verified"
+                @submit="submit"
+                @cancel-reply="reply = ''"
+              >
+                <template #voice>
+                  <VoiceRecorder
+                    v-show="!draft.trim() || voiceDirty"
+                    :key="selected"
+                    :disabled="actionBusy || connection !== 'ready'"
+                    :active="!profileOpen && !hidden"
+                    :send="submitVoice"
+                    @dirty="voiceDirty = $event"
+                  />
+                </template>
+              </MessageComposer>
             </div>
             <p v-if="linkedError" class="form-error message-error" role="alert">{{ linkedError }}<button class="quiet-button" @click="enterDiscussion">{{ w('retry') }}</button></p>
             <p v-if="actionError" class="form-error message-error" role="alert">{{ actionError }}</p>
