@@ -67,7 +67,7 @@ describe('PB-U03 Chatify composer UI', () => {
     expect(wrapper.find('.message-send').exists()).toBe(false)
     expect(wrapper.find('.message-input').isVisible()).toBe(false)
     await wrapper.setProps({ voiceDirty: false })
-    expect(wrapper.get('.message-send').exists()).toBe(true)
+    expect(wrapper.find('.message-send').exists()).toBe(true)
   })
 
   it('supports Cmd+Enter, respects IME composition and Shift+Enter', async () => {
