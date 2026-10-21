@@ -407,16 +407,29 @@ watch(selected, () => {
   cancelPress()
 })
 const listed = computed(() =>
-  rooms.value.filter(
-    (room) =>
-      !room.deleted &&
-      room.membership === 'join' &&
-      room.archived === (tab.value === 'archive') &&
-      (!listQuery.value ||
-        room.name
-          .toLocaleLowerCase()
-          .includes(listQuery.value.toLocaleLowerCase())),
-  ),
+  rooms.value.filter(room => {
+    if (room.deleted || room.membership !== 'join') return false
+    if (tab.value === 'archive') { if (!room.archived) return false }
+    else {
+      if (room.archived) return false
+      if (tab.value === 'unread' && room.unread <= 0) return false
+      if (tab.value === 'groups' && room.direct) return false
+      if (tab.value.startsWith('folder:') &&
+          !privateFolders.value.find(folder => folder.id === tab.value.slice(7))?.roomIds.includes(room.id)) return false
+    }
+    return !listQuery.value || room.name.toLocaleLowerCase().includes(listQuery.value.toLocaleLowerCase())
+  }),
+)
+watch(
+  () => [account.value?.id, identityDeviceId.value, appLocked.value] as const,
+  () => {
+    clearPrivateFolders()
+    tab.value = 'chats'
+    foldersOpen.value = false
+    if (!account.value || appLocked.value) return
+    void loadPrivateFolders().catch(() => { folderError.value = ui('folderError') })
+  },
+  { immediate: true },
 )
 const needsSecurity = computed(() => connection.value === 'ready' && diagnostic.value === 'ready' && !security.value.verified)
 watch([() => security.value.verified, connection], ([value, state]) => {
@@ -458,6 +471,7 @@ onBeforeUnmount(() => {
   restoreInput.value = ''
   cancelPress()
   cancelEdit()
+  clearPrivateFolders()
   clearAttachment()
   clearTimeout(searchTimer)
   window.visualViewport?.removeEventListener('resize', updateViewport)
@@ -486,6 +500,9 @@ watch(
       pendingPeer.value = ''
       directHandle.value = ''
       chatDrafts.clear()
+      clearPrivateFolders()
+      pickerOpen.value = false
+      foldersOpen.value = false
       cancelEdit()
       reactionPicker.value = undefined
       messageMenu.value = undefined
