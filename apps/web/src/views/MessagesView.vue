@@ -350,6 +350,7 @@ watch(selected, () => {
   cancelEdit()
   messageSearchOpen.value = false
   messageMenu.value = undefined
+  reactionPicker.value = undefined
   selecting.value = false
   selectedMessages.value = []
   messageQuery.value = ''
@@ -614,6 +615,7 @@ function startEditMessage(message: Message) {
   void nextTick(() => document.querySelector<HTMLTextAreaElement>('.chatify-message-composer textarea')?.focus())
 }
 
+const reactionPicker = ref<Message>()
 const messageSearchOpen = ref(false), messageMenu = ref<Message>(), chatMenu = ref(''), atBottom = ref(true), highlighted = ref('')
 const messageDeleteOpen = ref(false), messageDeleteEveryone = ref(false), deletingMessages = ref<string[]>([])
 const viewport = ref(window.visualViewport?.height ?? window.innerHeight)
@@ -667,7 +669,7 @@ function toggleMessage(id: string) {
 function askMessageDelete(ids: string[], everyone = false) {
   deletingMessages.value = [...ids]; messageDeleteEveryone.value = everyone && canDeleteForEveryone(ids); messageDeleteOpen.value = true; messageMenu.value = undefined
 }
-type MessageActionId = 'reply' | 'copy' | 'pin' | 'select' | 'retry' | 'delete'
+type MessageActionId = 'reply' | 'copy' | 'pin' | 'select' | 'retry' | 'delete' | 'edit' | 'react'
 const messageActions = computed(() => {
   const item = messageMenu.value
   const actions: { id: MessageActionId; label: string; destructive?: boolean }[] = []
@@ -676,6 +678,9 @@ const messageActions = computed(() => {
     actions.push({ id: 'copy', label: a('copy') })
     if (item.status !== 'notSent') {
       actions.unshift({ id: 'reply', label: m('reply') })
+      actions.push({ id: 'react', label: ui('react') })
+      if (canEditMessage(item.id) && !editingMessage.value && !chosenAttachment.value && !voiceDirty.value)
+        actions.push({ id: 'edit', label: ui('edit') })
       if (canPinMessage()) actions.push({ id: 'pin', label: ui(pinnedIds.value.includes(item.id) ? 'unpin' : 'pin') })
     }
   }
@@ -693,12 +698,24 @@ function handleMessageAction(id: MessageActionId) {
   if (!item || !messageActions.value.some(action => action.id === id)) return
   switch (id) {
     case 'reply': reply.value = item.id; messageMenu.value = undefined; break
+    case 'edit': startEditMessage(item); break
+    case 'react': reactionPicker.value = item; messageMenu.value = undefined; break
     case 'copy': void perform(copyMessage); messageMenu.value = undefined; break
     case 'pin': void perform(() => pinMessage(item.id, !pinnedIds.value.includes(item.id))); messageMenu.value = undefined; break
     case 'select': selectMessage(item); break
     case 'retry': void perform(() => retryMessage(item.id)); messageMenu.value = undefined; break
     case 'delete': askMessageDelete([item.id]); break
   }
+}
+function handleReaction(id: string, key: string) {
+  if (!isReactionKey(key) || connection.value !== 'ready' || !security.value.verified ||
+      actionBusy.value) return
+  void perform(() => toggleReaction(id, key))
+}
+function applyPickedReaction(key: ReactionKey) {
+  const target = reactionPicker.value
+  reactionPicker.value = undefined
+  if (target) handleReaction(target.id, key)
 }
 async function confirmMessageDelete() {
   await perform(async () => { await deleteMessages(deletingMessages.value, messageDeleteEveryone.value); messageDeleteOpen.value = false; selectedMessages.value = []; selecting.value = false })
