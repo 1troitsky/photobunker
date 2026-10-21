@@ -49,6 +49,20 @@ async function put(id: string, value: Row): Promise<void> {
     tx.onerror = () => { db.close(); reject(new Error('folders.unavailable')) }
   })
 }
+// Initial key creation must be serialized by IndexedDB's write transaction:
+// two tabs must never replace each other's nonextractable encryption key.
+async function createKeyIfAbsent(id: string, key: CryptoKey): Promise<void> {
+  const db = await open()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('private', 'readwrite')
+    const store = tx.objectStore('private')
+    const request = store.get(id)
+    request.onsuccess = () => { if (!request.result) store.add(key, id) }
+    tx.oncomplete = () => { db.close(); resolve() }
+    tx.onabort = () => { db.close(); reject(new Error('folders.unavailable')) }
+    tx.onerror = () => { db.close(); reject(new Error('folders.unavailable')) }
+  })
+}
 async function keyFor(owner: string) {
   const id = 'key:' + owner
   let key = await get<CryptoKey>(id)
@@ -57,8 +71,11 @@ async function keyFor(owner: string) {
   if (owner !== scope()) throw new Error('folders.cancelled')
   // UI serializes mutations; two fresh tabs could still generate different
   // keys. A read-after-write ensures the matching key is loaded.
-  await put(id, key)
-  return (await get<CryptoKey>(id))!
+  await createKeyIfAbsent(id, key)
+  if (owner !== scope()) throw new Error('folders.cancelled')
+  const stored = await get<CryptoKey>(id)
+  if (!stored) throw new Error('folders.unavailable')
+  return stored
 }
 export function validateFolderName(name: string) {
   const result = name.trim().replace(/\s+/g, ' ')
