@@ -3,6 +3,10 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRouter, useRoute, RouterView } from 'vue-router'
 import VoiceRecorder from '../components/VoiceRecorder.vue'
 import MessageComposer from '../messages/shared-ui/MessageComposer.vue'
+import EmojiStickerPicker from '../messages/shared-ui/EmojiStickerPicker.vue'
+import { makeLocalSticker } from '../messages/picker'
+import { privateFolders, clearPrivateFolders, loadPrivateFolders, createPrivateFolder, renamePrivateFolder, deletePrivateFolder, toggleRoomFolder } from '../messages/private-folders'
+import { appLocked } from '../app/lock'
 import VoiceMessagePlayer from '../components/VoiceMessagePlayer.vue'
 import EncryptedAttachmentView from '../messages/shared-ui/EncryptedAttachmentView.vue'
 import { validateAttachment } from '../messages/attachment'
@@ -45,6 +49,7 @@ import {
   messageBackupWarning,
   preserveMessageKeys,
   archiveConversation,
+  setConversationMuted,
   deleteConversation,
   deleteMessages,
   canDeleteForEveryone,
@@ -183,6 +188,51 @@ const tab = ref('chats'),
   restoreInput = ref(''),
   hidden = ref(document.hidden),
   log = ref<HTMLElement>()
+const composer = ref<InstanceType<typeof MessageComposer>>()
+const pickerOpen = ref(false)
+const foldersOpen = ref(false)
+const folderName = ref('')
+const renameFolderId = ref('')
+const renameFolderText = ref('')
+const folderBusy = ref(false)
+const folderError = ref('')
+async function runFolderUpdate(action: () => Promise<void>) {
+  if (folderBusy.value) return
+  folderBusy.value = true; folderError.value = ''
+  try { await action() }
+  catch { folderError.value = ui('folderError') }
+  finally { folderBusy.value = false }
+}
+function createFolder() {
+  void runFolderUpdate(async () => {
+    await createPrivateFolder(folderName.value)
+    folderName.value = ''
+  })
+}
+function saveFolderName() {
+  const id = renameFolderId.value
+  void runFolderUpdate(async () => {
+    await renamePrivateFolder(id, renameFolderText.value)
+    renameFolderId.value = ''
+    renameFolderText.value = ''
+  })
+}
+function removeFolder(id: string) {
+  void runFolderUpdate(async () => {
+    await deletePrivateFolder(id)
+    if (tab.value === 'folder:' + id) tab.value = 'chats'
+  })
+}
+function assignFolder(id: string, roomId: string) {
+  if (!rooms.value.some(room => room.id === roomId && room.membership === 'join')) return
+  void runFolderUpdate(() => toggleRoomFolder(id, roomId))
+}
+async function prepareSticker(symbol: string) {
+  if (!security.value.verified || connection.value !== 'ready' || editingMessage.value) return
+  pickerOpen.value = false
+  try { acceptAttachment(await makeLocalSticker(symbol)) }
+  catch { attachmentError.value = ui('stickerFailed') }
+}
 const editingMessage = ref<{ id: string; roomId: string; original: string }>()
 let editSnapshot: { text: string; reply: string } | undefined
 function cancelEdit() {
