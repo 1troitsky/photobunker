@@ -228,10 +228,21 @@ function assignFolder(id: string, roomId: string) {
   void runFolderUpdate(() => toggleRoomFolder(id, roomId))
 }
 async function prepareSticker(symbol: string) {
-  if (!security.value.verified || connection.value !== 'ready' || editingMessage.value) return
+  if (!security.value.verified || connection.value !== 'ready' || editingMessage.value ||
+      !selected.value || appLocked.value) return
+  const roomId = selected.value, userId = account.value?.id, version = actionGeneration
   pickerOpen.value = false
-  try { acceptAttachment(await makeLocalSticker(symbol)) }
-  catch { attachmentError.value = ui('stickerFailed') }
+  try {
+    const file = await makeLocalSticker(symbol)
+    // Never attach a private media draft to another conversation/account
+    // if the user navigated away during asynchronous image encoding.
+    if (selected.value === roomId && account.value?.id === userId &&
+        version === actionGeneration && !appLocked.value && security.value.verified)
+      acceptAttachment(file)
+  } catch {
+    if (selected.value === roomId && account.value?.id === userId)
+      attachmentError.value = ui('stickerFailed')
+  }
 }
 const editingMessage = ref<{ id: string; roomId: string; original: string }>()
 let editSnapshot: { text: string; reply: string } | undefined
@@ -398,6 +409,7 @@ watch(messages, () => {
 })
 watch(selected, () => {
   cancelEdit()
+  pickerOpen.value = false
   messageSearchOpen.value = false
   messageMenu.value = undefined
   reactionPicker.value = undefined
