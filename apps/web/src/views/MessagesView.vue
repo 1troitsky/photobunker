@@ -566,13 +566,20 @@ const messageActions = computed(() => {
   const item = messageMenu.value
   const actions: { id: MessageActionId; label: string; destructive?: boolean }[] = []
   if (!item) return actions
-  if (!item.locked) {
-    actions.push({ id: 'reply', label: m('reply') }, { id: 'copy', label: a('copy') })
-    if (canPinMessage()) actions.push({ id: 'pin', label: ui(pinnedIds.value.includes(item.id) ? 'unpin' : 'pin') })
+  if (!item.locked && item.status !== 'sending') {
+    actions.push({ id: 'copy', label: a('copy') })
+    if (item.status !== 'notSent') {
+      actions.unshift({ id: 'reply', label: m('reply') })
+      if (canPinMessage()) actions.push({ id: 'pin', label: ui(pinnedIds.value.includes(item.id) ? 'unpin' : 'pin') })
+    }
   }
   actions.push({ id: 'select', label: ui('selectOne') })
-  if (item.status === 'notSent') actions.push({ id: 'retry', label: m('retrySend') })
-  actions.push({ id: 'delete', label: ui('delete'), destructive: true })
+  if (item.status === 'notSent') {
+    actions.push({ id: 'retry', label: m('retrySend') })
+    actions.push({ id: 'delete', label: ui('delete'), destructive: true })
+  } else if (item.status !== 'sending') {
+    actions.push({ id: 'delete', label: ui('delete'), destructive: true })
+  }
   return actions
 })
 function handleMessageAction(id: MessageActionId) {
@@ -599,7 +606,7 @@ function press(event: PointerEvent, message: Message) {
 }
 function movePress(event: PointerEvent) { if (Math.abs(event.clientX - pressX) > 12 || Math.abs(event.clientY - pressY) > 12) cancelPress() }
 function releasePress(event: PointerEvent, message: Message) {
-  if (event.pointerType !== 'mouse' && !selecting.value && !message.locked && event.clientX - pressX > 65 && Math.abs(event.clientY - pressY) < 35) reply.value = message.id
+  if (event.pointerType !== 'mouse' && !selecting.value && !message.locked && message.status !== 'sending' && message.status !== 'notSent' && event.clientX - pressX > 65 && Math.abs(event.clientY - pressY) < 35) reply.value = message.id
   cancelPress()
 }
 let searchTimer: ReturnType<typeof setTimeout> | undefined
