@@ -89,10 +89,10 @@ export function cleanFolders(value: unknown): PrivateFolder[] {
         typeof item.id !== 'string' || !/^[a-f0-9-]{36}$/i.test(item.id) ||
         typeof item.name !== 'string' || !Array.isArray(item.roomIds)) throw new Error('folders.corrupt')
     const name = validateFolderName(item.name)
-    const roomIds = item.roomIds.filter((id: unknown): id is string =>
+    const roomIds: string[] = (item.roomIds as unknown[]).filter((id): id is string =>
       typeof id === 'string' && id.startsWith('!') && id.length <= 255)
     if (roomIds.length > 200) throw new Error('folders.corrupt')
-    return { id: item.id, name, roomIds: [...new Set(roomIds)] }
+    return { id: item.id as string, name, roomIds: [...new Set<string>(roomIds)] }
   })
 }
 export function clearPrivateFolders() { privateFolders.value = [] }
