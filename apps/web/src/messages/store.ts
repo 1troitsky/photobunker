@@ -1157,7 +1157,10 @@ export async function sendAttachment(file: File, caption = '', reply?: string) {
   await current.sendMessage(room.roomId, content)
   requireClient(current)
   refreshMessages()
-  await preserveMessageKeys()
+  // Keep recovery-key failures distinct from actual Matrix send failures.
+  void preserveMessageKeys()
+    .then(() => { if (client === current) messageBackupWarning.value = false })
+    .catch(() => { if (client === current) messageBackupWarning.value = true })
 }
 
 /** Fetch ciphertext only from our trusted Matrix origin with authorization.
