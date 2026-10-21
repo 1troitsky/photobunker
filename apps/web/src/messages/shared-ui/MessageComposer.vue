@@ -4,7 +4,7 @@
 // No Matrix, Laravel, SDK, crypto, storage, network, or side effects.
 import { nextTick, ref, watch } from 'vue'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: string
   placeholder: string
   inputLabel: string
@@ -19,7 +19,7 @@ const props = defineProps<{
   attachment?: { name: string; size: number; kind: 'image' | 'file'; preview?: string }
   attachmentBusy?: boolean
   allowAttachments?: boolean
-}>()
+}>(), { allowAttachments: true })
 const emit = defineEmits<{
   'update:modelValue': [text: string]
   submit: []
