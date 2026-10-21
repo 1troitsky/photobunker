@@ -2,7 +2,7 @@
 // Adapted from Chatify v2 MessageActionsMenu: authorized, host-supplied actions.
 // The host owns Matrix power levels and permissions, never this component.
 type UiMessageAction = {
-  id: 'reply' | 'copy' | 'pin' | 'select' | 'retry' | 'delete'
+  id: 'reply' | 'copy' | 'pin' | 'select' | 'retry' | 'delete' | 'edit' | 'react'
   label: string
   destructive?: boolean
 }
@@ -24,6 +24,12 @@ const emit = defineEmits<{ action: [id: UiMessageAction['id']] }>()
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
         <template v-if="action.id === 'reply'">
           <path d="m10 8-6 4 6 4V8Zm-6 4h9a6 6 0 0 1 6 6" stroke-linecap="round" stroke-linejoin="round"/>
+        </template>
+        <template v-else-if="action.id === 'edit'">
+          <path d="m13 6 5 5M4 20l4.5-1 10-10a2 2 0 0 0-4-4l-10 10L4 20Z" stroke-linejoin="round" />
+        </template>
+        <template v-else-if="action.id === 'react'">
+          <circle cx="12" cy="12" r="9"/><path d="M8 14c1 3 7 3 8 0M9 10h.01M15 10h.01" stroke-linecap="round"/>
         </template>
         <template v-else-if="action.id === 'copy'">
           <rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>
