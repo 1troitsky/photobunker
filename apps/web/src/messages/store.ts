@@ -1142,8 +1142,8 @@ export async function sendAttachment(file: File, caption = '', reply?: string) {
   requireClient(current)
   if (!security.value.verified || room.getMyMembership() !== 'join' || roomChat(room).blocked ||
       !(await current.getCrypto()!.isEncryptionEnabledInRoom(room.roomId))) throw new Error('unsafe_room')
-  const content = {
-    msgtype: prepared.kind === 'image' ? sdk.MsgType.Image : sdk.MsgType.File,
+  // Keep Matrix's discriminated RoomMessageEventContent type intact.
+  const baseContent = {
     body: prepared.name,
     file: { ...encrypted.file, url: upload.content_uri },
     info: {
@@ -1154,6 +1154,9 @@ export async function sendAttachment(file: File, caption = '', reply?: string) {
     ...(caption.trim() ? { 'org.photobunker.caption': caption.trim() } : {}),
     ...(reply ? { 'm.relates_to': { 'm.in_reply_to': { event_id: reply } } } : {}),
   }
+  const content = prepared.kind === 'image'
+    ? { ...baseContent, msgtype: sdk.MsgType.Image }
+    : { ...baseContent, msgtype: sdk.MsgType.File }
   await current.sendMessage(room.roomId, content)
   requireClient(current)
   refreshMessages()
