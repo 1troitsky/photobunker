@@ -4,6 +4,8 @@ import { onBeforeRouteLeave, useRouter, useRoute, RouterView } from 'vue-router'
 import VoiceRecorder from '../components/VoiceRecorder.vue'
 import MessageComposer from '../messages/shared-ui/MessageComposer.vue'
 import VoiceMessagePlayer from '../components/VoiceMessagePlayer.vue'
+import EncryptedAttachmentView from '../messages/shared-ui/EncryptedAttachmentView.vue'
+import { validateAttachment } from '../messages/attachment'
 import ConversationListItem from '../messages/shared-ui/ConversationListItem.vue'
 import MessageBubble from '../messages/shared-ui/MessageBubble.vue'
 import MessageList from '../messages/shared-ui/MessageList.vue'
@@ -83,6 +85,8 @@ import {
   createChat,
   sendVoice,
   loadVoice,
+  sendAttachment,
+  loadAttachment,
   joinIncomingConversations,
   incomingError,
   queueTextMessage,
@@ -175,6 +179,31 @@ const tab = ref('chats'),
   restoreInput = ref(''),
   hidden = ref(document.hidden),
   log = ref<HTMLElement>()
+const attachmentInput = ref<HTMLInputElement>()
+const chosenAttachment = ref<File>()
+const attachmentPreviewUrl = ref('')
+const attachmentBusy = ref(false)
+const attachmentError = ref('')
+function clearAttachment() {
+  chosenAttachment.value = undefined
+  if (attachmentPreviewUrl.value) URL.revokeObjectURL(attachmentPreviewUrl.value)
+  attachmentPreviewUrl.value = ''
+  attachmentError.value = ''
+  if (attachmentInput.value) attachmentInput.value.value = ''
+}
+function chooseAttachment(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  try {
+    validateAttachment(file)
+    clearAttachment()
+    chosenAttachment.value = file
+    if (file.type.startsWith('image/')) attachmentPreviewUrl.value = URL.createObjectURL(file)
+  } catch {
+    clearAttachment()
+    attachmentError.value = ui('attachmentInvalid')
+  }
+}
 const directHandle = ref(''), pendingPeer = ref(''), pendingCall = ref(false)
 const { person: foundPerson, busy: lookupBusy, error: lookupError, find: findPerson } = usePersonLookup(
   directHandle,
@@ -359,6 +388,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('pageshow', resume)
   restoreInput.value = ''
   cancelPress()
+  clearAttachment()
   clearTimeout(searchTimer)
   window.visualViewport?.removeEventListener('resize', updateViewport)
   window.removeEventListener('resize', updateViewport)
@@ -386,6 +416,7 @@ watch(
       pendingPeer.value = ''
       directHandle.value = ''
       chatDrafts.clear()
+      clearAttachment()
       contactQuery.value = ''
       listQuery.value = ''
       draft.value = ''
@@ -405,6 +436,7 @@ watch(newOpen, (value) => {
   if (value) { pendingPeer.value = ''; pendingCall.value = false; directHandle.value = ''; contactQuery.value = ''; group.value = false; chosen.value = []; actionError.value = ''; void refreshPeers().catch(() => {}) }
 })
 watch(selected, (id, previous) => {
+  if (previous && id !== previous) clearAttachment()
   if (previous) chatDrafts.set(previous, { text: draft.value, reply: reply.value })
   draft.value = chatDrafts.get(id)?.text || ''
   reply.value = chatDrafts.get(id)?.reply || ''
@@ -451,8 +483,28 @@ async function submitVoice(value: VoiceDraft) {
   try { await sendVoice(value, reply.value || undefined); if (version === actionGeneration) reply.value = '' }
   finally { if (version === actionGeneration) actionBusy.value = false }
 }
+async function submitChosenAttachment() {
+  const file = chosenAttachment.value, roomId = selected.value, version = actionGeneration
+  if (!file || actionBusy.value || attachmentBusy.value) return
+  attachmentBusy.value = true
+  attachmentError.value = ''
+  try {
+    await sendAttachment(file, draft.value, reply.value || undefined)
+    if (actionGeneration === version && selected.value === roomId && chosenAttachment.value === file) {
+      clearAttachment()
+      draft.value = ''
+      reply.value = ''
+    }
+  } catch {
+    if (actionGeneration === version && selected.value === roomId)
+      attachmentError.value = ui('attachmentSendFailed')
+  } finally {
+    attachmentBusy.value = false
+  }
+}
 function submit() {
-  if (actionBusy.value || voiceDirty.value || connection.value !== 'ready' || !security.value.verified) return
+  if (actionBusy.value || attachmentBusy.value || voiceDirty.value || connection.value !== 'ready' || !security.value.verified) return
+  if (chosenAttachment.value) { void submitChosenAttachment(); return }
   const body = draft.value
   if (!body.trim()) return
   const roomId = selected.value
@@ -733,6 +785,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                     :reply-preview="item.message.reply ? replyBody(item.message.reply) : undefined"
                     :has-voice="!!item.message.voice"
                     :has-photo="!!item.message.photoId"
+                    :has-attachment="!!item.message.attachment"
                     @menu="messageMenu = item.message"
                     @toggle="toggleMessage(item.message.id)"
                     @reply-jump="jumpToMessage"
@@ -748,6 +801,21 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                         :waveform="item.message.voice.waveform"
                         :active="!profileOpen && !hidden"
                         :load="signal => loadVoice(item.message, signal)"
+                      />
+                    </template>
+                    <template #attachment>
+                      <EncryptedAttachmentView
+                        v-if="item.message.attachment"
+                        :key="item.message.id"
+                        :kind="item.message.attachment.kind"
+                        :name="item.message.attachment.name"
+                        :size="item.message.attachment.size"
+                        :active="!profileOpen && !hidden && security.verified && selected === activeChat.id"
+                        :load="signal => loadAttachment(item.message, signal)"
+                        :open-label="ui('attachmentOpen')"
+                        :download-label="ui('attachmentDownload')"
+                        :loading-label="ui('attachmentLoading')"
+                        :error-label="ui('attachmentFailed')"
                       />
                     </template>
                     <template #photo>
@@ -775,11 +843,18 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                 :reply-label="m('reply')"
                 :reply-preview="reply ? replyBody(reply) : undefined"
                 :voice-dirty="voiceDirty"
-                :disabled="actionBusy || connection !== 'ready' || !security.verified"
+                :disabled="actionBusy || attachmentBusy || connection !== 'ready' || !security.verified"
+                :attachment="chosenAttachment ? { name: chosenAttachment.name, kind: chosenAttachment.type.startsWith('image/') ? 'image' : 'file', size: chosenAttachment.size, preview: attachmentPreviewUrl } : undefined"
+                :attachment-busy="attachmentBusy"
+                :attach-label="ui('attachmentAdd')"
+                :remove-attachment-label="ui('attachmentRemove')"
                 @submit="submit"
+                @attach="attachmentInput?.click()"
+                @remove-attachment="clearAttachment"
                 @cancel-reply="reply = ''"
               >
                 <template #voice>
+                  <input ref="attachmentInput" class="visually-hidden" tabindex="-1" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,application/zip,.pdf,.txt,.zip" :aria-label="ui('attachmentAdd')" @change="chooseAttachment" />
                   <VoiceRecorder
                     v-show="!draft.trim() || voiceDirty"
                     :key="selected"
@@ -790,6 +865,9 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                   />
                 </template>
               </MessageComposer>
+              <p v-if="attachmentBusy" class="field-hint chatify-attachment-status" role="status">{{ ui('attachmentSending') }}</p>
+              <p v-if="attachmentError" class="form-error" role="alert">{{ attachmentError }}</p>
+              <p v-if="chosenAttachment && !attachmentBusy" class="field-hint chatify-attachment-privacy">{{ ui('attachmentOriginalNote') }}</p>
             </div>
             <p v-if="linkedError" class="form-error message-error" role="alert">{{ linkedError }}<button class="quiet-button" @click="enterDiscussion">{{ w('retry') }}</button></p>
             <p v-if="actionError" class="form-error message-error" role="alert">{{ actionError }}</p>
