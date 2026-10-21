@@ -53,8 +53,8 @@ export function attachmentContent(content: Record<string, unknown>): ChatAttachm
   const kind = content.msgtype === 'm.image' ? 'image' : 'file'
   if (kind === 'image' ? !mime.startsWith('image/') : mime.startsWith('image/')) return
   return { kind, file, name: safeName(name), mimetype: mime, size: size as number,
-    ...(Number.isSafeInteger(meta.w) && Number(meta.w) > 0 && Number(meta.w) <= 8192 ? { width: Number(meta.w) } : {}),
-    ...(Number.isSafeInteger(meta.h) && Number(meta.h) > 0 && Number(meta.h) <= 8192 ? { height: Number(meta.h) } : {}),
+    ...(typeof meta.w === 'number' && Number.isSafeInteger(meta.w) && meta.w > 0 && meta.w <= 8192 ? { width: Number(meta.w) } : {}),
+    ...(typeof meta.h === 'number' && Number.isSafeInteger(meta.h) && meta.h > 0 && meta.h <= 8192 ? { height: Number(meta.h) } : {}),
   }
 }
 /**
