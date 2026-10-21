@@ -437,6 +437,8 @@ watch(
       directHandle.value = ''
       chatDrafts.clear()
       cancelEdit()
+      reactionPicker.value = undefined
+      messageMenu.value = undefined
       clearAttachment()
       contactQuery.value = ''
       listQuery.value = ''
