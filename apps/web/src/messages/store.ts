@@ -1580,7 +1580,13 @@ export async function deleteMessages(ids: string[], everyone = false) {
   if (pendingUi.length || sdkPending.length) {
     if (everyone || pendingUi.some(entry => entry.inFlight || entry.roomId !== room.roomId)
       || sdkPending.some(event => event.status !== 'not_sent')) throw new Error('permission')
-    for (const event of sdkPending) current.cancelPendingEvent(event)
+    for (const event of sdkPending) {
+      if (event.getTxnId()) for (const entry of optimisticText.values()) {
+        if (entry.roomId === room.roomId && entry.txnId === event.getTxnId() && !entry.inFlight)
+          optimisticText.delete(entry.id)
+      }
+      current.cancelPendingEvent(event)
+    }
     for (const entry of pendingUi) optimisticText.delete(entry.id)
     ids = ids.filter(id => !pendingUi.some(entry => entry.id === id) && !sdkPending.some(event => event.getId() === id))
     refreshMessages()
