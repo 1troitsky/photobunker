@@ -39,6 +39,7 @@ import { personText } from '../identity/person-text'
 import type { Message } from '../messages/store'
 import {
   accountRecoveryReady,
+  messageBackupWarning,
   preserveMessageKeys,
   archiveConversation,
   deleteConversation,
@@ -792,6 +793,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
             </div>
             <p v-if="linkedError" class="form-error message-error" role="alert">{{ linkedError }}<button class="quiet-button" @click="enterDiscussion">{{ w('retry') }}</button></p>
             <p v-if="actionError" class="form-error message-error" role="alert">{{ actionError }}</p>
+          <p v-if="messageBackupWarning" class="form-error message-error" role="alert">{{ m('backupBeforeLeaving') }}</p>
           </template>
           <div v-else class="messenger-desktop-empty"><span class="service-emblem"><AppIcon name="messages" /></span><h2>{{ ui('threadEmpty') }}</h2><p>{{ ui('threadEmptyHint') }}</p></div>
         </main>
