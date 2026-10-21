@@ -191,9 +191,7 @@ function clearAttachment() {
   attachmentError.value = ''
   if (attachmentInput.value) attachmentInput.value.value = ''
 }
-function chooseAttachment(event: Event) {
-  const file = (event.target as HTMLInputElement).files?.[0]
-  if (!file) return
+function acceptAttachment(file: File) {
   try {
     validateAttachment(file)
     clearAttachment()
@@ -203,6 +201,10 @@ function chooseAttachment(event: Event) {
     clearAttachment()
     attachmentError.value = ui('attachmentInvalid')
   }
+}
+function chooseAttachment(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (file) acceptAttachment(file)
 }
 const directHandle = ref(''), pendingPeer = ref(''), pendingCall = ref(false)
 const { person: foundPerson, busy: lookupBusy, error: lookupError, find: findPerson } = usePersonLookup(
@@ -850,6 +852,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                 :remove-attachment-label="ui('attachmentRemove')"
                 @submit="submit"
                 @attach="attachmentInput?.click()"
+                @select-file="acceptAttachment"
                 @remove-attachment="clearAttachment"
                 @cancel-reply="reply = ''"
               >
