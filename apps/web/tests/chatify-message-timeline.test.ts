@@ -39,9 +39,9 @@ describe('PB-U02 Chatify-derived Matrix-independent message presentation', () =>
     expect(wrapper.get('.message-state').attributes('aria-label')).toBe('Read')
     await wrapper.setProps({ status: 'sending', statusLabel: 'Sending' })
     expect(wrapper.find('.chatify-message-ticks').exists()).toBe(false)
-    expect(wrapper.get('.message-state-sending').exists()).toBeTruthy()
+    expect(wrapper.find('.message-state-sending').exists()).toBeTruthy()
     await wrapper.setProps({ status: 'notSent', statusLabel: 'Not sent' })
-    expect(wrapper.get('.message-state-notSent').exists()).toBeTruthy()
+    expect(wrapper.find('.message-state-notSent').exists()).toBeTruthy()
     expect(wrapper.find('.chatify-message-ticks').exists()).toBe(false)
   })
 
