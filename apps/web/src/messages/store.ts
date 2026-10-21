@@ -154,6 +154,10 @@ function resolveNames() {
     }).catch(() => { if (generation === version) unresolvedPeers.add(id) }).finally(() => { if (generation === version) resolvingPeers.delete(id) })
   }
 }
+function isAuxiliaryRelation(event: import('matrix-js-sdk').MatrixEvent) {
+  const kind = event.getOriginalContent()['m.relates_to']?.rel_type
+  return kind === sdk.RelationType.Replace || kind === sdk.RelationType.Annotation
+}
 function clearMarker(event: import('matrix-js-sdk').MatrixEvent) {
   return (
     event.isEncrypted() &&
@@ -203,7 +207,7 @@ function roomChat(room: Room): Chat {
     !event.isRedacted() && !clearMarker(event) && event.getTs() > (uiState(room).clearedAt ?? 0) &&
     !uiState(room).hidden?.includes(event.getId() || '') && !blocked.has(event.getSender() || '') &&
     event.getContent().msgtype !== 'm.key.verification.request' &&
-    ![sdk.RelationType.Replace, sdk.RelationType.Annotation].includes(event.getOriginalContent()['m.relates_to']?.rel_type) &&
+    !isAuxiliaryRelation(event) &&
     (event.isEncrypted() || event.getType() === 'm.room.message'),
   ).at(-1)
   const preview = !last ? '' : last.isDecryptionFailure() || (!last.isEncrypted() && !last.status) ? m('locked')
@@ -386,7 +390,7 @@ function canInteractWithEvent(current: MatrixClient, room: Room, id: string) {
         !uiState(room).hidden?.includes(id) &&
         !blocked.has(event.getSender() || '') &&
         event.getContent().msgtype !== 'm.key.verification.request' &&
-        ![sdk.RelationType.Replace, sdk.RelationType.Annotation].includes(event.getOriginalContent()['m.relates_to']?.rel_type) &&
+        !isAuxiliaryRelation(event) &&
         (event.getType() === 'm.room.message' || event.isEncrypted())
       )
     })
@@ -1904,7 +1908,7 @@ export async function searchMessages(query: string) {
           event.getTs() <= (state.clearedAt ?? 0) ||
           state.hidden?.includes(event.getId()!) ||
           blocked.has(event.getSender() ?? '') ||
-          [sdk.RelationType.Replace, sdk.RelationType.Annotation].includes(event.getOriginalContent()['m.relates_to']?.rel_type)
+          isAuxiliaryRelation(event)
         )
           continue
         const body = event.getContent().body
@@ -2037,7 +2041,7 @@ function refreshMessages() {
         !uiState(room).hidden?.includes(id) &&
         !blocked.has(event.getSender() || '') &&
         event.getContent().msgtype !== 'm.key.verification.request' &&
-        ![sdk.RelationType.Replace, sdk.RelationType.Annotation].includes(event.getOriginalContent()['m.relates_to']?.rel_type) &&
+        !isAuxiliaryRelation(event) &&
         (event.getType() === 'm.room.message' || event.isEncrypted())
       )
     })
@@ -3665,7 +3669,7 @@ function refreshMessages() {
         !uiState(room).hidden?.includes(id) &&
         !blocked.has(event.getSender() || '') &&
         event.getContent().msgtype !== 'm.key.verification.request' &&
-        ![sdk.RelationType.Replace, sdk.RelationType.Annotation].includes(event.getOriginalContent()['m.relates_to']?.rel_type) &&
+        !isAuxiliaryRelation(event) &&
         (event.getType() === 'm.room.message' || event.isEncrypted())
       )
     })
