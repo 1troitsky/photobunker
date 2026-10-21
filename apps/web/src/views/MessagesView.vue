@@ -983,6 +983,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
               <div v-else-if="!security.verified" class="message-device-setup"><p>{{ m(diagnostic === 'ready' ? 'deviceRecoveryHint' : 'connecting') }}</p><button v-if="diagnostic === 'ready'" class="quiet-button" @click="securityOpen = true">{{ m(security.storage ? 'restore' : 'verifyDevice') }}</button></div>
               <MessageComposer
                 v-else
+                ref="composer"
                 v-model="draft"
                 :placeholder="m('message')"
                 :input-label="m('message')"
@@ -996,9 +997,11 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                 :attachment-busy="attachmentBusy"
                 :attach-label="editingMessage ? undefined : ui('attachmentAdd')"
                 :allow-attachments="!editingMessage"
+                :picker-label="ui('pickerTitle')"
                 :remove-attachment-label="ui('attachmentRemove')"
                 @submit="submit"
                 @attach="attachmentInput?.click()"
+                @open-picker="pickerOpen = true"
                 @select-file="acceptAttachment"
                 @remove-attachment="clearAttachment"
                 @cancel-reply="editingMessage ? cancelEdit() : reply = ''"
@@ -1060,12 +1063,56 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
         @action="handleMessageAction"
       />
     </AppSheet>
+    <AppSheet :open="pickerOpen && !hidden" :title="ui('pickerTitle')" @close="pickerOpen = false">
+      <EmojiStickerPicker
+        :emoji-title="ui('emojis')"
+        :sticker-title="ui('stickers')"
+        :select-label="ui('pickerTitle')"
+        @emoji="symbol => { composer?.insertText(symbol); pickerOpen = false }"
+        @sticker="prepareSticker"
+      />
+      <p class="field-hint">{{ ui('stickerHint') }}</p>
+    </AppSheet>
+    <AppSheet :open="foldersOpen && !hidden" :title="ui('folderManage')" :busy="folderBusy" @close="foldersOpen = false">
+      <div class="native-form chatify-folder-editor">
+        <p class="field-hint">{{ ui('folderPrivate') }}</p>
+        <form @submit.prevent="createFolder">
+          <label :for="'new-private-folder'">{{ ui('folderName') }}</label>
+          <div class="chatify-folder-create">
+            <input id="new-private-folder" v-model="folderName" type="text" maxlength="40" autocomplete="off" :disabled="folderBusy" />
+            <button class="primary-button" type="submit" :disabled="folderBusy || !folderName.trim() || privateFolders.length >= 30">{{ ui('folderCreate') }}</button>
+          </div>
+        </form>
+        <div v-for="folder in privateFolders" :key="folder.id" class="chatify-folder-row">
+          <template v-if="renameFolderId === folder.id">
+            <input v-model="renameFolderText" :aria-label="ui('folderName')" maxlength="40" :disabled="folderBusy" />
+            <button class="quiet-button" :disabled="folderBusy || !renameFolderText.trim()" @click="saveFolderName">{{ ui('folderSave') }}</button>
+          </template>
+          <template v-else>
+            <span>{{ folder.name }}</span>
+            <button class="quiet-button" :disabled="folderBusy" @click="renameFolderId = folder.id; renameFolderText = folder.name">{{ ui('folderRename') }}</button>
+            <button class="quiet-button subtle-danger" :disabled="folderBusy" @click="removeFolder(folder.id)">{{ ui('folderRemove') }}</button>
+          </template>
+        </div>
+        <p v-if="folderError" class="form-error" role="alert">{{ folderError }}</p>
+      </div>
+    </AppSheet>
     <AppSheet :open="!!reactionPicker && !hidden" :title="ui('react')" :busy="actionBusy" @close="reactionPicker = undefined">
       <div class="chatify-emoji-picker" role="group" :aria-label="ui('react')">
         <button v-for="emoji in reactionKeys" :key="emoji" type="button" class="chatify-emoji-option" :aria-label="ui('react') + ': ' + emoji" :disabled="actionBusy" @click="applyPickedReaction(emoji)">{{ emoji }}</button>
       </div>
     </AppSheet>
     <AppSheet :open="!!chatMenu && !hidden" :title="rooms.find(room => room.id === chatMenu)?.name || ui('chatActions')" :busy="actionBusy" @close="chatMenu = ''">
+      <button class="messenger-action" :disabled="actionBusy" @click="perform(() => setConversationMuted(chatMenu, !rooms.find(room => room.id === chatMenu)?.muted)); chatMenu = ''">
+        <AppIcon name="bell-off" />{{ ui(rooms.find(room => room.id === chatMenu)?.muted ? 'unmute' : 'mute') }}
+      </button>
+      <div v-if="privateFolders.length" class="chatify-folder-assignments">
+        <p class="field-hint">{{ ui('folderManage') }}</p>
+        <button v-for="folder in privateFolders" :key="folder.id" class="messenger-action" :disabled="folderBusy" :aria-pressed="folder.roomIds.includes(chatMenu)" @click="assignFolder(folder.id, chatMenu)">
+          <AppIcon name="folder" />{{ folder.name }} · {{ ui(folder.roomIds.includes(chatMenu) ? 'folderUnassign' : 'folderAdd') }}
+        </button>
+        <p v-if="folderError" class="form-error" role="alert">{{ folderError }}</p>
+      </div>
       <button v-if="chatMenu === selected" class="messenger-action" @click="messageSearchOpen = true; chatMenu = ''"><AppIcon name="search" />{{ ui('searchChat') }}</button>
       <button v-if="chatMenu === selected" class="messenger-action" @click="selecting = true; selectedMessages = []; chatMenu = ''"><AppIcon name="check" />{{ ui('select') }}</button>
       <button class="messenger-action" @click="perform(() => archiveConversation(chatMenu, !rooms.find(room => room.id === chatMenu)?.archived)); chatMenu = ''; swiped = ''"><AppIcon name="archive" />{{ ui(rooms.find(room => room.id === chatMenu)?.archived ? 'unarchive' : 'archiveAction') }}</button>
