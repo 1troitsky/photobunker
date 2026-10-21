@@ -1,7 +1,7 @@
 # PhotoBunker-first Chatify UI port — staged working contract
 
 **Date:** 2026-10-21  
-**Status:** First isolated UI extraction started in `feat/chatify-shared-messenger-ui`. Only changes actually merged and tested against the real Matrix backend can be considered working. **PhotoBunker is the first consumer; Artefacts is the later second consumer.**
+**Status:** PB-U00 is proposed in PR #7; PB-U01 follows as a dependent review on `feat/chatify-pb-u01-navigation-layout`. These changes are not merged and are not production-accepted. Only changes actually merged and tested against the real Matrix backend can be considered working. **PhotoBunker is the first consumer; Artefacts is the later second consumer.**
 
 ## 1. Owner decision, scope and precedence
 
@@ -20,7 +20,11 @@ Upstream: [munafio/chatify](https://github.com/munafio/chatify) **v2**, commit `
 | `frontend/src/components/sidebar/ConversationListItem.vue` | `apps/web/src/messages/shared-ui/ConversationListItem.vue` | **Adapt** presentation/markup to typed display-only data. Remove Pinia, Laravel conversations, API config/presence, Tailwind namespace; preserve existing PB actions/swipes and E2EE preview source. |
 | `frontend/src/components/thread/MessageDateSeparator.vue` | `apps/web/src/messages/shared-ui/MessageDateSeparator.vue` | **Adapt** label-only component using PB theme instead of Tailwind. |
 | `frontend/src/components/thread/MessageStatusTicks.vue` | `apps/web/src/messages/shared-ui/MessageStatusTicks.vue` | **Adapt** SVG; hide second tick on `sent` and show it only for a verified `read` receipt. `sending` and `notSent` remain separate PB states. No inferred `delivered` event. |
-| Chatify `MessageBubble`, `MessageList`, `MessageComposer`, `ThreadHeader`, `ConversationSearch`, overlays/menus | Not yet migrated | **Candidate reuse, not complete**. Inspect dependencies, Matrix-specific semantics, security and existing PhotoBunker behavior before extraction. |
+| `frontend/src/components/sidebar/ConversationSearch.vue` + `ui/SearchField.vue` | `apps/web/src/messages/shared-ui/ConversationSearch.vue` | **Adapt** controlled search field; preserve local decrypted search through the existing host store; no Laravel API or telemetry. |
+| `frontend/src/components/sidebar/Sidebar.vue` | `apps/web/src/messages/shared-ui/SidebarHeader.vue` | **Adapt** compact heading and slots; host still supplies account labels, contact/new chat actions and errors. |
+| `frontend/src/components/thread/ThreadHeader.vue` | `apps/web/src/messages/shared-ui/ThreadHeader.vue` | **Adapt** header, avatar, back/identity/actions. Host exclusively controls profile, call eligibility, verified read and last-seen visibility; no false presence. |
+| `frontend/src/components/layout/ChatifyApp.vue` | `apps/web/src/messages/shared-ui/MessengerSplitLayout.vue` | **Adapt** responsive two-pane composition; PhotoBunker retains full-screen mobile PWA shell and room selection state. |
+| Chatify `MessageBubble`, `MessageList`, `MessageComposer`, overlays/menus | Not yet migrated | **Candidate reuse, not complete**. Inspect dependencies, Matrix-specific semantics, security and existing PhotoBunker behavior before extraction. |
 | Chatify Laravel, HTTP API, Echo, Pusher, schema/auth, Pinia server-centric message stores | Not permitted | **Reject** for PhotoBunker. Only a future typed UI-driver port can expose behavior safely. |
 
 The copied/adapted code is a first **UI extraction within PhotoBunker**, not the final externally consumable package. Never create a second copied UI tree in Artefacts: first extract/version a single source and make both applications consume it.
@@ -29,8 +33,8 @@ The copied/adapted code is a first **UI extraction within PhotoBunker**, not the
 
 | Stage | Visible result | Acceptance criteria |
 | --- | --- | --- |
-| **PB-U00 (this branch)** | Import cross-product references, pin/attribute Chatify, replace presentational conversation row, date separators and status glyphs on existing live Matrix screen | Rendering takes display props and emits intent only; existing room selection, archive swipe, unread, last message, mobile/desktop and receipt claims still work. No transport or E2EE changes. |
-| **PB-U01** | Adapt Chatify sidebar/search/header and responsive shell, retaining PB PWA navigation and existing profile/new-conversation entry | Real rooms, loading/empty/offline/error, safe-area, screen reader and physical 320–1440px layouts; no account mix-up. |
+| **PB-U00 (PR #7)** | Import cross-product references, pin/attribute Chatify, replace presentational conversation row, date separators and status glyphs on existing live Matrix screen | Rendering takes display props and emits intent only; existing room selection, archive swipe, unread, last message, mobile/desktop and receipt claims still work. No transport or E2EE changes. |
+| **PB-U01 (dependent branch)** | Adapt Chatify sidebar/search/header and responsive shell, retaining PB PWA navigation and existing profile/new-conversation entry | Real rooms, loading/empty/offline/error, safe-area, screen reader and physical 320–1440px layouts; no account mix-up. |
 | **PB-U02** | Adapt Chatify bubble, actions, reply/pin, timeline scroll, context/long press and overlays | Real decrypted Matrix timeline, pagination preserving scroll, redactions, locked/undecryptable states, race-safe account switch; no metadata leak. |
 | **PB-U03** | Adapt Chatify composer, media picker and voice integration; full optimistic send/retry UX | Existing encrypted voice path retained; temporary client IDs reconcile with Matrix event IDs without duplication, lost ACK/reconnect/recipient error handled; no send outside verified encrypted room. |
 | **PB-U04** | Mature Matrix UI adapter and real E2EE cross-device regression | Two accounts, first DM, group, SAS/backup, key restore, unsigned-device rejection, block/revoke, encrypted upload, unread/read honesty, failures, physical iPhone/PWA. |
@@ -48,3 +52,9 @@ PB-U01–PB-U05 and AR-U01 are not implemented by PB-U00. Original Artefacts M00
 - Cross-device reception, Matrix key verification, locked state and voice access need real runtime tests, not only Vue snapshots.
 - Per-PR gates: `cd apps/web && npm ci && npm run check`; E2EE `check-messages.mjs`, `check-messenger-ui.mjs` and `check-messenger-actions.mjs` in Chromium and WebKit via the existing live Compose/browser QA environment; `./scripts/dev check` and `./scripts/dev smoke` as documented. Installed PWA on physical phones remains an independent acceptance gate.
 - For any test not runnable in the code-editing environment, mark it **not run** in the PR. Never claim full product or cryptographic acceptance based only on static review.
+
+## PB-U01 checkpoint — 2026-10-21
+
+The PB-U01 branch composes the **existing Matrix-backed** `MessagesView.vue` using adapted Chatify-derived `SidebarHeader`, controlled `ConversationSearch`, `ThreadHeader` and `MessengerSplitLayout`. It retains existing new chat, contacts, archive, search command, group details, voice/call actions, message receipt status, and mobile selection/back behavior; refined desktop 340–380px list width, compact headers, iPhone-safe 16px search text, keyboard focus styles and a narrower 320px layout. These are code changes awaiting CI and real browser QA, **not a pass claim**.
+
+No cryptography, Matrix SDK, API, Laravel, storage or routing protocol modifications are included. PB-U02 will transfer the Chatify bubble/timeline/actions; PB-U03 will follow with composer and validated optimistic reconciliation. The second product must consume one extracted versioned UI source, not copies of the PB component tree.
