@@ -18,6 +18,7 @@ const props = defineProps<{
   removeAttachmentLabel?: string
   attachment?: { name: string; size: number; kind: 'image' | 'file'; preview?: string }
   attachmentBusy?: boolean
+  allowAttachments?: boolean
 }>()
 const emit = defineEmits<{
   'update:modelValue': [text: string]
@@ -50,12 +51,12 @@ function onKeydown(event: KeyboardEvent) {
   emit('submit')
 }
 function onDrop(event: DragEvent) {
-  if (props.disabled || props.voiceDirty || props.attachment) return
+  if (props.disabled || props.voiceDirty || props.attachment || props.allowAttachments === false) return
   const file = event.dataTransfer?.files?.[0]
   if (file) emit('selectFile', file)
 }
 function onPaste(event: ClipboardEvent) {
-  if (props.disabled || props.voiceDirty || props.attachment) return
+  if (props.disabled || props.voiceDirty || props.attachment || props.allowAttachments === false) return
   const file = event.clipboardData?.files?.[0]
   if (file) { event.preventDefault(); emit('selectFile', file) }
 }
@@ -83,7 +84,7 @@ defineExpose({ focus: () => textarea.value?.focus() })
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
       </button>
     </div>
-    <button v-if="attachLabel" type="button" class="app-icon-button chatify-composer-attach" :aria-label="attachLabel" :disabled="disabled || voiceDirty" @click="emit('attach')">
+    <button v-if="attachLabel && allowAttachments !== false" type="button" class="app-icon-button chatify-composer-attach" :aria-label="attachLabel" :disabled="disabled || voiceDirty" @click="emit('attach')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m21 11.5-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l9.8-9.8a3.7 3.7 0 0 1 5.3 5.2l-9.7 9.7a1.9 1.9 0 0 1-2.7-2.6l8.5-8.5"/></svg>
     </button>
     <label v-show="!voiceDirty" class="message-input">
