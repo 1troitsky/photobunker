@@ -99,3 +99,14 @@ A functional **single-file** attachment flow is added to the live Matrix messeng
 - Not part of this PR: GIF/HEIC/video, multiple file albums, infinite-sized uploads, durable offline plaintext queue, generic public attachments, edit/reactions/stickers, download persistence of decrypted data beyond explicit user export. Distinct UI drivers remain the next work.
 
 This PR is a work-in-review until automated checks pass; this section documents intended acceptance, not a pass claim.
+
+## PB-U04b — editing and emoji reactions (PR #12 proposal)
+
+This UI/UX completion stage is a **stacked draft** based on PB-U04a PR #11; the previously defined PB-U05 remains the *shared versioned UI extraction*, not this stage.
+
+- Text editing uses the canonical Matrix encrypted `m.replace` relation. Only the sender's already ACKed, decryptable `m.text` events without file/photo payloads are eligible. The original event stays in place, without showing the edit relation as a second bubble. A visible "edited" marker comes from Matrix SDK's aggregated replacement, never merely optimistic client state.
+- Entering edit mode preserves the previous text/reply draft in a temporary, account-scoped snapshot. A failed edit keeps the edited draft; cancel or successful ACK restores the previous composer draft. Changing rooms cancels editing; attachments, drag/drop and the recorder are disabled while an edit is active. Existing Matrix encryption/trust/membership/blocked checks apply before and after async preflight.
+- Reactions use standard encrypted `m.reaction` `m.annotation` events, with a finite local 5-emoji picker, per-message chips and counts. Only authenticated decrypted, non-redacted, non-blocked relations are aggregated; each person counts at most once per key. A user's second click redacts their own existing reaction through the Matrix SDK. In-flight operations are guarded against duplicate submissions.
+- The shared components receive only display-ready `edited` and reaction data and emit `react`/`edit` intents; they import no Matrix, Laravel/PhotoBunker account, private file, or network implementation.
+- Reaction and replacement control events must **not** appear as independent text bubbles, search results or inbox previews. Text-only edits deliberately cannot modify attachments, voice clips or linked private photos. Message forwarding, cross-room authorized attachment grants, presence and typing remain separate work; do not claim implemented.
+- Gate with strict Vue tests, Matrix E2EE browser scenarios in Chromium/WebKit and checks for sender-only edits, blocked/locked rooms, reaction toggle/redaction, account switch during edit, restore previous draft, synthetic non-text relation injection and real time screen. Physical iPhone/Android PWA manual QA is deferred to the final stage per owner.
