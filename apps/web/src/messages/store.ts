@@ -1155,8 +1155,8 @@ export async function sendAttachment(file: File, caption = '', reply?: string) {
     ...(reply ? { 'm.relates_to': { 'm.in_reply_to': { event_id: reply } } } : {}),
   }
   const content = prepared.kind === 'image'
-    ? { ...baseContent, msgtype: sdk.MsgType.Image as const }
-    : { ...baseContent, msgtype: sdk.MsgType.File as const }
+    ? { ...baseContent, msgtype: sdk.MsgType.Image as import('matrix-js-sdk').MsgType.Image }
+    : { ...baseContent, msgtype: sdk.MsgType.File as import('matrix-js-sdk').MsgType.File }
   await current.sendMessage(room.roomId, content)
   requireClient(current)
   refreshMessages()
