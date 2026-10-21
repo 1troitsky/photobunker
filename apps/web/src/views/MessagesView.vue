@@ -856,7 +856,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                 <template #voice>
                   <input ref="attachmentInput" class="visually-hidden" tabindex="-1" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,application/zip,.pdf,.txt,.zip" :aria-label="ui('attachmentAdd')" @change="chooseAttachment" />
                   <VoiceRecorder
-                    v-show="!draft.trim() || voiceDirty"
+                    v-show="!chosenAttachment && (!draft.trim() || voiceDirty)"
                     :key="selected"
                     :disabled="actionBusy || connection !== 'ready'"
                     :active="!profileOpen && !hidden"
