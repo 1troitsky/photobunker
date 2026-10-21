@@ -335,11 +335,14 @@ function refreshMessages() {
   const identities = events.filter(event => event.getId()).map(event => ({
     id: event.getId()!,
     txnId: event.getTxnId(),
+    status: event.status,
   }))
-  // Once the actual server event is in the Matrix timeline, retire the
-  // preflight placeholder. Never deduplicate based on text equality.
+  // Once Matrix owns a confirmed server echo, retire its in-memory preflight
+  // text. Do not match on body: repeated identical texts are separate events.
   for (const item of optimisticText.values()) {
-    if (item.serverEventId && identities.some(event => event.id === item.serverEventId))
+    if (identities.some(event =>
+      (!event.status && event.txnId === item.txnId) ||
+      (item.serverEventId && event.id === item.serverEventId)))
       optimisticText.delete(item.id)
   }
   const seen = new Set<string>()
@@ -1147,6 +1150,7 @@ export async function retryMessage(id: string) {
       await dispatchText(optimistic, current)
       return
     }
+    if (sdkEcho.status !== 'not_sent') return
     id = sdkEcho.getId() || id
   }
   const event = room?.getPendingEvents().find((event) => event.getId() === id)
