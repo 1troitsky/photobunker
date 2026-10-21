@@ -522,8 +522,30 @@ async function submitChosenAttachment() {
     attachmentBusy.value = false
   }
 }
+async function submitEdit() {
+  const target = editingMessage.value
+  if (!target || actionBusy.value || selected.value !== target.roomId) return
+  const text = draft.value
+  if (!text.trim() || text.length > 10000) return
+  actionBusy.value = true
+  const version = actionGeneration
+  try {
+    await editMessage(target.id, text)
+    if (version === actionGeneration && editingMessage.value?.id === target.id &&
+        selected.value === target.roomId) {
+      cancelEdit()
+      actionError.value = ''
+    }
+  } catch {
+    if (version === actionGeneration && selected.value === target.roomId)
+      actionError.value = ui('editFailed')
+  } finally {
+    if (version === actionGeneration) actionBusy.value = false
+  }
+}
 function submit() {
   if (actionBusy.value || attachmentBusy.value || voiceDirty.value || connection.value !== 'ready' || !security.value.verified) return
+  if (editingMessage.value) { void submitEdit(); return }
   if (chosenAttachment.value) { void submitChosenAttachment(); return }
   const body = draft.value
   if (!body.trim()) return
@@ -580,6 +602,17 @@ async function block() {
 }
 const replyBody = (id: string) =>
   messages.value.find((message) => message.id === id)?.body || ui('deletedMessage')
+
+function startEditMessage(message: Message) {
+  if (!canEditMessage(message.id) || chosenAttachment.value || voiceDirty.value ||
+      actionBusy.value || editingMessage.value) return
+  editSnapshot = { text: draft.value, reply: reply.value }
+  editingMessage.value = { id: message.id, roomId: selected.value, original: message.body }
+  draft.value = message.body
+  reply.value = ''
+  messageMenu.value = undefined
+  void nextTick(() => document.querySelector<HTMLTextAreaElement>('.chatify-message-composer textarea')?.focus())
+}
 
 const messageSearchOpen = ref(false), messageMenu = ref<Message>(), chatMenu = ref(''), atBottom = ref(true), highlighted = ref('')
 const messageDeleteOpen = ref(false), messageDeleteEveryone = ref(false), deletingMessages = ref<string[]>([])
