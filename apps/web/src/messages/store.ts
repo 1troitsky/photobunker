@@ -23,6 +23,7 @@ import { ui } from './presentation'
 import { encryptVoice, decryptVoice, voiceContent, maxVoiceBytes, maxVoiceDuration, type VoiceDraft, type VoiceMessage } from './voice'
 import { voiceText } from './voice-text'
 import { retrySignedEvent } from './trusted-decryption'
+import { visiblePendingText, type PendingText } from './optimistic'
 export type Peer = {
   username?: string | null
   publicId: string
@@ -73,6 +74,9 @@ export const connection = ref<
   selected = ref(''),
   messages = ref<Message[]>([]),
   busy = ref(false)
+// Ephemeral preflight bubbles. The Matrix SDK owns all real local echoes,
+// retry IDs and E2EE. Nothing in this map is persisted or sent to analytics.
+const optimisticText = new Map<string, PendingText>()
 export const olderAvailable = ref(false)
 export const openingHistory = ref(false), openingHistoryError = ref(false)
 export const incomingError = ref(false)
@@ -328,8 +332,18 @@ function refreshMessages() {
     ...room.getLiveTimeline().getEvents(),
     ...room.getPendingEvents(),
   ]
+  const identities = events.filter(event => event.getId()).map(event => ({
+    id: event.getId()!,
+    txnId: event.getTxnId(),
+  }))
+  // Once the actual server event is in the Matrix timeline, retire the
+  // preflight placeholder. Never deduplicate based on text equality.
+  for (const item of optimisticText.values()) {
+    if (item.serverEventId && identities.some(event => event.id === item.serverEventId))
+      optimisticText.delete(item.id)
+  }
   const seen = new Set<string>()
-  messages.value = events
+  const matrixMessages = events
     .filter((event) => {
       const id = event.getId()
       if (!id || seen.has(id)) return false
@@ -388,6 +402,18 @@ function refreshMessages() {
       }
     })
     .filter((event) => event.body)
+  const queued = visiblePendingText([...optimisticText.values()], identities, room.roomId)
+  messages.value = [...matrixMessages, ...queued.map(item => ({
+    id: item.id,
+    sender: m('you'),
+    mine: true,
+    body: item.body,
+    time: item.time,
+    status: item.status,
+    reply: item.reply,
+    photoId: item.photoId,
+    locked: false,
+  } as Message))].sort((a, b) => a.time - b.time)
   if (!messages.value.length && olderAvailable.value && room.getMyMembership() === 'join') void loadInitialHistory()
 }
 function initialHistoryFlags() {
@@ -434,6 +460,7 @@ async function securityStatus() {
     }
 }
 export function stopMessaging(clearRequest = true) {
+  optimisticText.clear()
   joiningIncoming.clear(); failedIncoming.clear(); activatedConversations.clear(); incomingError.value = false
   initialHistoryRooms.clear(); initialHistoryPending.clear(); initialHistoryFailures.clear()
   openingHistory.value = false; openingHistoryError.value = false
@@ -953,52 +980,99 @@ export async function leaveChat() {
   if (selected.value === id) selected.value = ''
   refresh()
 }
-export async function send(body: string, reply?: string, photoId?: string) {
-  const current = client,
-    room = current?.getRoom(selected.value)
-  if (
-    !current ||
-    !room ||
-    !body.trim() ||
-    body.length > 10000 ||
-    !security.value.verified
-  )
+/**
+ * Synchronous user-intent boundary: show the pending message *before*
+ * network preflight. Validation cannot be deferred to a UI component.
+ */
+function prepareText(body: string, reply?: string, photoId?: string) {
+  const current = client
+  const room = current?.getRoom(selected.value)
+  if (!current || !room || connection.value !== 'ready' || !security.value.verified
+    || room.getMyMembership() !== 'join' || !roomChat(room).encrypted
+    || roomChat(room).blocked || !body.trim() || body.length > 10000)
     throw new Error('not_ready')
-  await refreshPeers()
-  await activateConversation(current, room.roomId)
-  if (
-    client !== current ||
-    roomChat(room).blocked ||
-    !(await current.getCrypto()!.isEncryptionEnabledInRoom(room.roomId))
-  )
-    throw new Error('unsafe_room')
-  const reference = photoId
-    ? await workspace.request<{
-        photoId: string
-        assignmentId: string
-        roomId: string
-      }>(`/photos/${photoId}/reference`, 'POST')
-    : undefined
-  requireClient(current)
-  if (reference && reference.roomId !== room.roomId)
-    throw new Error('unsafe_room')
-  await current.sendMessage(room.roomId, {
-    ...(reference
-      ? {
-          'org.photobunker.photo': {
-            id: reference.photoId,
-            assignmentId: reference.assignmentId,
-          },
-        }
-      : {}),
-    msgtype: sdk.MsgType.Text,
+  const txnId = 'pb-' + crypto.randomUUID()
+  const entry: PendingText = {
+    id: '~pb-ui:' + txnId,
+    txnId,
+    roomId: room.roomId,
     body: body.trim(),
-    ...(reply
-      ? { 'm.relates_to': { 'm.in_reply_to': { event_id: reply } } }
-      : {}),
-  })
+    reply,
+    photoId,
+    time: Date.now(),
+    status: 'sending',
+    inFlight: false,
+  }
+  optimisticText.set(entry.id, entry)
   refreshMessages()
-  await preserveMessageKeys()
+  return { entry, current }
+}
+
+async function dispatchText(entry: PendingText, current: MatrixClient) {
+  if (entry.inFlight || optimisticText.get(entry.id) !== entry) return
+  entry.inFlight = true
+  entry.status = 'sending'
+  refreshMessages()
+  try {
+    requireClient(current)
+    const room = current.getRoom(entry.roomId)
+    if (!room || !security.value.verified || room.getMyMembership() !== 'join')
+      throw new Error('not_ready')
+    await refreshPeers()
+    requireClient(current)
+    await activateConversation(current, room.roomId)
+    requireClient(current)
+    if (!security.value.verified || room.getMyMembership() !== 'join'
+      || roomChat(room).blocked || !(await current.getCrypto()!.isEncryptionEnabledInRoom(room.roomId)))
+      throw new Error('unsafe_room')
+    requireClient(current)
+    const reference = entry.photoId
+      ? await workspace.request<{ photoId: string; assignmentId: string; roomId: string }>(
+          `/photos/${entry.photoId}/reference`, 'POST',
+        ) : undefined
+    requireClient(current)
+    if (reference && reference.roomId !== room.roomId) throw new Error('unsafe_room')
+    // Check again after network preflight. Block/revoke may race activation.
+    if (roomChat(room).blocked || room.getMyMembership() !== 'join' || !security.value.verified)
+      throw new Error('unsafe_room')
+    const ack = await current.sendMessage(room.roomId, {
+      ...(reference ? { 'org.photobunker.photo': { id: reference.photoId, assignmentId: reference.assignmentId } } : {}),
+      msgtype: sdk.MsgType.Text,
+      body: entry.body,
+      ...(entry.reply ? { 'm.relates_to': { 'm.in_reply_to': { event_id: entry.reply } } } : {}),
+    }, entry.txnId)
+    requireClient(current)
+    // Matrix local echo and eventual sync use the very same transaction ID.
+    entry.serverEventId = ack.event_id
+    entry.status = 'sent'
+    refreshMessages()
+    // Key backup failure must never turn an ACKed message into "not sent".
+    void preserveMessageKeys().catch(() => {})
+  } catch (error) {
+    if (client === current && optimisticText.get(entry.id) === entry) {
+      entry.status = 'notSent'
+      refreshMessages()
+    }
+    throw error
+  } finally {
+    entry.inFlight = false
+  }
+}
+
+/** UI gets an immediate local optimistic event id and clears its composer. */
+export function queueTextMessage(body: string, reply?: string, photoId?: string): string {
+  const { entry, current } = prepareText(body, reply, photoId)
+  void dispatchText(entry, current).catch(() => {
+    // Failure is rendered as retryable notSent in the existing Matrix UI;
+    // no plaintext, account identifiers or exceptions go into logs.
+  })
+  return entry.id
+}
+
+/** Backwards-compatible promise-based sender for non-composer consumers. */
+export async function send(body: string, reply?: string, photoId?: string) {
+  const { entry, current } = prepareText(body, reply, photoId)
+  await dispatchText(entry, current)
 }
 export async function sendVoice(draft: VoiceDraft, reply?: string) {
   const current = client, room = current?.getRoom(selected.value)
@@ -1061,9 +1135,22 @@ export async function loadVoice(message: Message, signal: AbortSignal) {
 }
 export async function retryMessage(id: string) {
   const current = client
-  const room = client?.getRoom(selected.value),
-    event = room?.getPendingEvents().find((event) => event.getId() === id)
-  if (!client || !room || !event) return
+  const room = client?.getRoom(selected.value)
+  const optimistic = optimisticText.get(id)
+  // A failed preflight has no Matrix local echo yet. Reuse its original
+  // transaction ID to ensure server-side idempotency if an ACK was lost.
+  if (optimistic) {
+    if (!current || !room || room.roomId !== optimistic.roomId
+      || optimistic.inFlight || optimistic.status !== 'notSent') return
+    const sdkEcho = room.getPendingEvents().find(event => event.getTxnId() === optimistic.txnId)
+    if (!sdkEcho) {
+      await dispatchText(optimistic, current)
+      return
+    }
+    id = sdkEcho.getId() || id
+  }
+  const event = room?.getPendingEvents().find((event) => event.getId() === id)
+  if (!current || !room || !event) return
   await refreshPeers()
   if (client !== current) throw new Error('messages.cancelled')
   if (
