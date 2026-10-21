@@ -25,6 +25,7 @@ const emit = defineEmits<{
   cancelReply: []
   attach: []
   removeAttachment: []
+  selectFile: [file: File]
 }>()
 
 const textarea = ref<HTMLTextAreaElement>()
@@ -48,12 +49,22 @@ function onKeydown(event: KeyboardEvent) {
   event.preventDefault()
   emit('submit')
 }
+function onDrop(event: DragEvent) {
+  if (props.disabled || props.voiceDirty || props.attachment) return
+  const file = event.dataTransfer?.files?.[0]
+  if (file) emit('selectFile', file)
+}
+function onPaste(event: ClipboardEvent) {
+  if (props.disabled || props.voiceDirty || props.attachment) return
+  const file = event.clipboardData?.files?.[0]
+  if (file) { event.preventDefault(); emit('selectFile', file) }
+}
 watch(() => props.modelValue, () => { void nextTick(resize) })
 defineExpose({ focus: () => textarea.value?.focus() })
 </script>
 
 <template>
-  <form class="message-composer chatify-message-composer" @submit.prevent="!disabled && (modelValue.trim() || attachment) && emit('submit')">
+  <form class="message-composer chatify-message-composer" @submit.prevent="!disabled && (modelValue.trim() || attachment) && emit('submit')" @dragover.prevent @drop.prevent="onDrop" @paste="onPaste">
     <div v-if="replyPreview !== undefined" class="reply-preview chatify-composer-reply">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
         <path d="m10 8-6 4 6 4V8Zm-6 4h9a6 6 0 0 1 6 6" stroke-linecap="round" stroke-linejoin="round" />
