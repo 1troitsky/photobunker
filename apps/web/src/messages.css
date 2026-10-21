@@ -296,3 +296,32 @@
 .chatify-emoji-picker { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-around; gap: 9px; padding: 14px 4px; }
 .chatify-emoji-option { display: grid; place-items: center; width: 48px; height: 48px; min-height: 48px; padding: 2px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); font: inherit; font-size: 25px; cursor: pointer; }
 .chatify-emoji-option:disabled { opacity: .45; }
+
+
+/* PB-U04c: compact responsive folders and offline emoji/sticker UX */
+.messages-screen .chat-muted-icon { width: 15px; height: 15px; flex: 0 0 15px; color: var(--muted); }
+.messages-screen .chatify-composer-emoji { flex: 0 0 34px; width: 34px; height: 40px; display: grid; place-items: center; }
+.messages-screen .chatify-composer-emoji svg { width: 22px; height: 22px; }
+.chatify-picker-tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--border); padding: 8px 0; }
+.chatify-picker-tabs button { border: 0; background: none; color: var(--muted); font: inherit; padding: 10px 14px; border-radius: 10px; }
+.chatify-picker-tabs button[aria-pressed=true] { background: var(--accent-dim); color: var(--accent); }
+.chatify-picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 5px; padding: 12px 0; max-height: min(45vh, 280px); overflow-y: auto; }
+.chatify-picker-symbol { display: grid; place-items: center; width: 100%; aspect-ratio: 1; min-height: 46px; border: 0; background: none; border-radius: 10px; font: inherit; font-size: 25px; cursor: pointer; }
+.chatify-picker-symbol.is-sticker { background: var(--panel); font-size: 31px; }
+.chatify-picker-symbol:hover, .chatify-picker-symbol:focus-visible { background: var(--accent-dim); outline: 2px solid var(--accent); outline-offset: -2px; }
+.chatify-folder-editor { display: flex; flex-direction: column; gap: 12px; padding: 6px 0; }
+.chatify-folder-create { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.chatify-folder-create input { flex: 1; min-width: 145px; }
+.chatify-folder-row { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; border-top: 1px solid var(--border); padding: 9px 0; }
+.chatify-folder-row > span { flex: 1; min-width: 105px; overflow-wrap: anywhere; }
+.chatify-folder-row > input { flex: 1; min-width: 110px; }
+.chatify-folder-assignments { border-top: 1px solid var(--border); padding: 8px 0; }
+.chatify-folder-assignments .messenger-action[aria-pressed=true] { color: var(--accent); }
+.messages-screen .messenger-filters { gap: 15px; padding-inline: 16px; }
+@media (max-width: 390px) {
+  .messages-screen .chatify-message-composer { gap: 4px; padding-inline: 7px; }
+  .messages-screen .chatify-composer-emoji, .messages-screen .chatify-composer-attach { flex-basis: 33px; min-width: 33px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chatify-picker-symbol, .chatify-picker-tabs button { transition: none; }
+}
