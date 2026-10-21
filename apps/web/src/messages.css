@@ -248,3 +248,20 @@
 @media (prefers-reduced-motion: reduce) {
   .messages-screen .chatify-message-bubble { transition: none; }
 }
+
+
+/* PB-U03: Chatify composer adapted to PhotoBunker's existing native PWA,
+   verified-encryption gate and encrypted voice recorder. */
+.messages-screen .chatify-message-composer { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 9px; }
+.messages-screen .chatify-message-composer .message-input { flex: 1 1 0; min-width: 0; }
+.messages-screen .chatify-message-composer .message-input textarea { display: block; min-width: 0; box-sizing: border-box; }
+.messages-screen .chatify-message-composer .chatify-composer-reply { flex: 0 0 100%; min-width: 0; max-width: 100%; margin-bottom: 2px; }
+.messages-screen .chatify-message-composer .chatify-composer-reply > span { min-width: 0; flex: 1; }
+.messages-screen .chatify-message-composer .chatify-composer-reply > .app-icon-button { flex-shrink: 0; }
+.messages-screen .chatify-message-composer .chatify-composer-reply > .app-icon-button svg { width: 18px; height: 18px; }
+.messages-screen .chatify-message-composer .message-send svg { width: 21px; height: 21px; }
+.messages-screen .chatify-message-composer textarea:focus-visible,
+.messages-screen .chatify-message-composer button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 359px) {
+  .messages-screen .chatify-message-composer { gap: 6px; padding-left: 8px; padding-right: 8px; }
+}
