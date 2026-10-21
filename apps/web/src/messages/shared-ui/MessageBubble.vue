@@ -73,7 +73,7 @@ const emit = defineEmits<{
     >{{ replyPreview }}</blockquote>
     <slot v-if="hasVoice && !locked" name="voice" />
     <slot v-if="hasAttachment && !locked" name="attachment" />
-    <p v-if="(!hasVoice && !hasAttachment) || (hasAttachment && !!body)" class="message-body">{{ body }}</p>
+    <p v-if="locked || (!hasVoice && !hasAttachment) || (hasAttachment && !!body)" class="message-body">{{ body }}</p>
     <slot v-if="hasPhoto && !locked" name="photo" />
     <footer>
       <time>{{ timeLabel }}</time>
