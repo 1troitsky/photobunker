@@ -856,6 +856,11 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                     :has-voice="!!item.message.voice"
                     :has-photo="!!item.message.photoId"
                     :has-attachment="!!item.message.attachment"
+                    :edited="item.message.edited"
+                    :edited-label="ui('edited')"
+                    :reactions="item.message.reactions"
+                    :reaction-label="ui('react')"
+                    @react="handleReaction(item.message.id, $event)"
                     @menu="messageMenu = item.message"
                     @toggle="toggleMessage(item.message.id)"
                     @reply-jump="jumpToMessage"
@@ -908,26 +913,27 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                 v-model="draft"
                 :placeholder="m('message')"
                 :input-label="m('message')"
-                :send-label="m('send')"
-                :cancel-reply-label="m('cancelReply')"
-                :reply-label="m('reply')"
-                :reply-preview="reply ? replyBody(reply) : undefined"
+                :send-label="editingMessage ? ui('saveEdit') : m('send')"
+                :cancel-reply-label="editingMessage ? ui('cancelEdit') : m('cancelReply')"
+                :reply-label="editingMessage ? ui('editing') : m('reply')"
+                :reply-preview="editingMessage ? editingMessage.original : reply ? replyBody(reply) : undefined"
                 :voice-dirty="voiceDirty"
                 :disabled="actionBusy || attachmentBusy || connection !== 'ready' || !security.verified"
                 :attachment="chosenAttachment ? { name: chosenAttachment.name, kind: chosenAttachment.type.startsWith('image/') ? 'image' : 'file', size: chosenAttachment.size, preview: attachmentPreviewUrl } : undefined"
                 :attachment-busy="attachmentBusy"
-                :attach-label="ui('attachmentAdd')"
+                :attach-label="editingMessage ? undefined : ui('attachmentAdd')"
+                :allow-attachments="!editingMessage"
                 :remove-attachment-label="ui('attachmentRemove')"
                 @submit="submit"
                 @attach="attachmentInput?.click()"
                 @select-file="acceptAttachment"
                 @remove-attachment="clearAttachment"
-                @cancel-reply="reply = ''"
+                @cancel-reply="editingMessage ? cancelEdit() : reply = ''"
               >
                 <template #voice>
                   <input ref="attachmentInput" class="visually-hidden" tabindex="-1" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,application/zip,.pdf,.txt,.zip" :aria-label="ui('attachmentAdd')" @change="chooseAttachment" />
                   <VoiceRecorder
-                    v-show="!chosenAttachment && (!draft.trim() || voiceDirty)"
+                    v-show="!editingMessage && !chosenAttachment && (!draft.trim() || voiceDirty)"
                     :key="selected"
                     :disabled="actionBusy || connection !== 'ready'"
                     :active="!profileOpen && !hidden"
@@ -980,6 +986,11 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
         :actions="messageActions"
         @action="handleMessageAction"
       />
+    </AppSheet>
+    <AppSheet :open="!!reactionPicker && !hidden" :title="ui('react')" :busy="actionBusy" @close="reactionPicker = undefined">
+      <div class="chatify-emoji-picker" role="group" :aria-label="ui('react')">
+        <button v-for="emoji in reactionKeys" :key="emoji" type="button" class="chatify-emoji-option" :aria-label="ui('react') + ': ' + emoji" :disabled="actionBusy" @click="applyPickedReaction(emoji)">{{ emoji }}</button>
+      </div>
     </AppSheet>
     <AppSheet :open="!!chatMenu && !hidden" :title="rooms.find(room => room.id === chatMenu)?.name || ui('chatActions')" :busy="actionBusy" @close="chatMenu = ''">
       <button v-if="chatMenu === selected" class="messenger-action" @click="messageSearchOpen = true; chatMenu = ''"><AppIcon name="search" />{{ ui('searchChat') }}</button>
