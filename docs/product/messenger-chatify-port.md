@@ -55,6 +55,8 @@ PB-U01–PB-U05 and AR-U01 are not implemented by PB-U00. Original Artefacts M00
 
 ## PB-U01 checkpoint — 2026-10-21
 
-The PB-U01 branch composes the **existing Matrix-backed** `MessagesView.vue` using adapted Chatify-derived `SidebarHeader`, controlled `ConversationSearch`, `ThreadHeader` and `MessengerSplitLayout`. It retains existing new chat, contacts, archive, search command, group details, voice/call actions, message receipt status, and mobile selection/back behavior; refined desktop 340–380px list width, compact headers, iPhone-safe 16px search text, keyboard focus styles and a narrower 320px layout. These are code changes awaiting CI and real browser QA, **not a pass claim**.
+PR #8 (PB-U01) composes the **existing Matrix-backed** `MessagesView.vue` using adapted Chatify-derived `SidebarHeader`, controlled `ConversationSearch`, `ThreadHeader` and `MessengerSplitLayout`. It retains existing new chat, contacts, archive, search command, group details, voice/call actions, message receipt status, and mobile selection/back behavior; refined desktop 340–380px list width, compact headers, iPhone-safe 16px search text, keyboard focus styles and a narrower 320px layout. These are code changes awaiting CI and real browser QA, **not a pass claim**.
 
 No cryptography, Matrix SDK, API, Laravel, storage or routing protocol modifications are included. PB-U02 will transfer the Chatify bubble/timeline/actions; PB-U03 will follow with composer and validated optimistic reconciliation. The second product must consume one extracted versioned UI source, not copies of the PB component tree.
+
+**CI staging:** Feature-base pull requests are included in the PR trigger from PB-U00's updated `.github/workflows/ci.yml`; verify the actual PR run before review. A successful unit/build step is distinct from MatrixRTC/Matrix E2EE/browser acceptance.
