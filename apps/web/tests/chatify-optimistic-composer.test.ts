@@ -65,7 +65,7 @@ describe('PB-U03 Chatify composer UI', () => {
     })
     expect(wrapper.find('.voice-from-host').exists()).toBe(true)
     expect(wrapper.find('.message-send').exists()).toBe(false)
-    expect(wrapper.get('.message-input').isVisible()).toBe(false)
+    expect(wrapper.find('.message-input').isVisible()).toBe(false)
     await wrapper.setProps({ voiceDirty: false })
     expect(wrapper.get('.message-send').exists()).toBe(true)
   })
