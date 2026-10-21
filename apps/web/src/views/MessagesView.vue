@@ -3,6 +3,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRouter, useRoute, RouterView } from 'vue-router'
 import VoiceRecorder from '../components/VoiceRecorder.vue'
 import VoiceMessagePlayer from '../components/VoiceMessagePlayer.vue'
+import ConversationListItem from '../messages/shared-ui/ConversationListItem.vue'
+import MessageDateSeparator from '../messages/shared-ui/MessageDateSeparator.vue'
+import MessageStatusTicks from '../messages/shared-ui/MessageStatusTicks.vue'
 import { voiceText } from '../messages/voice-text'
 import type { VoiceDraft } from '../messages/voice'
 import CallPanel from '../components/CallPanel.vue'
@@ -617,10 +620,12 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
               <template v-else>
                 <div v-for="room in listed" :key="room.id" class="chat-swipe-row" @touchstart="event => { swipeX = event.touches[0]?.clientX ?? 0; swipeY = event.touches[0]?.clientY ?? 0 }" @touchend="endSwipe($event, room.id)" @contextmenu.prevent="chatMenu = room.id">
                   <div v-if="swiped === room.id" class="chat-swipe-actions"><button :aria-label="ui(room.archived ? 'unarchive' : 'archiveAction')" @click="perform(() => archiveConversation(room.id, !room.archived)); swiped = ''"><AppIcon name="archive" /></button><button :aria-label="ui('deleteChat')" @click="askDelete(room.id)"><AppIcon name="trash" /></button></div>
-                  <button class="chat-row" :class="{ 'chat-active': selected === room.id }" :style="swiped === room.id ? { transform: 'translateX(-112px)' } : {}" :aria-current="selected === room.id ? 'true' : undefined" @click="swiped ? swiped = '' : chooseRoom(room.id)">
-                    <span :class="['chat-avatar', avatarColor(room.id)]"><span v-if="room.direct">{{ initials(room.name) }}</span><AppIcon v-else name="users" /></span>
-                    <span class="chat-summary"><span class="chat-summary-title"><strong>{{ room.name }}</strong><time>{{ chatTime(room.lastTime) }}</time></span><span class="chat-summary-preview"><span><template v-if="room.lastMine && room.preview">{{ m('you') }}: </template>{{ room.preview || ui('noMessages') }}</span><b v-if="room.unread" class="chat-unread">{{ room.unread > 99 ? '99+' : room.unread }}</b></span></span>
-                  </button>
+                  <ConversationListItem
+                    :conversation="{ id: room.id, name: room.name, avatarClass: avatarColor(room.id), avatarInitials: initials(room.name), group: !room.direct, timeLabel: chatTime(room.lastTime), preview: (room.lastMine && room.preview ? m('you') + ': ' : '') + (room.preview || ui('noMessages')), unreadCount: room.unread }"
+                    :active="selected === room.id"
+                    :swiped="swiped === room.id"
+                    @select="swiped ? swiped = '' : chooseRoom(room.id)"
+                  />
                   <button v-if="swiped !== room.id" class="app-icon-button chat-row-menu" :aria-label="ui('chatActions')" @click="chatMenu = room.id"><AppIcon name="more" /></button>
                 </div>
                 <button v-for="hit in searchResults" :key="hit.id" class="search-result" @click="openSearchResult(hit.roomId, hit.id)"><span class="search-result-label">{{ hit.roomName }}</span><span>{{ hit.body }}</span><AppIcon name="search" /></button>
@@ -652,14 +657,14 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                 <p v-if="openingHistoryError" class="form-error" role="alert">{{ ui('historyFailed') }}<button class="quiet-button" @click="loadInitialHistory(true)">{{ personText('retry') }}</button></p>
                 <div v-if="!messages.length" class="thread-start"><span>{{ ui('firstMessage') }}</span></div>
                 <template v-for="item in timeline" :key="item.message.id">
-                  <div v-if="item.day" class="message-day"><span>{{ dayLabel(item.message.time) }}</span></div>
+                  <MessageDateSeparator v-if="item.day" :label="dayLabel(item.message.time)" />
                   <article :class="['message-bubble', { 'message-mine': item.message.mine, 'message-locked': item.message.locked, 'message-grouped': item.grouped, 'message-highlighted': highlighted === item.message.id, 'message-selected': selectedMessages.includes(item.message.id) }]" :data-event-id="item.message.id" tabindex="0" aria-haspopup="dialog" :aria-label="ui('messageActions')" @contextmenu.prevent="messageMenu = item.message" @keydown.enter.self.prevent="messageMenu = item.message" @pointerdown="press($event, item.message)" @pointermove="movePress" @pointerup="releasePress($event, item.message)" @pointercancel="cancelPress" @click="selecting && toggleMessage(item.message.id)">
                     <label v-if="selecting" class="message-select" @click.stop><input v-model="selectedMessages" :value="item.message.id" type="checkbox" :aria-label="ui('selectOne') + ': ' + item.message.body" /></label>
                     <strong v-if="!activeChat.direct && !item.message.mine && !item.grouped" class="message-author">{{ item.message.sender }}</strong>
                     <blockquote v-if="item.message.reply" @click.stop="jumpToMessage(item.message.reply)">{{ replyBody(item.message.reply) }}</blockquote>
                     <VoiceMessagePlayer v-if="item.message.voice && !item.message.locked" :duration="item.message.voice.duration" :waveform="item.message.voice.waveform" :active="!profileOpen && !hidden" :load="signal => loadVoice(item.message, signal)" /><p v-else class="message-body">{{ item.message.body }}</p>
                     <button v-if="item.message.photoId && !item.message.locked" class="message-photo" @click.stop="router.push(`/gallery/${item.message.photoId}`)"><AppIcon name="gallery" />{{ w('openPhoto') }}</button>
-                    <footer><time>{{ new Date(item.message.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</time><span v-if="item.message.mine" :class="['message-state', 'message-state-' + item.message.status]" :aria-label="m(item.message.status)"><svg v-if="item.message.status === 'sending'" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="6" /><path d="M8 4v4l3 2" /></svg><AppIcon v-else-if="item.message.status === 'notSent'" name="offline" /><template v-else><AppIcon name="check" /><AppIcon v-if="item.message.status === 'read'" name="check" /></template></span></footer>
+                    <footer><time>{{ new Date(item.message.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</time><span v-if="item.message.mine" :class="['message-state', 'message-state-' + item.message.status]" :aria-label="m(item.message.status)"><svg v-if="item.message.status === 'sending'" viewBox="0 0 16 16" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="6" /><path d="M8 4v4l3 2" /></svg><AppIcon v-else-if="item.message.status === 'notSent'" name="offline" /><MessageStatusTicks v-else :read="item.message.status === 'read'" /></span></footer>
                     <button v-if="!selecting" class="app-icon-button message-menu-button" :aria-label="ui('messageActions')" @click.stop="messageMenu = item.message"><AppIcon name="more" /></button>
                   </article>
                 </template>
