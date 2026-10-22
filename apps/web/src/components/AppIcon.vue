@@ -33,6 +33,8 @@ defineProps<{
     | 'edit'
     | 'copy'
     | 'archive'
+    | 'folder'
+    | 'bell-off'
     | 'share'
     | 'info'
     | 'eye-off'
@@ -94,6 +96,12 @@ defineProps<{
     <template v-else-if="name === 'copy'">
       <rect x="8" y="8" width="13" height="13" rx="2" />
       <path d="M16 8V3H3v13h5" />
+    </template>
+    <template v-else-if="name === 'folder'">
+      <path d="M3 6h7l2 3h9v11H3z" stroke-linejoin="round"/>
+    </template>
+    <template v-else-if="name === 'bell-off'">
+      <path d="M4 4 20 20M9 5a4 4 0 0 1 7 3v4c0 1.5.5 2.5 1.5 4M5.5 16h13M10 20h4"/>
     </template>
     <template v-else-if="name === 'archive'">
       <path d="M4 8v13h16V8M9 12h6" />

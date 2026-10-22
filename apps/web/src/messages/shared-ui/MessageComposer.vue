@@ -15,6 +15,7 @@ const props = withDefaults(defineProps<{
   voiceDirty: boolean
   disabled: boolean
   attachLabel?: string
+  pickerLabel?: string
   removeAttachmentLabel?: string
   attachment?: { name: string; size: number; kind: 'image' | 'file'; preview?: string }
   attachmentBusy?: boolean
@@ -25,6 +26,7 @@ const emit = defineEmits<{
   submit: []
   cancelReply: []
   attach: []
+  openPicker: []
   removeAttachment: []
   selectFile: [file: File]
 }>()
@@ -61,7 +63,20 @@ function onPaste(event: ClipboardEvent) {
   if (file) { event.preventDefault(); emit('selectFile', file) }
 }
 watch(() => props.modelValue, () => { void nextTick(resize) })
-defineExpose({ focus: () => textarea.value?.focus() })
+defineExpose({
+  focus: () => textarea.value?.focus(),
+  insertText: (value: string) => {
+    const input = textarea.value
+    if (!input) return
+    const from = input.selectionStart ?? props.modelValue.length
+    const to = input.selectionEnd ?? from
+    emit('update:modelValue', props.modelValue.slice(0, from) + value + props.modelValue.slice(to))
+    void nextTick(() => {
+      input.focus()
+      input.setSelectionRange(from + value.length, from + value.length)
+    })
+  },
+})
 </script>
 
 <template>
@@ -86,6 +101,11 @@ defineExpose({ focus: () => textarea.value?.focus() })
     </div>
     <button v-if="attachLabel && allowAttachments !== false" type="button" class="app-icon-button chatify-composer-attach" :aria-label="attachLabel" :disabled="disabled || voiceDirty" @click="emit('attach')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m21 11.5-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l9.8-9.8a3.7 3.7 0 0 1 5.3 5.2l-9.7 9.7a1.9 1.9 0 0 1-2.7-2.6l8.5-8.5"/></svg>
+    </button>
+    <button v-if="pickerLabel" type="button" class="app-icon-button chatify-composer-emoji" :aria-label="pickerLabel" :disabled="disabled || voiceDirty" @click="emit('openPicker')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"/><path d="M8 14c1 3 7 3 8 0M9 9h.01M15 9h.01" stroke-linecap="round"/>
+      </svg>
     </button>
     <label v-show="!voiceDirty" class="message-input">
       <span class="visually-hidden">{{ inputLabel }}</span>

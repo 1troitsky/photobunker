@@ -12,6 +12,7 @@ defineProps<{
     timeLabel: string
     preview: string
     unreadCount: number
+    muted?: boolean
   }
   active: boolean
   swiped: boolean
@@ -38,6 +39,9 @@ const emit = defineEmits<{ select: [] }>()
     <span class="chat-summary">
       <span class="chat-summary-title">
         <strong>{{ conversation.name }}</strong>
+        <svg v-if="conversation.muted" class="chat-muted-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-label="Muted notifications">
+          <path d="M4 4 20 20M9 5a4 4 0 0 1 7 3v4c0 1.5.5 2.5 1.5 4M5.5 16h13M10 20h4" stroke-linecap="round"/>
+        </svg>
         <time>{{ conversation.timeLabel }}</time>
       </span>
       <span class="chat-summary-preview">
