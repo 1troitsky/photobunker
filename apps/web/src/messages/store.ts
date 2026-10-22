@@ -1233,12 +1233,23 @@ async function dispatchText(entry: PendingText, current: MatrixClient) {
     // Check again after network preflight. Block/revoke may race activation.
     if (roomChat(room).blocked || room.getMyMembership() !== 'join' || !security.value.verified)
       throw new Error('unsafe_room')
-    const ack = await current.sendMessage(room.roomId, {
-      ...(reference ? { 'org.photobunker.photo': { id: reference.photoId, assignmentId: reference.assignmentId } } : {}),
-      msgtype: sdk.MsgType.Text,
-      body: entry.body,
-      ...(entry.reply ? { 'm.relates_to': { 'm.in_reply_to': { event_id: entry.reply } } } : {}),
-    }, entry.txnId)
+    // Retry Matrix's existing local echo if it already owns this txnId.
+    // Creating a second SDK echo for the same operation causes phantom
+    // duplicate bubbles even though Matrix server HTTP PUT is idempotent.
+    const existingEcho = room.getPendingEvents().find(event => event.getTxnId() === entry.txnId)
+    if (existingEcho && existingEcho.status !== 'not_sent') {
+      entry.status = 'queued'
+      refreshMessages()
+      return
+    }
+    const ack = existingEcho
+      ? await current.resendEvent(existingEcho, room)
+      : await current.sendMessage(room.roomId, {
+          ...(reference ? { 'org.photobunker.photo': { id: reference.photoId, assignmentId: reference.assignmentId } } : {}),
+          msgtype: sdk.MsgType.Text,
+          body: entry.body,
+          ...(entry.reply ? { 'm.relates_to': { 'm.in_reply_to': { event_id: entry.reply } } } : {}),
+        }, entry.txnId)
     requireClient(current)
     // Matrix local echo and eventual sync use the very same transaction ID.
     entry.serverEventId = ack.event_id
