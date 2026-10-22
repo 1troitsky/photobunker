@@ -11,6 +11,8 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     const a = await accountFixture(browser, `${engine} encrypted outbox sender`, fixtures)
     const b = await accountFixture(browser, `${engine} encrypted outbox recipient`, fixtures)
     stage = 'create-room'
+    await b.page.goto(`${origin}/messages`)
+    await expect(b.page.locator('.messages-screen')).toHaveAttribute('data-crypto-stage', 'ready', { timeout: 90000 })
     await a.page.goto(`${origin}/messages`)
     await expect(a.page.locator('.messages-screen')).toHaveAttribute('data-crypto-stage', 'ready', { timeout: 90000 })
     await button(a.page, 'Новый чат').click()
@@ -54,9 +56,10 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     }), { timeout: 20000 }).toBe(true)
     // Close while disconnected: it must not drop the operation or send without keys.
     stage = 'reload-after-disconnect'
-    await a.page.reload()
+    await a.page.close()
     await a.context.setOffline(false)
-    await a.page.reload()
+    a.page = await a.context.newPage()
+    await a.page.goto(`${origin}/messages`)
     await expect(a.page.locator('.messages-screen')).toHaveAttribute('data-crypto-stage', 'ready', { timeout: 90000 })
     stage = 'reconcile-server'
     await b.page.goto(`${origin}/messages`)
