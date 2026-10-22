@@ -425,7 +425,7 @@ export async function toggleReaction(id: string, key: ReactionKey) {
     const own = visibleReactionRecords(room, id).find(row =>
       row.key === key && row.sender === current.getUserId())
     if (own) await current.redactEvent(room.roomId, own.id)
-    else await current.sendEvent(room.roomId, privateReactionEventType as import('matrix-js-sdk').EventType, {
+    else await current.sendEvent(room.roomId, privateReactionEventType, {
       'm.relates_to': { rel_type: sdk.RelationType.Annotation, event_id: id, key },
     })
     requireClient(current)
