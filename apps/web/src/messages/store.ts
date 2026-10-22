@@ -111,6 +111,13 @@ export const verification = shallowRef<VerificationRequest>(),
   sas = shallowRef<ShowSasCallbacks>(),
   verificationPhase = ref(0)
 let contactsPoll: ReturnType<typeof setInterval> | undefined
+// Navigator offline events are immediate, while Matrix may only emit its
+// network-error transition after a long sync poll. Do not mark online until
+// Matrix itself establishes an authenticated sync.
+if (typeof window !== 'undefined')
+  window.addEventListener('offline', () => {
+    if (client) connection.value = 'offline'
+  })
 let client: MatrixClient | undefined,
   sdk: typeof import('matrix-js-sdk'),
   cryptoModule: typeof import('matrix-js-sdk/lib/crypto-api'),
@@ -878,7 +885,8 @@ export function startMessaging(): Promise<void> {
                 state === sdk.SyncState.Prepared ||
                 state === sdk.SyncState.Syncing
               ) {
-                connection.value = 'ready'
+                connection.value = typeof navigator !== 'undefined' && navigator.onLine === false
+                  ? 'offline' : 'ready'
                 refresh()
                 syncReady()
               } else if (
