@@ -1540,7 +1540,10 @@ export async function blockContact() {
   }
 }
 function requireClient(current: MatrixClient) {
-  if (client !== current) throw new Error('messages.cancelled')
+  // A stale network operation must never commit after a person/device switch,
+  // even before the reactive stopMessaging watcher has run.
+  if (client !== current || owner !== `${account.value?.id}:${deviceId.value}`)
+    throw new Error('messages.cancelled')
 }
 let savingMessageKeys: Promise<void> | undefined
 export async function preserveMessageKeys() {
