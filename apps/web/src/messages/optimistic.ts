@@ -1,5 +1,5 @@
 /**
- * In-memory optimistic display reconciliation (no durable/plaintext queue).
+ * Optimistic display reconciliation with an optional encrypted durable outbox.
  * Matrix SDK local echoes are authoritative. Never guess identity by body:
  * equal messages are distinct messages unless transaction/server IDs match.
  */
@@ -11,7 +11,7 @@ export type PendingText = {
   reply?: string
   photoId?: string
   time: number
-  status: 'sending' | 'notSent' | 'sent'
+  status: 'queued' | 'sending' | 'notSent' | 'sent'
   serverEventId?: string
   inFlight: boolean
 }
