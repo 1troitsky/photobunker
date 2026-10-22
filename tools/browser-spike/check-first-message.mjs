@@ -6,9 +6,22 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
   let stage = 'accounts'
   try {
     const a = await accountFixture(browser, `${engine} first message sender`, fixtures), b = await accountFixture(browser, `${engine} first message receiver`, fixtures)
-    await a.page.goto(`${origin}/messages`); await expect(a.page.locator('.messages-screen')).toHaveAttribute('data-crypto-stage', 'ready', { timeout: 90000 })
-    await button(a.page, 'Новый чат').click(); await label(a.page, 'ID или @username').fill(b.me.account.publicId); await button(a.page, 'Написать').click()
-    await expect(a.page.locator('.message-composer')).toBeVisible({ timeout: 30000 })
+    stage = 'profile-write'
+    await a.page.goto(`${origin}/people/${encodeURIComponent(b.me.account.publicId)}`)
+    await expect(button(a.page, 'Написать')).toBeVisible({ timeout: 30000 })
+    await button(a.page, 'Написать').click()
+    await expect(a.page.locator('.messages-screen')).toHaveAttribute('data-crypto-stage', 'ready', { timeout: 90000 })
+    await expect(a.page.locator('.message-composer')).toBeVisible({ timeout: 45000 })
+    const firstRoom = await a.page.locator('.messages-screen').getAttribute('data-room')
+    if (!firstRoom) throw new Error('profile_write_no_room')
+    stage = 'new-chat-existing-room'
+    await a.page.goto(`${origin}/messages`)
+    await expect(a.page.locator('.messages-screen')).toHaveAttribute('data-crypto-stage', 'ready', { timeout: 90000 })
+    await button(a.page, 'Новый чат').click()
+    await label(a.page, 'ID или @username').fill(b.me.account.publicId)
+    await button(a.page, 'Написать').click()
+    await expect(a.page.locator('.message-composer')).toBeVisible({ timeout: 45000 })
+    await expect(a.page.locator('.messages-screen')).toHaveAttribute('data-room', firstRoom)
     stage = 'first-send'
     await label(a.page, 'Сообщение').fill('QA first message before receiver starts messaging'); await button(a.page, 'Отправить').click()
     await expect(a.page.locator('.message-state')).toHaveAttribute('aria-label', 'Принято сервером', { timeout: 30000 })
