@@ -42,7 +42,7 @@ import { w } from '../workspace/text'
 import { m } from '../messages/text'
 import { ui, initials, avatarColor, dayLabel, chatTime } from '../messages/presentation'
 import { usePersonLookup } from '../messages/lookup'
-import { decideChatEntry } from '../messages/chat-entry'
+import { decideChatEntry, canAutoOpenChat } from '../messages/chat-entry'
 import { personText } from '../identity/person-text'
 import type { Message } from '../messages/store'
 import {
@@ -331,7 +331,7 @@ async function writeDirect(handle: string, call = false) {
 let autoOpenIntent = ''
 watch(
   [() => route.query.peer, () => route.query.call, () => account.value?.id,
-    () => security.value.verified, connection, diagnostic],
+    () => security.value.verified, connection, diagnostic, actionBusy],
   () => {
     const peer = typeof route.query.peer === 'string' ? route.query.peer.trim() : ''
     if (!peer) { autoOpenIntent = ''; return }
@@ -352,7 +352,7 @@ watch(
     }
     if (decision.kind !== 'ready') return
     const intent = `${account.value?.id || ''}:${peer}:${call}`
-    if (autoOpenIntent === intent) return
+    if (!canAutoOpenChat(decision, actionBusy.value, autoOpenIntent === intent)) return
     autoOpenIntent = intent
     pendingPeer.value = ''
     securityOpen.value = false
@@ -475,7 +475,8 @@ watch(
   { immediate: true },
 )
 const needsSecurity = computed(() => connection.value === 'ready' && diagnostic.value === 'ready' && !security.value.verified)
-watch([() => security.value.verified, connection, diagnostic], () => {
+watch([() => security.value.verified, connection, diagnostic, actionBusy], () => {
+  if (actionBusy.value) return
   if (decideChatEntry(connection.value, diagnostic.value, security.value.verified).kind !== 'ready' ||
       !pendingPeer.value) return
   const peer = pendingPeer.value
