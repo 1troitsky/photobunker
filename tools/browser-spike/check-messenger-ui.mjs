@@ -100,13 +100,13 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     await expect(page.locator('.chat-row')).toHaveCount(1); await expect(page.locator('.chat-summary')).toContainText('Договорились!')
     await expect(page.locator('.chat-summary')).not.toContainText('Защита переписки')
     await expect(page.locator('.chat-row time')).not.toBeEmpty()
-    await page.screenshot({ animations: 'disabled', path: `/private/tmp/photobunker-messenger-${engine}-list.png` })
+    await page.screenshot({ animations: 'disabled', path: join(tmpdir(), `photobunker-messenger-${engine}-list.png`) })
     stage = 'responsive'
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
       await page.locator('.chat-row').click(); await expect(page.locator('.message-composer')).toBeVisible()
       const composer = await page.locator('.message-composer').boundingBox(); assert.ok(composer.y >= 0 && composer.y + composer.height <= 845)
-      if (width === 1440) { await expect(page.locator('.messenger-sidebar')).toBeVisible(); await page.screenshot({ animations: 'disabled', path: `/private/tmp/photobunker-messenger-${engine}-desktop.png` }); await page.evaluate(() => { document.documentElement.dataset.theme = 'light' }); await page.screenshot({ animations: 'disabled', path: `/private/tmp/photobunker-messenger-${engine}-desktop-light.png` }) }
+      if (width === 1440) { await expect(page.locator('.messenger-sidebar')).toBeVisible(); await page.screenshot({ animations: 'disabled', path: join(tmpdir(), `photobunker-messenger-${engine}-desktop.png`) }); await page.evaluate(() => { document.documentElement.dataset.theme = 'light' }); await page.screenshot({ animations: 'disabled', path: join(tmpdir(), `photobunker-messenger-${engine}-desktop-light.png`) }) }
       await page.evaluate(async () => { (await import('/src/messages/store.ts')).openRoom('') })
     }
     stage = 'reading-history'
