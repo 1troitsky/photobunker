@@ -8,17 +8,43 @@ export const button=(page,name)=>page.getByRole('button',{name,exact:true})
 export const label=(page,name)=>page.getByLabel(name,{exact:true})
 export async function accountFixture(browser,name,fixtures,{legacy=false}={}) {
  const context=await browser.newContext({locale:'ru-RU',viewport:{width:390,height:844}}),page=await context.newPage()
- await page.goto(`${origin}/profile`);await button(page,'Создать аккаунт').click();await label(page,'Название устройства').fill(`QA ${name}`);await button(page,'Создать аккаунт').click()
- const kit=await label(page,'Ключ аккаунта').inputValue()
- if(legacy){
-   // An old-account fixture deliberately predates unified onboarding. This is not a UI path.
-   await page.evaluate(async ({kit,name})=>{const keys=await import('/src/identity/keys.ts'),store=await import('/src/identity/store.ts');await store.register(await keys.parseKit(kit),'QA '+name)},{kit,name})
-   page.once('dialog',dialog=>dialog.accept());await button(page,'Отмена').click()
- } else {await label(page,'Я сохранил ключ восстановления').check();await button(page,'Готово').click()}
- await expect(page).toHaveURL(`${origin}/profile`,{timeout:30000})
- const me=await(await context.request.get(`${origin}/api/v1/identity/me`,{headers})).json()
- const photoKit=legacy?undefined:await page.evaluate(async()=>{const v=await import('/src/identity/vault.ts');return(await v.readAccountSecrets())?.photoKey})
- const fixture={context,page,kit,photoKit,me,fingerprint:createHash('sha256').update(kit.split('.')[1]).digest('hex')};fixtures.push(fixture);return fixture
+ let stage='open-profile'
+ try {
+   await page.goto(`${origin}/profile`)
+   stage='open-onboarding'
+   await button(page,'Создать аккаунт').click()
+   stage='device-name'
+   await label(page,'Название устройства').fill(`QA ${name}`)
+   stage='create-account'
+   await button(page,'Создать аккаунт').click()
+   stage='read-recovery-input'
+   const kit=await label(page,'Ключ аккаунта').inputValue()
+   if(legacy){
+     stage='legacy-registration'
+     // Legacy fixture, not a product UI path. Do not log the recovery key.
+     await page.evaluate(async ({kit,name})=>{const keys=await import('/src/identity/keys.ts'),store=await import('/src/identity/store.ts');await store.register(await keys.parseKit(kit),'QA '+name)},{kit,name})
+     page.once('dialog',dialog=>dialog.accept())
+     await button(page,'Отмена').click()
+   } else {
+     stage='confirm-recovery-key'
+     await label(page,'Я сохранил ключ восстановления').check()
+     await button(page,'Готово').click()
+   }
+   stage='onboarding-return'
+   await expect(page).toHaveURL(`${origin}/profile`,{timeout:30000})
+   stage='load-public-account'
+   const me=await(await context.request.get(`${origin}/api/v1/identity/me`,{headers})).json()
+   stage='load-private-photo-key'
+   const photoKit=legacy?undefined:await page.evaluate(async()=>{const v=await import('/src/identity/vault.ts');return(await v.readAccountSecrets())?.photoKey})
+   const fixture={context,page,kit,photoKit,me,fingerprint:createHash('sha256').update(kit.split('.')[1]).digest('hex')}
+   fixtures.push(fixture)
+   return fixture
+ } catch(error) {
+   await context.close().catch(()=>{})
+   // Only safe state name + exception class: never reveal recovery kit,
+   // user IDs, encrypted payload, request body or browser storage.
+   throw new Error(`account_fixture_${stage}: ${error instanceof Error ? error.name : 'unknown'}`)
+ }
 }
 export async function cleanupFixtures(fixtures){for(const fixture of fixtures){await fixture.context.close().catch(()=>{});if(fixture.legacy)await command('./scripts/dev',['api','php','artisan','photobunker:workspace-legacy-cleanup',fixture.me.account.id,`--fingerprint=${fixture.fingerprint}`,`--library=${fixture.legacy.id}`,`--library-fingerprint=${fixture.legacy.fingerprint}`,`--photo=${fixture.legacy.photo}`]);await command('./scripts/dev',['api','php','artisan','photobunker:matrix-probe',fixture.me.account.id,'--cleanup',`--fingerprint=${fixture.fingerprint}`])}}
 
