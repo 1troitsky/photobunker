@@ -66,6 +66,7 @@ jobs:
         run: |
           node tools/browser-spike/check-first-message.mjs
           node tools/browser-spike/check-messenger-ui.mjs
+          node tools/browser-spike/check-attachments.mjs
           node tools/browser-spike/check-messages.mjs
 
       - name: MatrixRTC media E2EE, call lifecycle and admission revocation

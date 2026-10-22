@@ -24,6 +24,7 @@ defineProps<{
   replyPreview?: string
   hasVoice: boolean
   hasPhoto: boolean
+  hasAttachment?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -71,7 +72,8 @@ const emit = defineEmits<{
       @keydown.enter.stop.prevent="emit('replyJump', replyId)"
     >{{ replyPreview }}</blockquote>
     <slot v-if="hasVoice && !locked" name="voice" />
-    <p v-else class="message-body">{{ body }}</p>
+    <slot v-if="hasAttachment && !locked" name="attachment" />
+    <p v-if="locked || (!hasVoice && !hasAttachment) || (hasAttachment && !!body)" class="message-body">{{ body }}</p>
     <slot v-if="hasPhoto && !locked" name="photo" />
     <footer>
       <time>{{ timeLabel }}</time>

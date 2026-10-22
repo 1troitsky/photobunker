@@ -22,6 +22,7 @@ import { m, type MessageText } from './text'
 import { ui } from './presentation'
 import { encryptVoice, decryptVoice, voiceContent, maxVoiceBytes, maxVoiceDuration, type VoiceDraft, type VoiceMessage } from './voice'
 import { voiceText } from './voice-text'
+import { prepareAttachment, encryptAttachment, decryptAttachment, attachmentContent, MAX_ATTACHMENT_BYTES, type ChatAttachment } from './attachment'
 import { retrySignedEvent } from './trusted-decryption'
 import { visiblePendingText, type PendingText } from './optimistic'
 export type Peer = {
@@ -57,6 +58,7 @@ export type Message = {
   photoId?: string
   locked: boolean
   voice?: VoiceMessage
+  attachment?: ChatAttachment
   decryptionFailure?: string
 }
 export const connection = ref<
@@ -391,6 +393,7 @@ function refreshMessages() {
           ? m('locked')
           : content.msgtype === 'm.audio' ? voiceText(voiceContent(content) ? 'voice' : 'failed') : content.msgtype === 'm.text'
             ? String(content.body || '').replace(/^>.*(?:\n>.*)*\n\n/, '')
+            : attachmentContent(content) ? String(content['org.photobunker.caption'] || '')
             : '',
         time: event.getTs(),
         status,
@@ -403,9 +406,10 @@ function refreshMessages() {
         locked,
         decryptionFailure: event.decryptionFailureReason || undefined,
         voice: locked ? undefined : voiceContent(content),
+        attachment: locked ? undefined : attachmentContent(content),
       }
     })
-    .filter((event) => event.body)
+    .filter((event) => event.body || event.attachment)
   const queued = visiblePendingText([...optimisticText.values()], identities, room.roomId)
   messages.value = [...matrixMessages, ...queued.map(item => ({
     id: item.id,
@@ -1108,6 +1112,101 @@ export async function sendVoice(draft: VoiceDraft, reply?: string) {
   requireClient(current)
   refreshMessages()
   await preserveMessageKeys()
+}
+/**
+ * Native Matrix E2EE attachments. No original-image upload: browser sanitizes
+ * image pixels before encrypt/upload. Documents are encrypted byte-exact.
+ * A failed preflight retains selected File in the host composer for retry.
+ */
+export async function sendAttachment(file: File, caption = '', reply?: string) {
+  const current = client, room = current?.getRoom(selected.value)
+  if (!current || !room || !security.value.verified || connection.value !== 'ready' ||
+      !roomChat(room).encrypted || roomChat(room).blocked || room.getMyMembership() !== 'join' ||
+      caption.length > 10000) throw new Error('not_ready')
+  const prepared = await prepareAttachment(file)
+  requireClient(current)
+  await refreshPeers()
+  requireClient(current)
+  await activateConversation(current, room.roomId)
+  requireClient(current)
+  if (!security.value.verified || room.getMyMembership() !== 'join' || roomChat(room).blocked ||
+      !(await current.getCrypto()!.isEncryptionEnabledInRoom(room.roomId)))
+    throw new Error('unsafe_room')
+  const encrypted = await encryptAttachment(prepared.blob)
+  requireClient(current)
+  const upload = await current.uploadContent(encrypted.blob, {
+    name: 'encrypted.bin', type: 'application/octet-stream', includeFilename: false,
+  })
+  requireClient(current)
+  await refreshPeers()
+  requireClient(current)
+  if (!security.value.verified || room.getMyMembership() !== 'join' || roomChat(room).blocked ||
+      !(await current.getCrypto()!.isEncryptionEnabledInRoom(room.roomId))) throw new Error('unsafe_room')
+  // Keep Matrix's discriminated RoomMessageEventContent type intact.
+  const baseContent = {
+    body: prepared.name,
+    file: { ...encrypted.file, url: upload.content_uri },
+    info: {
+      mimetype: prepared.mimetype, size: prepared.blob.size,
+      ...(prepared.width ? { w: prepared.width } : {}),
+      ...(prepared.height ? { h: prepared.height } : {}),
+    },
+    ...(caption.trim() ? { 'org.photobunker.caption': caption.trim() } : {}),
+    ...(reply ? { 'm.relates_to': { 'm.in_reply_to': { event_id: reply } } } : {}),
+  }
+  const content = prepared.kind === 'image'
+    ? { ...baseContent, msgtype: sdk.MsgType.Image as import('matrix-js-sdk').MsgType.Image }
+    : { ...baseContent, msgtype: sdk.MsgType.File as import('matrix-js-sdk').MsgType.File }
+  await current.sendMessage(room.roomId, content)
+  requireClient(current)
+  refreshMessages()
+  // Keep recovery-key failures distinct from actual Matrix send failures.
+  void preserveMessageKeys()
+    .then(() => { if (client === current) messageBackupWarning.value = false })
+    .catch(() => { if (client === current) messageBackupWarning.value = true })
+}
+
+/** Fetch ciphertext only from our trusted Matrix origin with authorization.
+ * Decrypted content exists in a short-lived Blob owned by viewer component.
+ */
+export async function loadAttachment(message: Message, signal: AbortSignal): Promise<Blob> {
+  const current = client, roomId = selected.value, attachment = message.attachment
+  if (!current || !attachment) throw new Error('attachment.unavailable')
+  const allowed = () => {
+    requireClient(current)
+    const room = current.getRoom(roomId)
+    if (signal.aborted || selected.value !== roomId || !security.value.verified || !room ||
+        room.getMyMembership() !== 'join' || roomChat(room).blocked ||
+        !messages.value.some(item => item.id === message.id && item.attachment))
+      throw new Error('attachment.unavailable')
+  }
+  allowed()
+  const match = /^mxc:\/\/([^/]+)\/([a-z0-9_-]+)$/i.exec(attachment.file.url)
+  if (!match || match[1] !== current.getDomain()) throw new Error('attachment.unavailable')
+  const response = await fetch(
+    `/_matrix/client/v1/media/download/${encodeURIComponent(match[1])}/${encodeURIComponent(match[2])}`,
+    { headers: { Authorization: `Bearer ${current.getAccessToken()}` }, cache: 'no-store', signal },
+  )
+  if (!response.ok || !response.body || Number(response.headers.get('content-length')) > MAX_ATTACHMENT_BYTES)
+    throw new Error('attachment.unavailable')
+  const reader = response.body.getReader(), chunks: Uint8Array[] = []
+  let size = 0
+  try {
+    while (true) {
+      const part = await reader.read()
+      if (part.done) break
+      size += part.value.length
+      if (size > MAX_ATTACHMENT_BYTES) throw new Error('attachment.unavailable')
+      chunks.push(part.value)
+    }
+  } finally { await reader.cancel().catch(() => {}) }
+  allowed()
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; chunk.fill(0) }
+  const blob = await decryptAttachment(bytes, attachment)
+  allowed()
+  return blob
 }
 export async function loadVoice(message: Message, signal: AbortSignal) {
   const current = client, roomId = selected.value, voice = message.voice
