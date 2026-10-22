@@ -42,11 +42,21 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     await b.page.locator('.chat-row').click()
     await expect(b.page.locator('.message-bubble').filter({ hasText: 'Synthetic updated message' })).toHaveCount(1, { timeout: 35000 })
     stage = 'reaction'
+    const reactionWire = []
+    b.page.on('request', request => {
+      const path = new URL(request.url()).pathname
+      if (path.includes('/send/') && path.includes('org.photobunker.reaction'))
+        reactionWire.push({ encrypted: false, leaked: request.postData()?.includes('👍') })
+      else if (path.includes('/send/m.room.encrypted/'))
+        reactionWire.push({ encrypted: true, leaked: request.postData()?.includes('👍') })
+    })
     await b.page.locator('.message-bubble').filter({ hasText: 'Synthetic updated message' }).click({ button: 'right' })
     await button(b.page, 'Реакция').click()
     await button(b.page, 'Реакция: 👍').click()
     await expect(b.page.locator('.chatify-reaction-chip')).toHaveCount(1, { timeout: 35000 })
     await expect(a.page.locator('.chatify-reaction-chip')).toHaveCount(1, { timeout: 35000 })
+    expect(reactionWire.some(row => row.encrypted)).toBe(true)
+    expect(reactionWire.some(row => row.leaked || !row.encrypted)).toBe(false)
     stage = 'reaction-toggle-off'
     await b.page.locator('.chatify-reaction-chip').click()
     await expect(b.page.locator('.chatify-reaction-chip')).toHaveCount(0, { timeout: 35000 })
