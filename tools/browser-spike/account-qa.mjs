@@ -12,7 +12,15 @@ export async function accountFixture(browser,name,fixtures,{legacy=false}={}) {
  try {
    await page.goto(`${origin}/profile`)
    stage='open-onboarding'
-   await button(page,'Создать аккаунт').click()
+   // Cold CI boot can render the profile shell before identity initialization.
+   // One explicit reload is allowed; a second failure still fails acceptance.
+   const create = button(page,'Создать аккаунт')
+   try { await create.waitFor({ state: 'visible', timeout: 15000 }) }
+   catch {
+     await page.reload()
+     await create.waitFor({ state: 'visible', timeout: 15000 })
+   }
+   await create.click()
    stage='device-name'
    await label(page,'Название устройства').fill(`QA ${name}`)
    stage='create-account'
