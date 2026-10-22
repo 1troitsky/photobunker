@@ -17,13 +17,28 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
    document.addEventListener('pointerdown',()=>{void context.resume().catch(()=>{})})
    document.addEventListener('keydown',()=>{void context.resume().catch(()=>{})})
    navigator.mediaDevices.getUserMedia = async () => {
-    const oscillator = context.createOscillator(), destination = context.createMediaStreamDestination()
-    oscillator.frequency.value = 440; oscillator.connect(destination); oscillator.start(); await context.resume()
-    const stream = destination.stream
-    const stop = stream.getTracks()[0].stop.bind(stream.getTracks()[0])
-    stream.getTracks()[0].stop = () => { if (stream.getTracks()[0].readyState !== 'ended') { stop(); oscillator.stop() } }
-    window.qaStreams.push(stream)
-    return stream
+    window.qaSyntheticMediaStage = 'source'
+    try {
+      const oscillator = context.createOscillator(), destination = context.createMediaStreamDestination()
+      oscillator.frequency.value = 440; oscillator.connect(destination); oscillator.start()
+      const stream = destination.stream
+      window.qaSyntheticMediaStage = 'track'
+      const track = stream.getAudioTracks()[0]
+      if (!track) throw new Error('synthetic_audio_track_unavailable')
+      const stop = track.stop.bind(track)
+      track.stop = () => { if (track.readyState !== 'ended') { stop(); oscillator.stop() } }
+      window.qaStreams.push(stream)
+      // WebKit can reject or defer AudioContext.resume() without a user gesture.
+      // MediaRecorder should receive the synthetic MediaStream without waiting
+      // for playback-policy decisions; the pointer handler also resumes it.
+      window.qaSyntheticMediaStage = 'resume'
+      void context.resume().catch(() => { window.qaSyntheticMediaResumeRejected = true })
+      window.qaSyntheticMediaStage = 'ready'
+      return stream
+    } catch (error) {
+      window.qaSyntheticMediaFailure = error instanceof Error ? error.name : 'unknown'
+      throw error
+    }
    }
   })
   stage = 'record-preview'
@@ -76,6 +91,6 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
   expect(encrypted).toBe(true); expect(media).toEqual([{status:200,ciphertext:true},{status:503,ciphertext:true},{status:200,ciphertext:true}])
   expect(errors).toEqual([])
   console.log(`${engine}: voice record, preview, microphone release, encrypted send, automatic receive, playback, speed, text reply, slide cancel, permission denial, pause, failed-send retry and incoming deletion for everyone passed`)
- } catch(error) { for (const f of fixtures) console.error(await f.page.evaluate(async () => { const store = await import('/src/messages/store.ts'); return { phase: document.querySelector('.voice-recorder')?.getAttribute('data-recording-state'), messages: store.messages.value.map(value => ({ voice: !!value.voice, locked: value.locked, status: value.status, decryption: value.decryptionFailure })), error: !!document.querySelector('.voice-error'), synthetic: navigator.mediaDevices.getUserMedia.toString().includes('oscillator'), streams: window.qaStreams?.length } }).catch(()=>({ unavailable: true }))); console.error({ media }); console.error(`${engine}: voice QA failed at ${stage} (${error.name})`); throw error }
+ } catch(error) { for (const f of fixtures) console.error(await f.page.evaluate(async () => { const store = await import('/src/messages/store.ts'); return { phase: document.querySelector('.voice-recorder')?.getAttribute('data-recording-state'), messages: store.messages.value.map(value => ({ voice: !!value.voice, locked: value.locked, status: value.status, decryption: value.decryptionFailure })), error: !!document.querySelector('.voice-error'), synthetic: navigator.mediaDevices.getUserMedia.toString().includes('oscillator'), streams: window.qaStreams?.length, syntheticStage: window.qaSyntheticMediaStage, syntheticFailure: window.qaSyntheticMediaFailure, syntheticResumeRejected: !!window.qaSyntheticMediaResumeRejected } }).catch(()=>({ unavailable: true }))); console.error({ media }); console.error(`${engine}: voice QA failed at ${stage} (${error.name})`); throw error }
  finally { await cleanupFixtures(fixtures); await browser.close() }
 }
