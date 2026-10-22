@@ -328,6 +328,11 @@ async function activateConversation(current: MatrixClient, id: string) {
   activatedConversations.add(id)
   refresh()
 }
+/** Custom reaction event deliberately uses an encrypted Matrix event type.
+ * matrix-js-sdk 44 explicitly skips encryption of standard m.reaction.
+ * Plaintext emoji are unacceptable under PhotoBunker's E2EE contract.
+ */
+const privateReactionEventType = 'org.photobunker.reaction.v1'
 /** Aggregate decrypted reactions, not arbitrary original wire content. */
 function visibleReactionRecords(room: Room, id: string): ReactionRecord[] {
   // Matrix SDK aggregates decrypted relations asynchronously. Room.timeline
@@ -335,12 +340,12 @@ function visibleReactionRecords(room: Room, id: string): ReactionRecord[] {
   // include actual decrypted timeline events instead of relying on the derived
   // aggregation alone. Merge by event ID to prevent duplicate emoji counts.
   const indexed = room.relations.getChildEventsForEvent(
-    id, sdk.RelationType.Annotation, sdk.EventType.Reaction,
+    id, sdk.RelationType.Annotation, privateReactionEventType,
   )?.getRelations() ?? []
   const events = new Map<string, import('matrix-js-sdk').MatrixEvent>()
   for (const event of [...indexed, ...room.getLiveTimeline().getEvents(), ...room.getPendingEvents()]) {
     const id = event.getId()
-    if (id && event.getType() === sdk.EventType.Reaction) events.set(id, event)
+    if (id && event.getType() === privateReactionEventType) events.set(id, event)
   }
   return [...events.values()].flatMap(event => {
     if (!event.getId() || event.isRedacted() || event.isDecryptionFailure() ||
@@ -416,7 +421,7 @@ export async function toggleReaction(id: string, key: ReactionKey) {
     const own = visibleReactionRecords(room, id).find(row =>
       row.key === key && row.sender === current.getUserId())
     if (own) await current.redactEvent(room.roomId, own.id)
-    else await current.sendEvent(room.roomId, sdk.EventType.Reaction, {
+    else await current.sendEvent(room.roomId, privateReactionEventType, {
       'm.relates_to': { rel_type: sdk.RelationType.Annotation, event_id: id, key },
     })
     requireClient(current)
