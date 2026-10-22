@@ -186,3 +186,44 @@
 /* Chatify v2 adapted read-receipt glyph: one tick for Matrix sent, two for read. */
 .chatify-message-ticks { display: inline-flex; align-items: center; vertical-align: middle; }
 .message-state .chatify-message-ticks svg { display: block; width: 17px; height: 11px; }
+
+
+/* PB-U01: Chatify v2-inspired compact two-pane composition. App state and
+   decrypted text remain owned by the existing PhotoBunker Matrix store. */
+.chatify-messenger-layout { width: 100%; min-width: 0; background: var(--surface); }
+.chatify-sidebar-header { gap: 10px; background: var(--background); }
+.chatify-sidebar-header .screen-title { flex: 1; min-width: 0; }
+.chatify-sidebar-header .screen-title h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chatify-sidebar-header .screen-actions { flex-shrink: 0; }
+.chatify-sidebar-header .messenger-compose-button { border-radius: 50%; background: var(--accent-dim); color: var(--accent); }
+.chatify-conversation-search { margin-block: 12px 10px; transition: box-shadow .15s ease; }
+.chatify-conversation-search:focus-within { box-shadow: 0 0 0 2px var(--accent-dim); }
+.chatify-conversation-search input { min-height: 44px; font-size: 16px; }
+.chatify-conversation-search > svg { width: 18px; height: 18px; }
+.chatify-conversation-search .chatify-search-clear { display: grid; place-items: center; flex: 0 0 30px; width: 30px; min-width: 30px; min-height: 30px; border-radius: 50%; }
+.chatify-conversation-search .chatify-search-clear svg { width: 15px; height: 15px; }
+.chatify-thread-header { min-width: 0; background: var(--background); }
+.chatify-thread-header .chat-heading { min-width: 0; overflow: hidden; }
+.chatify-thread-header .chat-heading .screen-title { flex: 1; min-width: 0; overflow: hidden; }
+.chatify-thread-header .chat-heading h1,
+.chatify-thread-header .chat-heading small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chatify-thread-header .screen-actions { flex-shrink: 0; }
+.chatify-thread-header .messenger-back svg { width: 21px; height: 21px; }
+.chatify-thread-header .chat-avatar svg { width: 21px; height: 21px; }
+.chatify-conversation-item:focus-visible,
+.chatify-thread-header button:focus-visible,
+.chatify-sidebar-header button:focus-visible,
+.chatify-conversation-search button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (min-width: 840px) {
+  .chatify-messenger-layout > .messenger-sidebar { width: clamp(340px, 29vw, 380px); flex: 0 0 clamp(340px, 29vw, 380px); }
+  .chatify-thread-header { min-height: 70px; }
+  .chatify-sidebar-header { min-height: 70px; }
+}
+@media (max-width: 839px) {
+  .chatify-messenger-layout > .messenger-sidebar { width: 100%; min-width: 0; flex: 1; }
+  .chatify-thread-header .screen-actions { gap: 0; }
+  .chatify-thread-header .chat-heading { gap: 8px; }
+}
+@media (max-width: 359px) {
+  .chatify-thread-header .chat-avatar { display: none; }
+}
