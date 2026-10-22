@@ -58,6 +58,16 @@ jobs:
       - name: Start private local MatrixRTC services
         run: ./scripts/dev rtc
 
+      # Messenger UI acceptance runs before unrelated MatrixRTC scenarios,
+      # so a call-service timeout cannot mask chat regressions.
+      - name: PB messenger UI, E2EE and first-message browser acceptance
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
+        run: |
+          node tools/browser-spike/check-first-message.mjs
+          node tools/browser-spike/check-messenger-ui.mjs
+          node tools/browser-spike/check-messages.mjs
+
       - name: MatrixRTC media E2EE, call lifecycle and admission revocation
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
@@ -67,7 +77,6 @@ jobs:
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
         run: |
-          node tools/browser-spike/check-first-message.mjs
           node tools/browser-spike/check-legacy-chat.mjs
           node tools/browser-spike/check-person-profile.mjs
           node tools/browser-spike/check-voice.mjs
@@ -80,7 +89,6 @@ jobs:
           node tools/browser-spike/check-single-key.mjs
           node tools/browser-spike/check-onboarding-messages.mjs
           node tools/browser-spike/check-messenger-actions.mjs
-          node tools/browser-spike/check-messenger-ui.mjs
 
       - name: Real Identity and Matrix in Chromium and WebKit, outage and cold restore
         env:
@@ -92,10 +100,6 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
         run: node tools/browser-spike/check-profile-save.mjs
 
-      - name: E2EE conversations, verification and new-device history recovery
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
-        run: node tools/browser-spike/check-messages.mjs
 
       - name: Encrypted photo workspace, photo grants, import and assignment discussions
         env:
