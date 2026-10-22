@@ -43,6 +43,6 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
       }
       console.error(JSON.stringify({ fixture: index, state, wire }))
     }
-    console.error(`${engine}: first-message QA failed at ${stage} (${error.name})`); throw new Error('first_message_qa_failed')
+    console.error(`${engine}: first-message QA failed at ${stage} (${error.name}${/^account_fixture_[a-z-]+: (TimeoutError|Error|TypeError)$/.test(error.message || '') ? '; ' + error.message : ''})`); throw new Error('first_message_qa_failed')
   } finally { await cleanupFixtures(fixtures); await browser.close() }
 }
