@@ -75,8 +75,17 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     assert.deepEqual(errors, [])
     console.log(`${engine}: encrypted photo/file, explicit decrypt/download, composer cancel, failed upload retry, ciphertext upload passed`)
   } catch (error) {
-    console.error(`${engine}: attachment QA failed at ${stage}`, error instanceof Error ? error.message : error)
-    console.error({ errors, diagnostics })
+    console.error(`${engine}: attachment QA failed at ${stage}`, error instanceof Error ? error.name : 'unknown')
+    const state = await a?.page?.evaluate(async () => {
+      const store = await import('/src/messages/store.ts')
+      return { connection: store.connection.value, crypto: store.diagnostic.value,
+        selected: !!store.selected.value,
+        timeline: store.messages.value.map(row => ({
+          status: row.status, locked: row.locked,
+          attachment: !!row.attachment, voice: !!row.voice, hasText: !!row.body,
+        })) }
+    }).catch(() => ({ unavailable: true }))
+    console.error({ errors: errors.length, uploads, diagnostics, state })
     throw error
   } finally {
     await cleanupFixtures(fixtures)
