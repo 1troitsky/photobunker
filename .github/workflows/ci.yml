@@ -86,11 +86,6 @@ jobs:
           done
           exit "${failed}"
 
-      - name: MatrixRTC media E2EE, call lifecycle and admission revocation
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
-        run: node tools/browser-spike/check-calls.mjs
-
       - name: Direct first messages, legacy chat activation, profile privacy and encrypted voice
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
@@ -145,6 +140,15 @@ jobs:
 
       - name: Smoke after network restore
         run: ./scripts/dev smoke
+
+      # Calls are explicitly outside the current messenger scope. Keep their
+      # regression probe available when manually dispatching the workflow;
+      # never silently report call acceptance as part of PR messenger CI.
+      - name: Deferred MatrixRTC call acceptance (manual only)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
+        run: node tools/browser-spike/check-calls.mjs
 
       - name: Service status on failure
         if: failure()
