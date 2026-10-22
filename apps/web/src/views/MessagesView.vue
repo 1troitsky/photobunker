@@ -42,6 +42,7 @@ import { w } from '../workspace/text'
 import { m } from '../messages/text'
 import { ui, initials, avatarColor, dayLabel, chatTime } from '../messages/presentation'
 import { usePersonLookup } from '../messages/lookup'
+import { decideChatEntry } from '../messages/chat-entry'
 import { personText } from '../identity/person-text'
 import type { Message } from '../messages/store'
 import {
@@ -289,15 +290,20 @@ const { person: foundPerson, busy: lookupBusy, error: lookupError, find: findPer
   computed(() => `${account.value?.id || ''}:${identityDeviceId.value}`),
 )
 const chatDrafts = new Map<string, { text: string; reply: string }>()
+function chatEntryError(reason: 'offline' | 'otherTab' | 'unsupported' | 'error') {
+  return m(reason === 'error' ? failure.value || 'failed' : reason)
+}
 function readyToWrite(handle?: string) {
-  if (security.value.verified && connection.value === 'ready') return true
-  pendingPeer.value = handle || ''
-  if (connection.value !== 'ready' || diagnostic.value !== 'ready') {
-    actionError.value = m(connection.value === 'error' ? failure.value || 'failed' : connection.value === 'offline' ? 'offline' : connection.value === 'unsupported' ? 'unsupported' : connection.value === 'otherTab' ? 'otherTab' : 'connecting')
-    return false
+  const decision = decideChatEntry(connection.value, diagnostic.value, security.value.verified)
+  if (decision.kind === 'ready') return true
+  if (decision.kind === 'recover') {
+    pendingPeer.value = handle || ''
+    newOpen.value = false
+    securityOpen.value = true
+    actionError.value = ''
+  } else {
+    actionError.value = decision.kind === 'unavailable' ? chatEntryError(decision.reason) : m('connecting')
   }
-  newOpen.value = false
-  securityOpen.value = true
   return false
 }
 async function writeDirect(handle: string, call = false) {
@@ -317,15 +323,38 @@ async function writeDirect(handle: string, call = false) {
     if (call) await joinCall(selected.value)
   })
 }
+// Deep-linked Write is an intent that must *never* disappear in recovery
+// or offline states. Limit automatic room creation to once per intent; Retry
+// remains explicit. The recipient id is used only for local control flow.
+let autoOpenIntent = ''
 watch(
-  [() => route.query.peer, () => security.value.verified, connection, diagnostic],
+  [() => route.query.peer, () => route.query.call, () => account.value?.id,
+    () => security.value.verified, connection, diagnostic],
   () => {
-    if (
-      typeof route.query.peer === 'string' &&
-      security.value.verified &&
-      connection.value === 'ready' && diagnostic.value === 'ready'
-    )
-      void writeDirect(route.query.peer, route.query.call === 'audio')
+    const peer = typeof route.query.peer === 'string' ? route.query.peer.trim() : ''
+    if (!peer) { autoOpenIntent = ''; return }
+    const call = route.query.call === 'audio'
+    const decision = decideChatEntry(connection.value, diagnostic.value, security.value.verified)
+    if (decision.kind === 'recover') {
+      pendingPeer.value = peer
+      pendingCall.value = call
+      if (!securityOpen.value) {
+        newOpen.value = false
+        securityOpen.value = true
+      }
+      return
+    }
+    if (decision.kind === 'unavailable') {
+      actionError.value = chatEntryError(decision.reason)
+      return
+    }
+    if (decision.kind !== 'ready') return
+    const intent = `${account.value?.id || ''}:${peer}:${call}`
+    if (autoOpenIntent === intent) return
+    autoOpenIntent = intent
+    pendingPeer.value = ''
+    securityOpen.value = false
+    void writeDirect(peer, call)
   },
   { immediate: true },
 )
@@ -444,13 +473,16 @@ watch(
   { immediate: true },
 )
 const needsSecurity = computed(() => connection.value === 'ready' && diagnostic.value === 'ready' && !security.value.verified)
-watch([() => security.value.verified, connection], ([value, state]) => {
-  if (value && state === 'ready' && pendingPeer.value) {
-    const peer = pendingPeer.value
-    pendingPeer.value = ''
-    securityOpen.value = false
-    void writeDirect(peer, pendingCall.value)
-  }
+watch([() => security.value.verified, connection, diagnostic], () => {
+  if (decideChatEntry(connection.value, diagnostic.value, security.value.verified).kind !== 'ready' ||
+      !pendingPeer.value) return
+  const peer = pendingPeer.value
+  // Route-driven opens are handled by the route watcher, preventing
+  // two async createChat calls when verification finishes.
+  if (route.query.peer === peer) return
+  pendingPeer.value = ''
+  securityOpen.value = false
+  void writeDirect(peer, pendingCall.value)
 })
 const voiceDirty = ref(false)
 const dirty = computed(
@@ -827,7 +859,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
     <div v-if="hidden" class="native-empty"><AppIcon name="lock" /><h2>{{ m('privacy') }}</h2></div>
     <RouterView v-else-if="profileOpen" v-slot="{ Component }"><component :is="Component" in-messages @message="profileMessage" @call="(id: string) => profileMessage(id, true)" /></RouterView>
     <template v-if="!hidden">
-      <div v-if="!profileOpen && typeof route.query.peer === 'string'" class="messenger-opening" role="status"><p>{{ actionError || (actionBusy ? personText('opening') : m(connection === 'error' ? failure || 'failed' : connection === 'otherTab' ? 'otherTab' : connection === 'unsupported' ? 'unsupported' : connection === 'offline' ? 'offline' : 'connecting')) }}</p><button v-if="!actionBusy" class="quiet-button" @click="writeDirect(String(route.query.peer), route.query.call === 'audio')">{{ personText('retry') }}</button><button v-if="!actionBusy" class="quiet-button" @click="openPerson(String(route.query.peer))">{{ personText('open') }}</button></div>
+      <div v-if="!profileOpen && typeof route.query.peer === 'string'" class="messenger-opening" role="status"><p>{{ actionError || (actionBusy ? personText('opening') : needsSecurity ? m('deviceRecoveryHint') : m(connection === 'error' ? failure || 'failed' : connection === 'otherTab' ? 'otherTab' : connection === 'unsupported' ? 'unsupported' : connection === 'offline' ? 'offline' : 'connecting')) }}</p><button v-if="needsSecurity" class="quiet-button" @click="securityOpen = true">{{ m('verifyDevice') }}</button><button v-else-if="!actionBusy" class="quiet-button" @click="writeDirect(String(route.query.peer), route.query.call === 'audio')">{{ personText('retry') }}</button><button v-if="!actionBusy" class="quiet-button" @click="openPerson(String(route.query.peer))">{{ personText('open') }}</button></div>
       <MessengerSplitLayout v-show="!profileOpen">
         <aside class="messenger-sidebar" :aria-label="m('chats')">
           <SidebarHeader
