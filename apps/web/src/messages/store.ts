@@ -325,10 +325,19 @@ async function activateConversation(current: MatrixClient, id: string) {
 }
 /** Aggregate decrypted reactions, not arbitrary original wire content. */
 function visibleReactionRecords(room: Room, id: string): ReactionRecord[] {
-  const related = room.relations.getChildEventsForEvent(
+  // Matrix SDK aggregates decrypted relations asynchronously. Room.timeline
+  // and MatrixEvent.Decrypted can fire before that collection is updated, so
+  // include actual decrypted timeline events instead of relying on the derived
+  // aggregation alone. Merge by event ID to prevent duplicate emoji counts.
+  const indexed = room.relations.getChildEventsForEvent(
     id, sdk.RelationType.Annotation, sdk.EventType.Reaction,
   )?.getRelations() ?? []
-  return related.flatMap(event => {
+  const events = new Map<string, import('matrix-js-sdk').MatrixEvent>()
+  for (const event of [...indexed, ...room.getLiveTimeline().getEvents(), ...room.getPendingEvents()]) {
+    const id = event.getId()
+    if (id && event.getType() === sdk.EventType.Reaction) events.set(id, event)
+  }
+  return [...events.values()].flatMap(event => {
     if (!event.getId() || event.isRedacted() || event.isDecryptionFailure() ||
         !event.isEncrypted() || event.status === 'not_sent' ||
         blocked.has(event.getSender() || '')) return []
