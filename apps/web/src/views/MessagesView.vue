@@ -298,7 +298,9 @@ function readyToWrite(handle?: string) {
   if (decision.kind === 'ready') return true
   if (decision.kind === 'recover') {
     pendingPeer.value = handle || ''
-    newOpen.value = false
+    // A group draft has no direct peer to resume: keep its selected people
+    // and title rather than destroying the draft during device recovery.
+    if (handle) newOpen.value = false
     securityOpen.value = true
     actionError.value = ''
   } else {
