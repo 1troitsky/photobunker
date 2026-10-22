@@ -1206,6 +1206,7 @@ function prepareText(body: string, reply?: string, photoId?: string) {
   return { entry, current }
 }
 
+function isMessagingOffline() { return connection.value === 'offline' }
 async function dispatchText(entry: PendingText, current: MatrixClient) {
   if (entry.inFlight || optimisticText.get(entry.id) !== entry) return
   if (connection.value !== 'ready') {
@@ -1270,7 +1271,7 @@ async function dispatchText(entry: PendingText, current: MatrixClient) {
       .catch(() => { if (client === current) messageBackupWarning.value = true })
   } catch (error) {
     if (client === current && optimisticText.get(entry.id) === entry) {
-      entry.status = connection.value === 'offline' ? 'queued' : 'notSent'
+      entry.status = isMessagingOffline() ? 'queued' : 'notSent'
       refreshMessages()
     }
     throw error
