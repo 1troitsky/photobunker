@@ -25,6 +25,7 @@ import { voiceText } from './voice-text'
 import { prepareAttachment, encryptAttachment, decryptAttachment, attachmentContent, MAX_ATTACHMENT_BYTES, type ChatAttachment } from './attachment'
 import { retrySignedEvent } from './trusted-decryption'
 import { visiblePendingText, type PendingText } from './optimistic'
+import { saveDurableText, readDurableText, eraseDurableText, type DurableText } from './durable-outbox'
 import { summarizeReactions, isReactionKey, type ReactionKey, type ReactionRecord, type ReactionSummary } from './reactions'
 export type Peer = {
   username?: string | null
@@ -55,7 +56,7 @@ export type Message = {
   mine: boolean
   body: string
   time: number
-  status: 'sending' | 'sent' | 'read' | 'notSent'
+  status: 'queued' | 'sending' | 'sent' | 'read' | 'notSent'
   reply?: string
   photoId?: string
   locked: boolean
@@ -80,9 +81,13 @@ export const connection = ref<
   selected = ref(''),
   messages = ref<Message[]>([]),
   busy = ref(false)
-// Ephemeral preflight bubbles. The Matrix SDK owns all real local echoes,
-// retry IDs and E2EE. Nothing in this map is persisted or sent to analytics.
+// UI-only decrypted projections; the durable outbox stores AES-GCM ciphertext
+// (never browser plaintext storage). Matrix server events remain authoritative.
 const optimisticText = new Map<string, PendingText>()
+export const outboxError = ref(false)
+let outboxRestoredScope = ''
+let outboxRestoring: Promise<void> | undefined
+let outboxDraining = false
 const reactionLocks = new Set<string>()
 export const messageBackupWarning = ref(false)
 export const olderAvailable = ref(false)
@@ -450,13 +455,15 @@ function refreshMessages() {
     txnId: event.getTxnId(),
     status: event.status,
   }))
-  // Once Matrix owns a confirmed server echo, retire its in-memory preflight
-  // text. Do not match on body: repeated identical texts are separate events.
+  // A real Matrix echo retires the local projection and its ciphertext
+  // outbox row. Never use body equality for reconciliation.
   for (const item of optimisticText.values()) {
     if (identities.some(event =>
       (!event.status && event.txnId === item.txnId) ||
-      (item.serverEventId && event.id === item.serverEventId)))
+      (item.serverEventId && event.id === item.serverEventId))) {
       optimisticText.delete(item.id)
+      void eraseDurableText(item.txnId).catch(() => { outboxError.value = true })
+    }
   }
   const seen = new Set<string>()
   const matrixMessages = events
@@ -569,7 +576,7 @@ async function securityStatus() {
     crypto.getActiveSessionBackupVersion(),
     crypto.getCrossSigningStatus(),
   ])
-  if (current === client)
+  if (current === client) {
     security.value = {
       deviceSigned: trust?.signedByOwner === true,
       identityVerified: trust?.crossSigningVerified === true,
@@ -579,9 +586,15 @@ async function securityStatus() {
       backup: !!backup,
       remaining: security.value.remaining,
     }
+    if (security.value.verified) void restoreDurableOutbox(current)
+  }
 }
 export function stopMessaging(clearRequest = true) {
   optimisticText.clear()
+  outboxRestoredScope = ''
+  outboxRestoring = undefined
+  outboxDraining = false
+  outboxError.value = false
   reactionLocks.clear()
   messageBackupWarning.value = false
   joiningIncoming.clear(); failedIncoming.clear(); activatedConversations.clear(); incomingError.value = false
@@ -875,6 +888,7 @@ export function startMessaging(): Promise<void> {
               ) {
                 connection.value = 'ready'
                 refresh()
+                if (security.value.verified) void restoreDurableOutbox(created)
                 syncReady()
               } else if (
                 state === sdk.SyncState.Error ||
@@ -919,6 +933,7 @@ export function startMessaging(): Promise<void> {
             diagnostic.value = 'ready'
             await retryTrustedMessages(created)
             refresh()
+            if (security.value.verified) void restoreDurableOutbox(created)
             privacyTimer = setInterval(() => {
               if (client === created && document.visibilityState === 'visible') {
                 void refreshPeers().catch(() => {})
