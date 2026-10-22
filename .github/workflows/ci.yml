@@ -73,6 +73,7 @@ jobs:
             check-attachments \
             check-edit-reactions \
             check-messenger-ux \
+            check-durable-outbox \
             check-messages; do
             echo "::group::Messenger: ${spec}"
             if node "tools/browser-spike/${spec}.mjs"; then
