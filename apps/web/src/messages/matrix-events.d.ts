@@ -9,9 +9,8 @@ import 'matrix-js-sdk/lib/@types/event'
 
 declare module 'matrix-js-sdk/lib/@types/event' {
   interface TimelineEvents {
-    'org.photobunker.reaction.v1': {
-      'm.relates_to': {
-        rel_type: 'm.annotation'
+    'org.photobunker.reaction.v2': {
+      'org.photobunker.reaction': {
         event_id: string
         key: string
       }
