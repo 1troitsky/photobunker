@@ -14,8 +14,8 @@ const props = withDefaults(defineProps<{
   replyPreview?: string
   voiceDirty: boolean
   disabled: boolean
-  /** Allow editing a local draft while sending is unavailable. */
-  inputDisabled?: boolean
+  /** Host may allow text drafts while send remains disabled (offline only). */
+  allowDraftWhenDisabled?: boolean
   attachLabel?: string
   pickerLabel?: string
   removeAttachmentLabel?: string
@@ -116,7 +116,7 @@ defineExpose({
         :value="modelValue"
         :aria-label="inputLabel"
         :placeholder="placeholder"
-        :disabled="inputDisabled ?? disabled"
+        :disabled="disabled && !allowDraftWhenDisabled"
         maxlength="10000"
         rows="1"
         @input="onInput"
