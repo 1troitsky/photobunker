@@ -25,6 +25,7 @@ import { voiceText } from './voice-text'
 import { prepareAttachment, encryptAttachment, decryptAttachment, attachmentContent, MAX_ATTACHMENT_BYTES, type ChatAttachment } from './attachment'
 import { retrySignedEvent } from './trusted-decryption'
 import { visiblePendingText, type PendingText } from './optimistic'
+import { summarizeReactions, isReactionKey, type ReactionKey, type ReactionRecord, type ReactionSummary } from './reactions'
 export type Peer = {
   username?: string | null
   publicId: string
@@ -59,6 +60,8 @@ export type Message = {
   locked: boolean
   voice?: VoiceMessage
   attachment?: ChatAttachment
+  edited?: boolean
+  reactions?: ReactionSummary[]
   decryptionFailure?: string
 }
 export const connection = ref<
@@ -79,6 +82,7 @@ export const connection = ref<
 // Ephemeral preflight bubbles. The Matrix SDK owns all real local echoes,
 // retry IDs and E2EE. Nothing in this map is persisted or sent to analytics.
 const optimisticText = new Map<string, PendingText>()
+const reactionLocks = new Set<string>()
 export const messageBackupWarning = ref(false)
 export const olderAvailable = ref(false)
 export const openingHistory = ref(false), openingHistoryError = ref(false)
@@ -150,6 +154,10 @@ function resolveNames() {
     }).catch(() => { if (generation === version) unresolvedPeers.add(id) }).finally(() => { if (generation === version) resolvingPeers.delete(id) })
   }
 }
+function isAuxiliaryRelation(event: import('matrix-js-sdk').MatrixEvent) {
+  const relation = event.getOriginalContent()['m.relates_to']?.rel_type
+  return relation === sdk.RelationType.Replace || relation === sdk.RelationType.Annotation
+}
 function clearMarker(event: import('matrix-js-sdk').MatrixEvent) {
   return (
     event.isEncrypted() &&
@@ -198,7 +206,8 @@ function roomChat(room: Room): Chat {
   const last = [...room.getLiveTimeline().getEvents(), ...room.getPendingEvents()].filter(event =>
     !event.isRedacted() && !clearMarker(event) && event.getTs() > (uiState(room).clearedAt ?? 0) &&
     !uiState(room).hidden?.includes(event.getId() || '') && !blocked.has(event.getSender() || '') &&
-    event.getContent().msgtype !== 'm.key.verification.request' && (event.isEncrypted() || event.getType() === 'm.room.message'),
+    event.getContent().msgtype !== 'm.key.verification.request' && !isAuxiliaryRelation(event) &&
+    (event.isEncrypted() || event.getType() === 'm.room.message'),
   ).at(-1)
   const preview = !last ? '' : last.isDecryptionFailure() || (!last.isEncrypted() && !last.status) ? m('locked')
     : String(last.getContent().body || '').replace(/^>.*(?:\n>.*)*\n\n/, '').replace(/\s+/g, ' ').trim()
@@ -309,6 +318,93 @@ async function activateConversation(current: MatrixClient, id: string) {
   activatedConversations.add(id)
   refresh()
 }
+/** Aggregate decrypted reactions, not arbitrary original wire content. */
+function visibleReactionRecords(room: Room, id: string): ReactionRecord[] {
+  const related = room.relations.getChildEventsForEvent(
+    id, sdk.RelationType.Annotation, sdk.EventType.Reaction,
+  )?.getRelations() ?? []
+  return related.flatMap(event => {
+    if (!event.getId() || event.isRedacted() || event.isDecryptionFailure() ||
+        !event.isEncrypted() || event.status === 'not_sent' ||
+        blocked.has(event.getSender() || '')) return []
+    const relation = event.getContent()['m.relates_to']
+    if (relation?.rel_type !== sdk.RelationType.Annotation || relation.event_id !== id ||
+        typeof relation.key !== 'string' || !isReactionKey(relation.key)) return []
+    return [{ key: relation.key, sender: event.getSender() || '', id: event.getId()!, timestamp: event.getTs() }]
+  })
+}
+function canInteractWithEvent(current: MatrixClient, room: Room, id: string) {
+  if (!current.getUserId() || !security.value.verified || roomChat(room).blocked || room.getMyMembership() !== 'join' ||
+      !roomChat(room).encrypted || !id.startsWith('$')) return false
+  const event = room.findEventById(id)
+  return !!event && !!event.getId() && event.status == null &&
+    event.isEncrypted() && !event.isRedacted() && !event.isDecryptionFailure() &&
+    !blocked.has(event.getSender() || '') &&
+    event.getType() === sdk.EventType.RoomMessage && !isAuxiliaryRelation(event)
+}
+export function canEditMessage(id: string) {
+  const current = client, room = current?.getRoom(selected.value)
+  if (!current || !room || !canInteractWithEvent(current, room, id)) return false
+  const event = room.findEventById(id)!
+  const content = event.getContent()
+  return event.getSender() === current.getUserId() &&
+    content.msgtype === sdk.MsgType.Text &&
+    !content['org.photobunker.photo'] && !content.file
+}
+export async function editMessage(id: string, body: string) {
+  const current = client, room = current?.getRoom(selected.value)
+  if (!current || !room || !canEditMessage(id) || !body.trim() || body.length > 10000)
+    throw new Error('permission')
+  await refreshPeers()
+  requireClient(current)
+  if (!canEditMessage(id) || !(await current.getCrypto()!.isEncryptionEnabledInRoom(room.roomId)))
+    throw new Error('unsafe_room')
+  requireClient(current)
+  const text = body.trim()
+  const originalReply = room.findEventById(id)?.getContent()['m.relates_to']?.['m.in_reply_to']?.event_id
+  const replacement = {
+    msgtype: sdk.MsgType.Text as import('matrix-js-sdk').MsgType.Text,
+    body: text,
+    ...(typeof originalReply === 'string' && originalReply.startsWith('$')
+      ? { 'm.relates_to': { 'm.in_reply_to': { event_id: originalReply } } } : {}),
+  }
+  await current.sendMessage(room.roomId, {
+    msgtype: sdk.MsgType.Text,
+    body: '* ' + text,
+    'm.new_content': replacement,
+    'm.relates_to': { rel_type: sdk.RelationType.Replace, event_id: id },
+  })
+  requireClient(current)
+  refreshMessages()
+  void preserveMessageKeys()
+    .then(() => { if (client === current) messageBackupWarning.value = false })
+    .catch(() => { if (client === current) messageBackupWarning.value = true })
+}
+export async function toggleReaction(id: string, key: ReactionKey) {
+  if (!isReactionKey(key)) throw new Error('permission')
+  const current = client, room = current?.getRoom(selected.value)
+  if (!current || !room || !canInteractWithEvent(current, room, id)) throw new Error('permission')
+  const lock = room.roomId + ':' + id + ':' + key
+  if (reactionLocks.has(lock)) return
+  reactionLocks.add(lock)
+  try {
+    await refreshPeers()
+    requireClient(current)
+    if (!canInteractWithEvent(current, room, id) ||
+        !(await current.getCrypto()!.isEncryptionEnabledInRoom(room.roomId)))
+      throw new Error('unsafe_room')
+    requireClient(current)
+    const own = visibleReactionRecords(room, id).find(row =>
+      row.key === key && row.sender === current.getUserId())
+    if (own) await current.redactEvent(room.roomId, own.id)
+    else await current.sendEvent(room.roomId, sdk.EventType.Reaction, {
+      'm.relates_to': { rel_type: sdk.RelationType.Annotation, event_id: id, key },
+    })
+    requireClient(current)
+    refreshMessages()
+  } finally { reactionLocks.delete(lock) }
+}
+
 function refreshMessages() {
   initialHistoryFlags()
   const room = client?.getRoom(selected.value)
@@ -360,6 +456,7 @@ function refreshMessages() {
         !uiState(room).hidden?.includes(id) &&
         !blocked.has(event.getSender() || '') &&
         event.getContent().msgtype !== 'm.key.verification.request' &&
+        !isAuxiliaryRelation(event) &&
         (event.getType() === 'm.room.message' || event.isEncrypted())
       )
     })
@@ -407,6 +504,8 @@ function refreshMessages() {
         decryptionFailure: event.decryptionFailureReason || undefined,
         voice: locked ? undefined : voiceContent(content),
         attachment: locked ? undefined : attachmentContent(content),
+        edited: !locked && !!event.replacingEvent() && !event.replacingEvent()!.isDecryptionFailure(),
+        reactions: locked ? [] : summarizeReactions(visibleReactionRecords(room, event.getId()!), client!.getUserId() || ''),
       }
     })
     .filter((event) => event.body || event.attachment)
@@ -469,6 +568,7 @@ async function securityStatus() {
 }
 export function stopMessaging(clearRequest = true) {
   optimisticText.clear()
+  reactionLocks.clear()
   messageBackupWarning.value = false
   joiningIncoming.clear(); failedIncoming.clear(); activatedConversations.clear(); incomingError.value = false
   initialHistoryRooms.clear(); initialHistoryPending.clear(); initialHistoryFailures.clear()
@@ -1873,7 +1973,7 @@ export async function searchMessages(query: string) {
           !event.isEncrypted() ||
           event.getTs() <= (state.clearedAt ?? 0) ||
           state.hidden?.includes(event.getId()!) ||
-          blocked.has(event.getSender() ?? '')
+          blocked.has(event.getSender() ?? '') || isAuxiliaryRelation(event)
         )
           continue
         const body = event.getContent().body

@@ -6,6 +6,7 @@ import MessageComposer from '../messages/shared-ui/MessageComposer.vue'
 import VoiceMessagePlayer from '../components/VoiceMessagePlayer.vue'
 import EncryptedAttachmentView from '../messages/shared-ui/EncryptedAttachmentView.vue'
 import { validateAttachment } from '../messages/attachment'
+import { reactionKeys, isReactionKey, type ReactionKey } from '../messages/reactions'
 import ConversationListItem from '../messages/shared-ui/ConversationListItem.vue'
 import MessageBubble from '../messages/shared-ui/MessageBubble.vue'
 import MessageList from '../messages/shared-ui/MessageList.vue'
@@ -50,6 +51,9 @@ import {
   loadAllMessages,
   pinMessage,
   canPinMessage,
+  canEditMessage,
+  editMessage,
+  toggleReaction,
   pinnedIds,
   searchMessages,
   cancelMessageSearch,
@@ -179,6 +183,17 @@ const tab = ref('chats'),
   restoreInput = ref(''),
   hidden = ref(document.hidden),
   log = ref<HTMLElement>()
+const editingMessage = ref<{ id: string; roomId: string; original: string }>()
+let editSnapshot: { text: string; reply: string } | undefined
+function cancelEdit() {
+  if (!editingMessage.value) return
+  editingMessage.value = undefined
+  if (editSnapshot) {
+    draft.value = editSnapshot.text
+    reply.value = editSnapshot.reply
+  }
+  editSnapshot = undefined
+}
 const attachmentInput = ref<HTMLInputElement>()
 const chosenAttachment = ref<File>()
 const attachmentPreviewUrl = ref('')
@@ -332,8 +347,10 @@ watch(messages, () => {
   )
 })
 watch(selected, () => {
+  cancelEdit()
   messageSearchOpen.value = false
   messageMenu.value = undefined
+  reactionPicker.value = undefined
   selecting.value = false
   selectedMessages.value = []
   messageQuery.value = ''
@@ -390,6 +407,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('pageshow', resume)
   restoreInput.value = ''
   cancelPress()
+  cancelEdit()
   clearAttachment()
   clearTimeout(searchTimer)
   window.visualViewport?.removeEventListener('resize', updateViewport)
@@ -418,6 +436,9 @@ watch(
       pendingPeer.value = ''
       directHandle.value = ''
       chatDrafts.clear()
+      cancelEdit()
+      reactionPicker.value = undefined
+      messageMenu.value = undefined
       clearAttachment()
       contactQuery.value = ''
       listQuery.value = ''
@@ -504,8 +525,30 @@ async function submitChosenAttachment() {
     attachmentBusy.value = false
   }
 }
+async function submitEdit() {
+  const target = editingMessage.value
+  if (!target || actionBusy.value || selected.value !== target.roomId) return
+  const text = draft.value
+  if (!text.trim() || text.length > 10000) return
+  actionBusy.value = true
+  const version = actionGeneration
+  try {
+    await editMessage(target.id, text)
+    if (version === actionGeneration && editingMessage.value?.id === target.id &&
+        selected.value === target.roomId) {
+      cancelEdit()
+      actionError.value = ''
+    }
+  } catch {
+    if (version === actionGeneration && selected.value === target.roomId)
+      actionError.value = ui('editFailed')
+  } finally {
+    if (version === actionGeneration) actionBusy.value = false
+  }
+}
 function submit() {
   if (actionBusy.value || attachmentBusy.value || voiceDirty.value || connection.value !== 'ready' || !security.value.verified) return
+  if (editingMessage.value) { void submitEdit(); return }
   if (chosenAttachment.value) { void submitChosenAttachment(); return }
   const body = draft.value
   if (!body.trim()) return
@@ -563,6 +606,18 @@ async function block() {
 const replyBody = (id: string) =>
   messages.value.find((message) => message.id === id)?.body || ui('deletedMessage')
 
+function startEditMessage(message: Message) {
+  if (!canEditMessage(message.id) || chosenAttachment.value || voiceDirty.value ||
+      actionBusy.value || editingMessage.value) return
+  editSnapshot = { text: draft.value, reply: reply.value }
+  editingMessage.value = { id: message.id, roomId: selected.value, original: message.body }
+  draft.value = message.body
+  reply.value = ''
+  messageMenu.value = undefined
+  void nextTick(() => document.querySelector<HTMLTextAreaElement>('.chatify-message-composer textarea')?.focus())
+}
+
+const reactionPicker = ref<Message>()
 const messageSearchOpen = ref(false), messageMenu = ref<Message>(), chatMenu = ref(''), atBottom = ref(true), highlighted = ref('')
 const messageDeleteOpen = ref(false), messageDeleteEveryone = ref(false), deletingMessages = ref<string[]>([])
 const viewport = ref(window.visualViewport?.height ?? window.innerHeight)
@@ -616,7 +671,7 @@ function toggleMessage(id: string) {
 function askMessageDelete(ids: string[], everyone = false) {
   deletingMessages.value = [...ids]; messageDeleteEveryone.value = everyone && canDeleteForEveryone(ids); messageDeleteOpen.value = true; messageMenu.value = undefined
 }
-type MessageActionId = 'reply' | 'copy' | 'pin' | 'select' | 'retry' | 'delete'
+type MessageActionId = 'reply' | 'copy' | 'pin' | 'select' | 'retry' | 'delete' | 'edit' | 'react'
 const messageActions = computed(() => {
   const item = messageMenu.value
   const actions: { id: MessageActionId; label: string; destructive?: boolean }[] = []
@@ -625,6 +680,9 @@ const messageActions = computed(() => {
     actions.push({ id: 'copy', label: a('copy') })
     if (item.status !== 'notSent') {
       actions.unshift({ id: 'reply', label: m('reply') })
+      actions.push({ id: 'react', label: ui('react') })
+      if (canEditMessage(item.id) && !editingMessage.value && !chosenAttachment.value && !voiceDirty.value)
+        actions.push({ id: 'edit', label: ui('edit') })
       if (canPinMessage()) actions.push({ id: 'pin', label: ui(pinnedIds.value.includes(item.id) ? 'unpin' : 'pin') })
     }
   }
@@ -642,12 +700,24 @@ function handleMessageAction(id: MessageActionId) {
   if (!item || !messageActions.value.some(action => action.id === id)) return
   switch (id) {
     case 'reply': reply.value = item.id; messageMenu.value = undefined; break
+    case 'edit': startEditMessage(item); break
+    case 'react': reactionPicker.value = item; messageMenu.value = undefined; break
     case 'copy': void perform(copyMessage); messageMenu.value = undefined; break
     case 'pin': void perform(() => pinMessage(item.id, !pinnedIds.value.includes(item.id))); messageMenu.value = undefined; break
     case 'select': selectMessage(item); break
     case 'retry': void perform(() => retryMessage(item.id)); messageMenu.value = undefined; break
     case 'delete': askMessageDelete([item.id]); break
   }
+}
+function handleReaction(id: string, key: string) {
+  if (!isReactionKey(key) || connection.value !== 'ready' || !security.value.verified ||
+      actionBusy.value) return
+  void perform(() => toggleReaction(id, key))
+}
+function applyPickedReaction(key: ReactionKey) {
+  const target = reactionPicker.value
+  reactionPicker.value = undefined
+  if (target) handleReaction(target.id, key)
 }
 async function confirmMessageDelete() {
   await perform(async () => { await deleteMessages(deletingMessages.value, messageDeleteEveryone.value); messageDeleteOpen.value = false; selectedMessages.value = []; selecting.value = false })
@@ -788,6 +858,11 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                     :has-voice="!!item.message.voice"
                     :has-photo="!!item.message.photoId"
                     :has-attachment="!!item.message.attachment"
+                    :edited="item.message.edited"
+                    :edited-label="ui('edited')"
+                    :reactions="item.message.reactions"
+                    :reaction-label="ui('react')"
+                    @react="handleReaction(item.message.id, $event)"
                     @menu="messageMenu = item.message"
                     @toggle="toggleMessage(item.message.id)"
                     @reply-jump="jumpToMessage"
@@ -840,26 +915,27 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                 v-model="draft"
                 :placeholder="m('message')"
                 :input-label="m('message')"
-                :send-label="m('send')"
-                :cancel-reply-label="m('cancelReply')"
-                :reply-label="m('reply')"
-                :reply-preview="reply ? replyBody(reply) : undefined"
+                :send-label="editingMessage ? ui('saveEdit') : m('send')"
+                :cancel-reply-label="editingMessage ? ui('cancelEdit') : m('cancelReply')"
+                :reply-label="editingMessage ? ui('editing') : m('reply')"
+                :reply-preview="editingMessage ? editingMessage.original : reply ? replyBody(reply) : undefined"
                 :voice-dirty="voiceDirty"
                 :disabled="actionBusy || attachmentBusy || connection !== 'ready' || !security.verified"
                 :attachment="chosenAttachment ? { name: chosenAttachment.name, kind: chosenAttachment.type.startsWith('image/') ? 'image' : 'file', size: chosenAttachment.size, preview: attachmentPreviewUrl } : undefined"
                 :attachment-busy="attachmentBusy"
-                :attach-label="ui('attachmentAdd')"
+                :attach-label="editingMessage ? undefined : ui('attachmentAdd')"
+                :allow-attachments="!editingMessage"
                 :remove-attachment-label="ui('attachmentRemove')"
                 @submit="submit"
                 @attach="attachmentInput?.click()"
                 @select-file="acceptAttachment"
                 @remove-attachment="clearAttachment"
-                @cancel-reply="reply = ''"
+                @cancel-reply="editingMessage ? cancelEdit() : reply = ''"
               >
                 <template #voice>
                   <input ref="attachmentInput" class="visually-hidden" tabindex="-1" type="file" accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,application/zip,.pdf,.txt,.zip" :aria-label="ui('attachmentAdd')" @change="chooseAttachment" />
                   <VoiceRecorder
-                    v-show="!chosenAttachment && (!draft.trim() || voiceDirty)"
+                    v-show="!editingMessage && !chosenAttachment && (!draft.trim() || voiceDirty)"
                     :key="selected"
                     :disabled="actionBusy || connection !== 'ready'"
                     :active="!profileOpen && !hidden"
@@ -912,6 +988,11 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
         :actions="messageActions"
         @action="handleMessageAction"
       />
+    </AppSheet>
+    <AppSheet :open="!!reactionPicker && !hidden" :title="ui('react')" :busy="actionBusy" @close="reactionPicker = undefined">
+      <div class="chatify-emoji-picker" role="group" :aria-label="ui('react')">
+        <button v-for="emoji in reactionKeys" :key="emoji" type="button" class="chatify-emoji-option" :aria-label="ui('react') + ': ' + emoji" :disabled="actionBusy" @click="applyPickedReaction(emoji)">{{ emoji }}</button>
+      </div>
     </AppSheet>
     <AppSheet :open="!!chatMenu && !hidden" :title="rooms.find(room => room.id === chatMenu)?.name || ui('chatActions')" :busy="actionBusy" @close="chatMenu = ''">
       <button v-if="chatMenu === selected" class="messenger-action" @click="messageSearchOpen = true; chatMenu = ''"><AppIcon name="search" />{{ ui('searchChat') }}</button>

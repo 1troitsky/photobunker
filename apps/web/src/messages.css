@@ -284,3 +284,15 @@
 .messages-screen .chatify-attachment-open:focus-visible, .messages-screen .chatify-attachment-file:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .messages-screen .chatify-attachment-status, .messages-screen .chatify-attachment-privacy { margin: 0; padding: 4px 14px; font-size: 11px; }
 .messages-screen .chatify-attachment-privacy { opacity: .78; }
+
+
+/* PB-U05: reaction overlays and edit status in the shared Chatify bubble. */
+.messages-screen .chatify-reactions { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 0 3px; }
+.messages-screen .chatify-reaction-chip { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 3px 9px; border: 1px solid var(--border); border-radius: 16px; background: var(--panel); color: var(--text); font: inherit; font-size: 13px; line-height: 1; cursor: pointer; }
+.messages-screen .chatify-reaction-chip.is-own { background: var(--accent-dim); border-color: var(--accent); }
+.messages-screen .chatify-reaction-chip span { font-size: 11px; font-variant-numeric: tabular-nums; }
+.messages-screen .chatify-reaction-chip:focus-visible, .chatify-emoji-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.messages-screen .chatify-message-edited { font-size: 10px; opacity: .72; }
+.chatify-emoji-picker { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-around; gap: 9px; padding: 14px 4px; }
+.chatify-emoji-option { display: grid; place-items: center; width: 48px; height: 48px; min-height: 48px; padding: 2px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); font: inherit; font-size: 25px; cursor: pointer; }
+.chatify-emoji-option:disabled { opacity: .45; }

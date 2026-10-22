@@ -25,6 +25,10 @@ defineProps<{
   hasVoice: boolean
   hasPhoto: boolean
   hasAttachment?: boolean
+  edited?: boolean
+  editedLabel?: string
+  reactions?: readonly { key: string; count: number; mine: boolean }[]
+  reactionLabel?: string
 }>()
 
 const emit = defineEmits<{
@@ -35,6 +39,7 @@ const emit = defineEmits<{
   pressMove: [event: PointerEvent]
   pressEnd: [event: PointerEvent]
   pressCancel: []
+  react: [key: string]
 }>()
 </script>
 
@@ -75,7 +80,21 @@ const emit = defineEmits<{
     <slot v-if="hasAttachment && !locked" name="attachment" />
     <p v-if="locked || (!hasVoice && !hasAttachment) || (hasAttachment && !!body)" class="message-body">{{ body }}</p>
     <slot v-if="hasPhoto && !locked" name="photo" />
+    <div v-if="reactions?.length && !locked" class="chatify-reactions" aria-label="Reactions">
+      <button
+        v-for="reaction in reactions"
+        :key="reaction.key"
+        type="button"
+        class="chatify-reaction-chip"
+        :class="{ 'is-own': reaction.mine }"
+        :aria-label="(reactionLabel || 'Reaction') + ': ' + reaction.key + ', ' + reaction.count"
+        :aria-pressed="reaction.mine"
+        @click.stop="emit('react', reaction.key)"
+        @pointerdown.stop
+      >{{ reaction.key }} <span>{{ reaction.count }}</span></button>
+    </div>
     <footer>
+      <span v-if="edited && !locked" class="chatify-message-edited">{{ editedLabel || 'Edited' }}</span>
       <time>{{ timeLabel }}</time>
       <span v-if="mine" :class="['message-state', 'message-state-' + status]" :aria-label="statusLabel">
         <svg v-if="status === 'sending'" viewBox="0 0 16 16" fill="none" aria-hidden="true">
