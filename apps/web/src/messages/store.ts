@@ -26,6 +26,7 @@ import { prepareAttachment, encryptAttachment, decryptAttachment, attachmentCont
 import { retrySignedEvent } from './trusted-decryption'
 import { visiblePendingText, type PendingText } from './optimistic'
 import { saveDurableText, readDurableText, eraseDurableText, type DurableText } from './durable-outbox'
+import { retryDelayMs, isTransientMessageError } from './retry-policy'
 import { summarizeReactions, isReactionKey, type ReactionKey, type ReactionRecord, type ReactionSummary } from './reactions'
 export type Peer = {
   username?: string | null
@@ -88,6 +89,9 @@ export const outboxError = ref(false)
 let outboxRestoredScope = ''
 let outboxRestoring: Promise<void> | undefined
 let outboxDraining = false
+let retryTimer: ReturnType<typeof setTimeout> | undefined
+const retryAttempts = new Map<string, number>()
+const retryAfter = new Map<string, number>()
 const reactionLocks = new Set<string>()
 export const messageBackupWarning = ref(false)
 export const olderAvailable = ref(false)
@@ -467,6 +471,7 @@ function refreshMessages() {
       (!event.status && event.txnId === item.txnId) ||
       (item.serverEventId && event.id === item.serverEventId))) {
       optimisticText.delete(item.id)
+      clearRetry(item.id)
       void eraseDurableText(item.txnId).catch(() => { outboxError.value = true })
     }
   }
@@ -632,6 +637,24 @@ async function restoreDurableOutbox(current: MatrixClient): Promise<void> {
   if (client === current && connection.value === 'ready' && security.value.verified)
     void drainDurableOutbox(current)
 }
+function clearRetry(id: string) {
+  retryAttempts.delete(id)
+  retryAfter.delete(id)
+}
+function scheduleTextRetry(current: MatrixClient, entry: PendingText) {
+  if (client !== current || !security.value.verified) return
+  const attempt = retryAttempts.get(entry.id) ?? 0
+  retryAttempts.set(entry.id, attempt + 1)
+  retryAfter.set(entry.id, Date.now() + retryDelayMs(attempt))
+  if (retryTimer) clearTimeout(retryTimer)
+  // One timer for all queued items; never wake background processes with keys.
+  const earliest = Math.min(...retryAfter.values())
+  retryTimer = setTimeout(() => {
+    retryTimer = undefined
+    if (client === current && connection.value === 'ready' && security.value.verified)
+      void drainDurableOutbox(current)
+  }, Math.max(0, earliest - Date.now()))
+}
 async function drainDurableOutbox(current: MatrixClient) {
   if (outboxDraining || client !== current || connection.value !== 'ready' ||
       !security.value.verified || outboxRestoredScope !== owner) return
@@ -639,7 +662,9 @@ async function drainDurableOutbox(current: MatrixClient) {
   try {
     for (const item of optimisticText.values()) {
       if (client !== current || connection.value !== 'ready' || !security.value.verified) return
-      if (item.status !== 'queued' || item.inFlight) continue
+      if (item.status !== 'queued' || item.inFlight ||
+          (retryAfter.get(item.id) ?? 0) > Date.now()) continue
+      retryAfter.delete(item.id)
       const room = current.getRoom(item.roomId)
       if (!room || room.getMyMembership() !== 'join' || !roomChat(room).encrypted ||
           roomChat(room).blocked) continue
@@ -650,6 +675,10 @@ async function drainDurableOutbox(current: MatrixClient) {
 }
 
 export function stopMessaging(clearRequest = true) {
+  if (retryTimer) clearTimeout(retryTimer)
+  retryTimer = undefined
+  retryAttempts.clear()
+  retryAfter.clear()
   optimisticText.clear()
   outboxRestoredScope = ''
   outboxRestoring = undefined
@@ -1262,6 +1291,7 @@ async function dispatchText(entry: PendingText, current: MatrixClient) {
     entry.status = 'sent'
     refreshMessages()
     // Idempotent on reconnect: commit ACK and remove ciphertext outbox row.
+    clearRetry(entry.id)
     try { await eraseDurableText(entry.txnId) }
     catch { if (client === current) outboxError.value = true }
     // Key backup failure must never turn an ACKed message into "not sent",
@@ -1271,7 +1301,10 @@ async function dispatchText(entry: PendingText, current: MatrixClient) {
       .catch(() => { if (client === current) messageBackupWarning.value = true })
   } catch (error) {
     if (client === current && optimisticText.get(entry.id) === entry) {
-      entry.status = isMessagingOffline() ? 'queued' : 'notSent'
+      // Transient network and 5xx/429 faults must be queued, not lost.
+      const transient = isMessagingOffline() || isTransientMessageError(error)
+      entry.status = transient ? 'queued' : 'notSent'
+      if (transient && !isMessagingOffline()) scheduleTextRetry(current, entry)
       refreshMessages()
     }
     throw error
