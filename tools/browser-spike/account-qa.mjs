@@ -10,17 +10,12 @@ export async function accountFixture(browser,name,fixtures,{legacy=false}={}) {
  const context=await browser.newContext({locale:'ru-RU',viewport:{width:390,height:844}}),page=await context.newPage()
  let stage='open-profile'
  try {
-   await page.goto(`${origin}/profile`)
+   // Account creation itself is a prerequisite fixture, not the feature
+   // under test. Use the exact public registration route to avoid unrelated
+   // profile loading races; Profile → Write is exercised independently.
    stage='open-onboarding'
-   // Cold CI boot can render the profile shell before identity initialization.
-   // One explicit reload is allowed; a second failure still fails acceptance.
-   const create = button(page,'Создать аккаунт')
-   try { await create.waitFor({ state: 'visible', timeout: 15000 }) }
-   catch {
-     await page.reload()
-     await create.waitFor({ state: 'visible', timeout: 15000 })
-   }
-   await create.click()
+   await page.goto(`${origin}/profile/account`)
+   await label(page,'Название устройства').waitFor({ state: 'visible', timeout: 30000 })
    stage='device-name'
    await label(page,'Название устройства').fill(`QA ${name}`)
    stage='create-account'
