@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { origin, button, label, accountFixture, cleanupFixtures, monitorRuntime } from './account-qa.mjs'
 
 const png = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2BUdcAAAAASUVORK5CYII=', 'base64')
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR4nGP4z/D/PwgzQOn/AGeqC/W88sLDAAAAAElFTkSuQmCC', 'base64')
 const fileSelector = '.chatify-message-composer input[type=file]'
 async function ready(page) {
   await page.goto(`${origin}/messages`)
