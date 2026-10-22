@@ -15,7 +15,10 @@ export async function accountFixture(browser,name,fixtures,{legacy=false}={}) {
    // profile loading races; Profile → Write is exercised independently.
    stage='open-onboarding'
    await page.goto(`${origin}/profile/account`)
-   await label(page,'Название устройства').waitFor({ state: 'visible', timeout: 30000 })
+   // CI starts against a cold Vite server; first compilation of the onboarding
+   // route can exceed the ordinary interaction budget. Do not retry account
+   // creation or bypass the visible onboarding contract.
+   await label(page,'Название устройства').waitFor({ state: 'visible', timeout: 90000 })
    stage='device-name'
    await label(page,'Название устройства').fill(`QA ${name}`)
    stage='create-account'
@@ -66,7 +69,16 @@ export async function monitorRuntime(page,engine,errors,diagnostics){
  page.on('pageerror',async error=>{
   const detail=[error.name,error.message,error.stack].join(' '),url=detail.match(/https?:\/\/[^\s"'<>)]+/)?.[0]
   if(engine==='webkit'&&/(?:Fetch API cannot load|Cannot load) http/.test(detail)&&url){
-   const parsed=new URL(url),allowed=parsed.origin===origin&&/^\/(?:api\/v1\/identity\/|src\/|node_modules\/)/.test(parsed.pathname)
+   const parsed=new URL(url)
+   // WebKit sometimes reports an aborted Matrix /sync long-poll as a pageerror
+   // even without a requestfailed/cancelled event. Only classify this native
+   // network diagnostic after the page has navigated (logout, reconnect,
+   // recovery); all other URLs and actual JS errors remain strictly fatal.
+   if(parsed.origin===origin && parsed.pathname==='/_matrix/client/v3/sync' && documentGeneration>1){
+    diagnostics.nativeMatrixSyncAbort=(diagnostics.nativeMatrixSyncAbort??0)+1
+    return
+   }
+   const allowed=parsed.origin===origin&&/^\/(?:api\/v1\/identity\/|src\/|node_modules\/)/.test(parsed.pathname)
    if(allowed){for(let attempt=0;attempt<5&&!cancelled.has(url);attempt++)await new Promise(resolve=>setTimeout(resolve,10));if(cancelled.has(url)||Date.now()-privacyTransition<750){diagnostics.nativePhotoPoll++;return}}
   }
   diagnostics.unexpected??=[];diagnostics.unexpected.push({name:error.name.split('http')[0],nativeFetch:/Fetch API cannot load/.test(detail),cancelled:!!url&&cancelled.has(url),path:!url?'':new URL(url).pathname.replace(/[-a-f0-9]{36}/g,':id'),pathKind:!url?'unknown':new URL(url).pathname.startsWith('/api/')?'api':new URL(url).pathname.startsWith('/src/')?'module':'other'});errors.push('browser_error')
