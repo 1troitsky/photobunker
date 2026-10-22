@@ -20,3 +20,11 @@ export function decideChatEntry(connection: string, diagnostic: string, verified
   if (connection === 'error') return { kind: 'unavailable', reason: 'error' }
   return { kind: 'waiting' }
 }
+
+/** A verification callback can set "verified" while an async action still
+ * owns the UI. Revisit the intent when that action finishes; never mark an
+ * ignored launch as completed.
+ */
+export function canAutoOpenChat(decision: ChatEntryDecision, busy: boolean, alreadyOpened: boolean): boolean {
+  return decision.kind === 'ready' && !busy && !alreadyOpened
+}
