@@ -641,19 +641,26 @@ function clearRetry(id: string) {
   retryAttempts.delete(id)
   retryAfter.delete(id)
 }
-function scheduleTextRetry(current: MatrixClient, entry: PendingText) {
-  if (client !== current || !security.value.verified) return
-  const attempt = retryAttempts.get(entry.id) ?? 0
-  retryAttempts.set(entry.id, attempt + 1)
-  retryAfter.set(entry.id, Date.now() + retryDelayMs(attempt))
+function armRetryWake(current: MatrixClient) {
   if (retryTimer) clearTimeout(retryTimer)
-  // One timer for all queued items; never wake background processes with keys.
+  retryTimer = undefined
+  if (client !== current || connection.value !== 'ready' || !security.value.verified ||
+      !retryAfter.size) return
+  // A single timer watches ALL outstanding attempts, not merely the last
+  // failed send. After one retry, subsequent messages must not get stranded.
   const earliest = Math.min(...retryAfter.values())
   retryTimer = setTimeout(() => {
     retryTimer = undefined
     if (client === current && connection.value === 'ready' && security.value.verified)
       void drainDurableOutbox(current)
   }, Math.max(0, earliest - Date.now()))
+}
+function scheduleTextRetry(current: MatrixClient, entry: PendingText) {
+  if (client !== current || !security.value.verified) return
+  const attempt = retryAttempts.get(entry.id) ?? 0
+  retryAttempts.set(entry.id, attempt + 1)
+  retryAfter.set(entry.id, Date.now() + retryDelayMs(attempt))
+  armRetryWake(current)
 }
 async function drainDurableOutbox(current: MatrixClient) {
   if (outboxDraining || client !== current || connection.value !== 'ready' ||
@@ -671,7 +678,10 @@ async function drainDurableOutbox(current: MatrixClient) {
       try { await dispatchText(item, current) }
       catch { /* A definitive failure becomes Not sent; the user retains Retry. */ }
     }
-  } finally { outboxDraining = false }
+  } finally {
+    outboxDraining = false
+    armRetryWake(current)
+  }
 }
 
 export function stopMessaging(clearRequest = true) {
