@@ -421,7 +421,7 @@ export async function toggleReaction(id: string, key: ReactionKey) {
     const own = visibleReactionRecords(room, id).find(row =>
       row.key === key && row.sender === current.getUserId())
     if (own) await current.redactEvent(room.roomId, own.id)
-    else await current.sendEvent(room.roomId, privateReactionEventType, {
+    else await current.sendEvent(room.roomId, privateReactionEventType as sdk.EventType, {
       'm.relates_to': { rel_type: sdk.RelationType.Annotation, event_id: id, key },
     })
     requireClient(current)
