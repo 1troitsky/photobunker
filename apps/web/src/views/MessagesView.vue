@@ -3,6 +3,10 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRouter, useRoute, RouterView } from 'vue-router'
 import VoiceRecorder from '../components/VoiceRecorder.vue'
 import MessageComposer from '../messages/shared-ui/MessageComposer.vue'
+import EmojiStickerPicker from '../messages/shared-ui/EmojiStickerPicker.vue'
+import { makeLocalSticker } from '../messages/picker'
+import { privateFolders, clearPrivateFolders, loadPrivateFolders, createPrivateFolder, renamePrivateFolder, deletePrivateFolder, toggleRoomFolder } from '../messages/private-folders'
+import { appLocked } from '../app/lock'
 import VoiceMessagePlayer from '../components/VoiceMessagePlayer.vue'
 import EncryptedAttachmentView from '../messages/shared-ui/EncryptedAttachmentView.vue'
 import { validateAttachment } from '../messages/attachment'
@@ -45,6 +49,7 @@ import {
   messageBackupWarning,
   preserveMessageKeys,
   archiveConversation,
+  setConversationMuted,
   deleteConversation,
   deleteMessages,
   canDeleteForEveryone,
@@ -183,6 +188,62 @@ const tab = ref('chats'),
   restoreInput = ref(''),
   hidden = ref(document.hidden),
   log = ref<HTMLElement>()
+const composer = ref<InstanceType<typeof MessageComposer>>()
+const pickerOpen = ref(false)
+const foldersOpen = ref(false)
+const folderName = ref('')
+const renameFolderId = ref('')
+const renameFolderText = ref('')
+const folderBusy = ref(false)
+const folderError = ref('')
+async function runFolderUpdate(action: () => Promise<void>) {
+  if (folderBusy.value) return
+  folderBusy.value = true; folderError.value = ''
+  try { await action() }
+  catch { folderError.value = ui('folderError') }
+  finally { folderBusy.value = false }
+}
+function createFolder() {
+  void runFolderUpdate(async () => {
+    await createPrivateFolder(folderName.value)
+    folderName.value = ''
+  })
+}
+function saveFolderName() {
+  const id = renameFolderId.value
+  void runFolderUpdate(async () => {
+    await renamePrivateFolder(id, renameFolderText.value)
+    renameFolderId.value = ''
+    renameFolderText.value = ''
+  })
+}
+function removeFolder(id: string) {
+  void runFolderUpdate(async () => {
+    await deletePrivateFolder(id)
+    if (tab.value === 'folder:' + id) tab.value = 'chats'
+  })
+}
+function assignFolder(id: string, roomId: string) {
+  if (!rooms.value.some(room => room.id === roomId && room.membership === 'join')) return
+  void runFolderUpdate(() => toggleRoomFolder(id, roomId))
+}
+async function prepareSticker(symbol: string) {
+  if (!security.value.verified || connection.value !== 'ready' || editingMessage.value ||
+      !selected.value || appLocked.value) return
+  const roomId = selected.value, userId = account.value?.id, version = actionGeneration
+  pickerOpen.value = false
+  try {
+    const file = await makeLocalSticker(symbol)
+    // Never attach a private media draft to another conversation/account
+    // if the user navigated away during asynchronous image encoding.
+    if (selected.value === roomId && account.value?.id === userId &&
+        version === actionGeneration && !appLocked.value && security.value.verified)
+      acceptAttachment(file)
+  } catch {
+    if (selected.value === roomId && account.value?.id === userId)
+      attachmentError.value = ui('stickerFailed')
+  }
+}
 const editingMessage = ref<{ id: string; roomId: string; original: string }>()
 let editSnapshot: { text: string; reply: string } | undefined
 function cancelEdit() {
@@ -348,6 +409,7 @@ watch(messages, () => {
 })
 watch(selected, () => {
   cancelEdit()
+  pickerOpen.value = false
   messageSearchOpen.value = false
   messageMenu.value = undefined
   reactionPicker.value = undefined
@@ -357,16 +419,29 @@ watch(selected, () => {
   cancelPress()
 })
 const listed = computed(() =>
-  rooms.value.filter(
-    (room) =>
-      !room.deleted &&
-      room.membership === 'join' &&
-      room.archived === (tab.value === 'archive') &&
-      (!listQuery.value ||
-        room.name
-          .toLocaleLowerCase()
-          .includes(listQuery.value.toLocaleLowerCase())),
-  ),
+  rooms.value.filter(room => {
+    if (room.deleted || room.membership !== 'join') return false
+    if (tab.value === 'archive') { if (!room.archived) return false }
+    else {
+      if (room.archived) return false
+      if (tab.value === 'unread' && room.unread <= 0) return false
+      if (tab.value === 'groups' && room.direct) return false
+      if (tab.value.startsWith('folder:') &&
+          !privateFolders.value.find(folder => folder.id === tab.value.slice(7))?.roomIds.includes(room.id)) return false
+    }
+    return !listQuery.value || room.name.toLocaleLowerCase().includes(listQuery.value.toLocaleLowerCase())
+  }),
+)
+watch(
+  () => [account.value?.id, identityDeviceId.value, appLocked.value] as const,
+  () => {
+    clearPrivateFolders()
+    tab.value = 'chats'
+    foldersOpen.value = false
+    if (!account.value || appLocked.value) return
+    void loadPrivateFolders().catch(() => { folderError.value = ui('folderError') })
+  },
+  { immediate: true },
 )
 const needsSecurity = computed(() => connection.value === 'ready' && diagnostic.value === 'ready' && !security.value.verified)
 watch([() => security.value.verified, connection], ([value, state]) => {
@@ -408,6 +483,7 @@ onBeforeUnmount(() => {
   restoreInput.value = ''
   cancelPress()
   cancelEdit()
+  clearPrivateFolders()
   clearAttachment()
   clearTimeout(searchTimer)
   window.visualViewport?.removeEventListener('resize', updateViewport)
@@ -436,6 +512,9 @@ watch(
       pendingPeer.value = ''
       directHandle.value = ''
       chatDrafts.clear()
+      clearPrivateFolders()
+      pickerOpen.value = false
+      foldersOpen.value = false
       cancelEdit()
       reactionPicker.value = undefined
       messageMenu.value = undefined
@@ -760,6 +839,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
             </template>
             <template #actions>
               <button class="app-icon-button" :aria-label="a('contacts')" :aria-pressed="tab === 'contacts'" @click="tab = tab === 'contacts' ? 'chats' : 'contacts'"><AppIcon name="users" /></button>
+              <button class="app-icon-button" :aria-label="ui('folderManage')" @click="foldersOpen = true"><AppIcon name="folder" /></button>
               <button class="app-icon-button messenger-compose-button" :aria-label="m('newChat')" @click="newOpen = true"><AppIcon name="plus" /></button>
             </template>
           </SidebarHeader>
@@ -781,8 +861,11 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
               :searching="searchBusy"
               @search-history="perform(() => searchMessages(listQuery))"
             />
-            <div v-if="archiveCount || tab !== 'chats'" class="messenger-filters" :aria-label="m('chats')">
+            <div class="messenger-filters" :aria-label="m('chats')">
               <button :aria-pressed="tab === 'chats'" @click="tab = 'chats'">{{ m('chats') }}</button>
+              <button :aria-pressed="tab === 'unread'" @click="tab = 'unread'">{{ ui('unreadOnly') }}</button>
+              <button :aria-pressed="tab === 'groups'" @click="tab = 'groups'">{{ ui('groupOnly') }}</button>
+              <button v-for="folder in privateFolders" :key="folder.id" :aria-pressed="tab === 'folder:' + folder.id" @click="tab = 'folder:' + folder.id">{{ folder.name }}</button>
               <button v-if="archiveCount || tab === 'archive'" :aria-pressed="tab === 'archive'" @click="tab = 'archive'">{{ ui('archive') }}<span v-if="archiveCount">{{ archiveCount }}</span></button>
             </div>
             <div class="messenger-chat-list">
@@ -791,7 +874,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                 <div v-for="room in listed" :key="room.id" class="chat-swipe-row" @touchstart="event => { swipeX = event.touches[0]?.clientX ?? 0; swipeY = event.touches[0]?.clientY ?? 0 }" @touchend="endSwipe($event, room.id)" @contextmenu.prevent="chatMenu = room.id">
                   <div v-if="swiped === room.id" class="chat-swipe-actions"><button :aria-label="ui(room.archived ? 'unarchive' : 'archiveAction')" @click="perform(() => archiveConversation(room.id, !room.archived)); swiped = ''"><AppIcon name="archive" /></button><button :aria-label="ui('deleteChat')" @click="askDelete(room.id)"><AppIcon name="trash" /></button></div>
                   <ConversationListItem
-                    :conversation="{ id: room.id, name: room.name, avatarClass: avatarColor(room.id), avatarInitials: initials(room.name), group: !room.direct, timeLabel: chatTime(room.lastTime), preview: (room.lastMine && room.preview ? m('you') + ': ' : '') + (room.preview || ui('noMessages')), unreadCount: room.unread }"
+                    :conversation="{ id: room.id, name: room.name, avatarClass: avatarColor(room.id), avatarInitials: initials(room.name), group: !room.direct, timeLabel: chatTime(room.lastTime), preview: (room.lastMine && room.preview ? m('you') + ': ' : '') + (room.preview || ui('noMessages')), unreadCount: room.unread, muted: room.muted }"
                     :active="selected === room.id"
                     :swiped="swiped === room.id"
                     @select="swiped ? swiped = '' : chooseRoom(room.id)"
@@ -799,7 +882,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                   <button v-if="swiped !== room.id" class="app-icon-button chat-row-menu" :aria-label="ui('chatActions')" @click="chatMenu = room.id"><AppIcon name="more" /></button>
                 </div>
                 <button v-for="hit in searchResults" :key="hit.id" class="search-result" @click="openSearchResult(hit.roomId, hit.id)"><span class="search-result-label">{{ hit.roomName }}</span><span>{{ hit.body }}</span><AppIcon name="search" /></button>
-                <div v-if="!listed.length && !searchResults.length" class="native-empty messenger-empty"><AppIcon :name="listQuery ? 'search' : tab === 'archive' ? 'archive' : 'messages'" /><h2>{{ listQuery ? ui('noMatches') : tab === 'archive' ? ui('archive') : m('empty') }}</h2><p>{{ listQuery ? ui('noMatchesHint') : ui('emptyHint') }}</p><button v-if="!listQuery && tab === 'chats'" class="primary-button" @click="newOpen = true">{{ ui('newMessage') }}</button></div>
+                <div v-if="!listed.length && !searchResults.length" class="native-empty messenger-empty"><AppIcon :name="listQuery ? 'search' : tab === 'archive' ? 'archive' : 'messages'" /><h2>{{ listQuery ? ui('noMatches') : tab === 'archive' ? ui('archive') : m('empty') }}</h2><p>{{ tab.startsWith('folder:') ? ui('folderEmpty') : listQuery ? ui('noMatchesHint') : ui('emptyHint') }}</p><button v-if="!listQuery && tab === 'chats'" class="primary-button" @click="newOpen = true">{{ ui('newMessage') }}</button></div>
               </template>
             </div>
           </template>
@@ -912,6 +995,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
               <div v-else-if="!security.verified" class="message-device-setup"><p>{{ m(diagnostic === 'ready' ? 'deviceRecoveryHint' : 'connecting') }}</p><button v-if="diagnostic === 'ready'" class="quiet-button" @click="securityOpen = true">{{ m(security.storage ? 'restore' : 'verifyDevice') }}</button></div>
               <MessageComposer
                 v-else
+                ref="composer"
                 v-model="draft"
                 :placeholder="m('message')"
                 :input-label="m('message')"
@@ -925,9 +1009,11 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                 :attachment-busy="attachmentBusy"
                 :attach-label="editingMessage ? undefined : ui('attachmentAdd')"
                 :allow-attachments="!editingMessage"
+                :picker-label="ui('pickerTitle')"
                 :remove-attachment-label="ui('attachmentRemove')"
                 @submit="submit"
                 @attach="attachmentInput?.click()"
+                @open-picker="pickerOpen = true"
                 @select-file="acceptAttachment"
                 @remove-attachment="clearAttachment"
                 @cancel-reply="editingMessage ? cancelEdit() : reply = ''"
@@ -989,12 +1075,56 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
         @action="handleMessageAction"
       />
     </AppSheet>
+    <AppSheet :open="pickerOpen && !hidden" :title="ui('pickerTitle')" @close="pickerOpen = false">
+      <EmojiStickerPicker
+        :emoji-title="ui('emojis')"
+        :sticker-title="ui('stickers')"
+        :select-label="ui('pickerTitle')"
+        @emoji="symbol => { composer?.insertText(symbol); pickerOpen = false }"
+        @sticker="prepareSticker"
+      />
+      <p class="field-hint">{{ ui('stickerHint') }}</p>
+    </AppSheet>
+    <AppSheet :open="foldersOpen && !hidden" :title="ui('folderManage')" :busy="folderBusy" @close="foldersOpen = false">
+      <div class="native-form chatify-folder-editor">
+        <p class="field-hint">{{ ui('folderPrivate') }}</p>
+        <form @submit.prevent="createFolder">
+          <label :for="'new-private-folder'">{{ ui('folderName') }}</label>
+          <div class="chatify-folder-create">
+            <input id="new-private-folder" v-model="folderName" type="text" maxlength="40" autocomplete="off" :disabled="folderBusy" />
+            <button class="primary-button" type="submit" :disabled="folderBusy || !folderName.trim() || privateFolders.length >= 30">{{ ui('folderCreate') }}</button>
+          </div>
+        </form>
+        <div v-for="folder in privateFolders" :key="folder.id" class="chatify-folder-row">
+          <template v-if="renameFolderId === folder.id">
+            <input v-model="renameFolderText" :aria-label="ui('folderName')" maxlength="40" :disabled="folderBusy" />
+            <button class="quiet-button" :disabled="folderBusy || !renameFolderText.trim()" @click="saveFolderName">{{ ui('folderSave') }}</button>
+          </template>
+          <template v-else>
+            <span>{{ folder.name }}</span>
+            <button class="quiet-button" :disabled="folderBusy" @click="renameFolderId = folder.id; renameFolderText = folder.name">{{ ui('folderRename') }}</button>
+            <button class="quiet-button subtle-danger" :disabled="folderBusy" @click="removeFolder(folder.id)">{{ ui('folderRemove') }}</button>
+          </template>
+        </div>
+        <p v-if="folderError" class="form-error" role="alert">{{ folderError }}</p>
+      </div>
+    </AppSheet>
     <AppSheet :open="!!reactionPicker && !hidden" :title="ui('react')" :busy="actionBusy" @close="reactionPicker = undefined">
       <div class="chatify-emoji-picker" role="group" :aria-label="ui('react')">
         <button v-for="emoji in reactionKeys" :key="emoji" type="button" class="chatify-emoji-option" :aria-label="ui('react') + ': ' + emoji" :disabled="actionBusy" @click="applyPickedReaction(emoji)">{{ emoji }}</button>
       </div>
     </AppSheet>
     <AppSheet :open="!!chatMenu && !hidden" :title="rooms.find(room => room.id === chatMenu)?.name || ui('chatActions')" :busy="actionBusy" @close="chatMenu = ''">
+      <button class="messenger-action" :disabled="actionBusy" @click="perform(() => setConversationMuted(chatMenu, !rooms.find(room => room.id === chatMenu)?.muted)); chatMenu = ''">
+        <AppIcon name="bell-off" />{{ ui(rooms.find(room => room.id === chatMenu)?.muted ? 'unmute' : 'mute') }}
+      </button>
+      <div v-if="privateFolders.length" class="chatify-folder-assignments">
+        <p class="field-hint">{{ ui('folderManage') }}</p>
+        <button v-for="folder in privateFolders" :key="folder.id" class="messenger-action" :disabled="folderBusy" :aria-pressed="folder.roomIds.includes(chatMenu)" @click="assignFolder(folder.id, chatMenu)">
+          <AppIcon name="folder" />{{ folder.name }} · {{ ui(folder.roomIds.includes(chatMenu) ? 'folderUnassign' : 'folderAdd') }}
+        </button>
+        <p v-if="folderError" class="form-error" role="alert">{{ folderError }}</p>
+      </div>
       <button v-if="chatMenu === selected" class="messenger-action" @click="messageSearchOpen = true; chatMenu = ''"><AppIcon name="search" />{{ ui('searchChat') }}</button>
       <button v-if="chatMenu === selected" class="messenger-action" @click="selecting = true; selectedMessages = []; chatMenu = ''"><AppIcon name="check" />{{ ui('select') }}</button>
       <button class="messenger-action" @click="perform(() => archiveConversation(chatMenu, !rooms.find(room => room.id === chatMenu)?.archived)); chatMenu = ''; swiped = ''"><AppIcon name="archive" />{{ ui(rooms.find(room => room.id === chatMenu)?.archived ? 'unarchive' : 'archiveAction') }}</button>

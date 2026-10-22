@@ -2,7 +2,7 @@ name: Local foundation
 
 on:
   pull_request:
-    branches: [main, docs/product-foundation, 'codex/**', 'feat/**']
+    branches: [main, docs/product-foundation, 'codex/**']
   push:
     branches: [main, docs/product-foundation, 'codex/**']
   workflow_dispatch:
@@ -68,6 +68,7 @@ jobs:
           node tools/browser-spike/check-messenger-ui.mjs
           node tools/browser-spike/check-attachments.mjs
           node tools/browser-spike/check-edit-reactions.mjs
+          node tools/browser-spike/check-messenger-ux.mjs
           node tools/browser-spike/check-messages.mjs
 
       - name: MatrixRTC media E2EE, call lifecycle and admission revocation
