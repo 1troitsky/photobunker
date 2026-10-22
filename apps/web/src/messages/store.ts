@@ -336,18 +336,18 @@ async function activateConversation(current: MatrixClient, id: string) {
  * matrix-js-sdk 44 explicitly skips encryption of standard m.reaction.
  * Plaintext emoji are unacceptable under PhotoBunker's E2EE contract.
  */
-const privateReactionEventType = 'org.photobunker.reaction.v1'
+const privateReactionEventType = 'org.photobunker.reaction.v2'
 /** Aggregate decrypted reactions, not arbitrary original wire content. */
 function visibleReactionRecords(room: Room, id: string): ReactionRecord[] {
   // Matrix SDK aggregates decrypted relations asynchronously. Room.timeline
   // and MatrixEvent.Decrypted can fire before that collection is updated, so
   // include actual decrypted timeline events instead of relying on the derived
   // aggregation alone. Merge by event ID to prevent duplicate emoji counts.
-  const indexed = room.relations.getChildEventsForEvent(
-    id, sdk.RelationType.Annotation, privateReactionEventType,
-  )?.getRelations() ?? []
+  // Do not expose Matrix m.relates_to: it would put the emoji key in an
+  // unencrypted event envelope. Resolve the private target from decrypted
+  // event content instead, and aggregate only locally.
   const events = new Map<string, import('matrix-js-sdk').MatrixEvent>()
-  for (const event of [...indexed, ...room.getLiveTimeline().getEvents(), ...room.getPendingEvents()]) {
+  for (const event of [...room.getLiveTimeline().getEvents(), ...room.getPendingEvents()]) {
     const id = event.getId()
     if (id && event.getType() === privateReactionEventType) events.set(id, event)
   }
@@ -355,8 +355,8 @@ function visibleReactionRecords(room: Room, id: string): ReactionRecord[] {
     if (!event.getId() || event.isRedacted() || event.isDecryptionFailure() ||
         !event.isEncrypted() || event.status === 'not_sent' ||
         blocked.has(event.getSender() || '')) return []
-    const relation = event.getContent()['m.relates_to']
-    if (relation?.rel_type !== sdk.RelationType.Annotation || relation.event_id !== id ||
+    const relation = event.getContent()['org.photobunker.reaction']
+    if (!relation || typeof relation !== 'object' || relation.event_id !== id ||
         typeof relation.key !== 'string' || !isReactionKey(relation.key)) return []
     return [{ key: relation.key, sender: event.getSender() || '', id: event.getId()!, timestamp: event.getTs() }]
   })
@@ -426,7 +426,7 @@ export async function toggleReaction(id: string, key: ReactionKey) {
       row.key === key && row.sender === current.getUserId())
     if (own) await current.redactEvent(room.roomId, own.id)
     else await current.sendEvent(room.roomId, privateReactionEventType, {
-      'm.relates_to': { rel_type: sdk.RelationType.Annotation, event_id: id, key },
+      'org.photobunker.reaction': { event_id: id, key },
     })
     requireClient(current)
     refreshMessages()
