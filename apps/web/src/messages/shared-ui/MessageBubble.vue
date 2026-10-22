@@ -16,7 +16,7 @@ defineProps<{
   showSender: boolean
   body: string
   timeLabel: string
-  status: 'sending' | 'sent' | 'read' | 'notSent'
+  status: 'queued' | 'sending' | 'sent' | 'read' | 'notSent'
   statusLabel: string
   menuLabel: string
   selectLabel: string
@@ -97,7 +97,7 @@ const emit = defineEmits<{
       <span v-if="edited && !locked" class="chatify-message-edited">{{ editedLabel || 'Edited' }}</span>
       <time>{{ timeLabel }}</time>
       <span v-if="mine" :class="['message-state', 'message-state-' + status]" :aria-label="statusLabel">
-        <svg v-if="status === 'sending'" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <svg v-if="status === 'sending' || status === 'queued'" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <circle cx="8" cy="8" r="6" stroke="currentColor" />
           <path d="M8 4v4l3 2" stroke="currentColor" />
         </svg>
