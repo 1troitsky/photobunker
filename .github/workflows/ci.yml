@@ -80,6 +80,7 @@ jobs:
           node tools/browser-spike/check-single-key.mjs
           node tools/browser-spike/check-onboarding-messages.mjs
           node tools/browser-spike/check-messenger-actions.mjs
+          node tools/browser-spike/check-messenger-ui.mjs
 
       - name: Real Identity and Matrix in Chromium and WebKit, outage and cold restore
         env:
