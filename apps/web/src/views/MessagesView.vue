@@ -48,6 +48,7 @@ import type { Message } from '../messages/store'
 import {
   accountRecoveryReady,
   messageBackupWarning,
+  outboxError,
   preserveMessageKeys,
   archiveConversation,
   setConversationMuted,
@@ -488,11 +489,12 @@ watch([() => security.value.verified, connection, diagnostic, actionBusy], () =>
   void writeDirect(peer, pendingCall.value)
 })
 const voiceDirty = ref(false)
+const textPersisting = ref(false)
 const dirty = computed(
   () =>
     voiceDirty.value || !!draft.value.trim() ||
     messages.value.some(
-      (message) => message.status === 'sending' || message.status === 'notSent',
+      (message) => message.status === 'sending' || message.status === 'queued' || message.status === 'notSent',
     ),
 )
 guardReload(dirty, recoveryBusy)
@@ -660,29 +662,34 @@ async function submitEdit() {
     if (version === actionGeneration) actionBusy.value = false
   }
 }
-function submit() {
-  if (actionBusy.value || attachmentBusy.value || voiceDirty.value || connection.value !== 'ready' || !security.value.verified) return
-  if (editingMessage.value) { void submitEdit(); return }
-  if (chosenAttachment.value) { void submitChosenAttachment(); return }
-  const body = draft.value
+async function submit() {
+  if (actionBusy.value || textPersisting.value || attachmentBusy.value || voiceDirty.value ||
+      !security.value.verified || !['ready', 'offline'].includes(connection.value)) return
+  if (editingMessage.value || chosenAttachment.value) {
+    if (connection.value !== 'ready') { actionError.value = m('offline'); return }
+    if (editingMessage.value) { void submitEdit(); return }
+    void submitChosenAttachment(); return
+  }
+  const body = draft.value, replyTo = reply.value, photo = linkedPhoto.value
   if (!body.trim()) return
-  const roomId = selected.value
+  const roomId = selected.value, ownerId = account.value?.id, version = actionGeneration
+  textPersisting.value = true
   try {
-    // Synchronous validation + local queue insert; network preflight happens
-    // afterwards. A rejected queue never clears a draft.
-    queueTextMessage(body, reply.value || undefined, linkedPhoto.value || undefined)
+    // A local bubble appears synchronously; keep the composer intact until
+    // the AES-GCM encrypted outbox transaction actually commits to disk.
+    await queueTextMessage(body, replyTo || undefined, photo || undefined)
+    if (version !== actionGeneration || ownerId !== account.value?.id || selected.value !== roomId) return
     chatDrafts.delete(roomId)
-    if (selected.value !== roomId) return
-    if (draft.value === body) {
-      draft.value = ''
-      reply.value = ''
-      linkedPhoto.value = ''
+    if (draft.value === body && reply.value === replyTo && linkedPhoto.value === photo) {
+      draft.value = ''; reply.value = ''; linkedPhoto.value = ''
     }
+    actionError.value = ''
     if (atBottom.value) void nextTick(scrollToLatest)
   } catch (error) {
-    actionError.value = m(error instanceof Error && error.message === 'not_ready'
-      ? 'deviceRecoveryHint' : 'failed')
-  }
+    if (version === actionGeneration && ownerId === account.value?.id && selected.value === roomId)
+      actionError.value = m(error instanceof Error && error.message === 'not_ready'
+        ? 'deviceRecoveryHint' : 'outboxUnavailable')
+  } finally { textPersisting.value = false }
 }
 async function newChat() {
   if (!readyToWrite()) return
@@ -1039,7 +1046,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                 :reply-label="editingMessage ? ui('editing') : m('reply')"
                 :reply-preview="editingMessage ? editingMessage.original : reply ? replyBody(reply) : undefined"
                 :voice-dirty="voiceDirty"
-                :disabled="actionBusy || attachmentBusy || connection !== 'ready' || !security.verified"
+                :disabled="actionBusy || textPersisting || attachmentBusy || !['ready', 'offline'].includes(connection) || !security.verified || (connection !== 'ready' && !!(chosenAttachment || editingMessage))"
                 :attachment="chosenAttachment ? { name: chosenAttachment.name, kind: chosenAttachment.type.startsWith('image/') ? 'image' : 'file', size: chosenAttachment.size, preview: attachmentPreviewUrl } : undefined"
                 :attachment-busy="attachmentBusy"
                 :attach-label="editingMessage ? undefined : ui('attachmentAdd')"
@@ -1072,6 +1079,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
             <p v-if="linkedError" class="form-error message-error" role="alert">{{ linkedError }}<button class="quiet-button" @click="enterDiscussion">{{ w('retry') }}</button></p>
             <p v-if="actionError" class="form-error message-error" role="alert">{{ actionError }}</p>
           <p v-if="messageBackupWarning" class="form-error message-error" role="alert">{{ m('backupBeforeLeaving') }}</p>
+          <p v-if="outboxError" class="form-error message-error" role="alert">{{ m('outboxUnavailable') }}</p>
           </template>
           <div v-else class="messenger-desktop-empty"><span class="service-emblem"><AppIcon name="messages" /></span><h2>{{ ui('threadEmpty') }}</h2><p>{{ ui('threadEmptyHint') }}</p></div>
         </main>
