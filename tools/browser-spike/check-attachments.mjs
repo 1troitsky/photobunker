@@ -14,9 +14,10 @@ async function ready(page) {
 for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(',')) {
   const browser = await ({ chromium, webkit }[engine]).launch({ headless: true })
   const fixtures = [], errors = [], diagnostics = { nativePhotoPoll: 0 }, uploads = []
-  let stage = 'account'
+  let stage = 'account', sender
   try {
     const a = await accountFixture(browser, `${engine} attachment sender`, fixtures)
+    sender = a
     const b = await accountFixture(browser, `${engine} attachment receiver`, fixtures)
     for (const item of fixtures) await monitorRuntime(item.page, engine, errors, diagnostics)
     a.page.on('response', response => {
@@ -76,7 +77,7 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     console.log(`${engine}: encrypted photo/file, explicit decrypt/download, composer cancel, failed upload retry, ciphertext upload passed`)
   } catch (error) {
     console.error(`${engine}: attachment QA failed at ${stage}`, error instanceof Error ? error.name : 'unknown')
-    const state = await a?.page?.evaluate(async () => {
+    const state = await sender?.page?.evaluate(async () => {
       const store = await import('/src/messages/store.ts')
       return { connection: store.connection.value, crypto: store.diagnostic.value,
         selected: !!store.selected.value,
