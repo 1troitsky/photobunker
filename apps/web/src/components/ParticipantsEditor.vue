@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import AppSheet from './AppSheet.vue'
 import ToggleRow from './ToggleRow.vue'
 import { clone, type Participant } from '../studio/model'
-import { account } from '../identity/store'
+import { account, type Person } from '../identity/store'
+import { identityRequest } from '../identity/api'
+import { a } from '../identity/text'
+import { avatarColor, initials } from '../messages/presentation'
 import { w } from '../workspace/text'
 import { s } from '../studio/text'
 const props = defineProps<{
@@ -17,6 +20,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: Participant[]] }>()
 const open = ref(false),
   index = ref(-1),
   error = ref('')
+const contacts = ref<Person[]>([]), contactsBusy = ref(false), contactsFailed = ref(false)
 const draft = ref<Participant>({
   id: '',
   name: '',
@@ -32,10 +36,39 @@ function edit(value?: Participant, i = -1) {
   error.value = ''
   open.value = true
 }
+const availableContacts = computed(() => contacts.value.filter(person =>
+  !props.modelValue.some(participant => participant.id.toLowerCase() === person.publicId.toLowerCase()) ||
+  person.publicId.toLowerCase() === draft.value.id.toLowerCase(),
+))
+function contactName(person: Person) {
+  return person.fields.name || (person.username ? '@' + person.username : person.fields.username || person.publicId)
+}
+function chooseContact(person: Person) {
+  draft.value.id = person.publicId
+  draft.value.name = person.fields.name || person.fields.username || person.username || ''
+  error.value = ''
+}
+async function loadContacts() {
+  const owner = account.value?.id
+  if (!owner || contactsBusy.value) return
+  contactsBusy.value = true
+  contactsFailed.value = false
+  try {
+    const result = await identityRequest<{ contacts: Person[] }>('/contacts')
+    if (owner === account.value?.id) contacts.value = result.contacts
+  } catch {
+    if (owner === account.value?.id) contactsFailed.value = true
+  } finally {
+    if (owner === account.value?.id) contactsBusy.value = false
+  }
+}
+watch(open, value => { if (value && account.value) void loadContacts() })
 watch(
   () => account.value?.id,
   () => {
     open.value = false
+    contacts.value = []
+    contactsFailed.value = false
     draft.value = { id: '', name: '', role: 'contributor', notify: true }
   },
 )
@@ -129,6 +162,24 @@ function save() {
     :title="s(index < 0 ? 'addParticipant' : 'editParticipant')"
     @close="open = false"
     ><form class="native-form" @submit.prevent.stop="save">
+      <div v-if="account && index < 0" class="participant-contact-picker">
+        <span class="field-hint">{{ a('contacts') }}</span>
+        <p v-if="contactsBusy" class="field-hint" role="status">{{ a('contacts') }}…</p>
+        <button
+          v-for="person in availableContacts"
+          :key="person.publicId"
+          type="button"
+          class="picker-row participant-contact-row"
+          :aria-pressed="draft.id === person.publicId"
+          @click="chooseContact(person)"
+        >
+          <span :class="['chat-avatar', avatarColor(person.publicId)]">{{ initials(contactName(person)) }}</span>
+          <span class="participant-contact-copy"><strong>{{ contactName(person) }}</strong><small v-if="contactName(person) !== person.publicId">{{ person.publicId }}</small></span>
+          <AppIcon :name="draft.id === person.publicId ? 'check' : 'chevron'" />
+        </button>
+        <p v-if="!contactsBusy && !contactsFailed && !availableContacts.length" class="field-hint">{{ a('emptyContacts') }}</p>
+        <p v-if="contactsFailed" class="form-error" role="alert">{{ a('failed') }}</p>
+      </div>
       <label
         >{{ s('participantId')
         }}<input
