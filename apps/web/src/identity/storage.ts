@@ -14,6 +14,7 @@ export const storageSummary = () => identityRequest<StorageSummary>('/storage')
 export const saveInactivity = (inactivityDays: number) => identityRequest<Pick<StorageSummary, 'inactivityDays' | 'lastActiveAt' | 'deletesAt'>>('/storage', 'PATCH', { inactivityDays })
 
 export async function purgeAccountFromDevice(owner: string) {
+  await (await import('../messages/durable-outbox')).eraseDurableOutbox(owner)
   for (const entry of await encrypted.entries<unknown>(''))
     if (entry.key.split(':').includes(owner)) await encrypted.remove(entry.key)
   await clearScope(`account:${owner}`)

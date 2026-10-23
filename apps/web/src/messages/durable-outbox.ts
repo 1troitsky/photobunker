@@ -30,6 +30,9 @@ function scope(): string {
   if (!account.value?.id || !deviceId.value || appLocked.value) throw new Error('outbox.locked')
   return account.value.id + ':' + deviceId.value
 }
+function validateScopePart(value: string) {
+  if (!UUID.test(value)) throw new Error('outbox.invalid')
+}
 export function validateDurableText(value: unknown): DurableText {
   if (!value || typeof value !== 'object') throw new Error('outbox.invalid')
   const item = value as Record<string, unknown>
@@ -96,6 +99,24 @@ async function remove(id: string) {
     tx.onerror = () => { db.close(); reject(new Error('outbox.unavailable')) }
   })
 }
+async function removePrefix(prefix: string) {
+  const db = await openDb()
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('records', 'readwrite')
+    const request = tx.objectStore('records').openCursor(
+      IDBKeyRange.bound(prefix, prefix + '\uffff'),
+    )
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) return
+      cursor.delete()
+      cursor.continue()
+    }
+    tx.oncomplete = () => { db.close(); resolve() }
+    tx.onabort = () => { db.close(); reject(new Error('outbox.unavailable')) }
+    tx.onerror = () => { db.close(); reject(new Error('outbox.unavailable')) }
+  })
+}
 async function rows(prefix: string): Promise<[string, Sealed][]> {
   const db = await openDb()
   return new Promise((resolve, reject) => {
@@ -131,19 +152,28 @@ function recordId(owner: string, txnId: string) { return 'msg:' + owner + ':' + 
 
 export async function saveDurableText(value: DurableText): Promise<void> {
   const item = validateDurableText(value), owner = scope()
+  const id = recordId(owner, item.txnId)
   const data = await rows('msg:' + owner + ':')
-  if (data.length >= MAX_DURABLE_TEXT && !data.some(([key]) => key === recordId(owner, item.txnId)))
+  if (data.length >= MAX_DURABLE_TEXT && !data.some(([key]) => key === id))
     throw new Error('outbox.full')
   const key = await keyFor(owner)
   const bytes = textEncoder.encode(JSON.stringify(item))
   const iv = crypto.getRandomValues(new Uint8Array(12))
   try {
     const ciphertext = await crypto.subtle.encrypt({
-      name: 'AES-GCM', iv, additionalData: textEncoder.encode(recordId(owner, item.txnId)),
+      name: 'AES-GCM', iv, additionalData: textEncoder.encode(id),
     }, key, bytes)
     if (owner !== scope()) throw new Error('outbox.cancelled')
-    await put(recordId(owner, item.txnId), { version: 1, iv, ciphertext })
-    if (owner !== scope()) throw new Error('outbox.cancelled')
+    await put(id, { version: 1, iv, ciphertext })
+    try {
+      if (owner !== scope()) throw new Error('outbox.cancelled')
+    } catch (error) {
+      // The transaction may commit immediately before account switch or lock.
+      // Remove that now-invisible operation so a reported failure cannot be
+      // replayed later alongside the draft the user was told was preserved.
+      await remove(id).catch(() => {})
+      throw error
+    }
   } finally { bytes.fill(0) }
 }
 export async function readDurableText(): Promise<DurableText[]> {
@@ -170,4 +200,21 @@ export async function eraseDurableText(txnId: string): Promise<void> {
   if (!txnId.startsWith('pb-') || !UUID.test(txnId.slice(3))) throw new Error('outbox.invalid')
   const owner = scope()
   await remove(recordId(owner, txnId))
+}
+
+/** Remove encrypted text and its device key during logout/account deletion.
+ * Explicit identifiers are required because the reactive identity is already
+ * cleared by the time privacy cleanup finishes.
+ */
+export async function eraseDurableOutbox(accountId: string, scopedDeviceId?: string): Promise<void> {
+  validateScopePart(accountId)
+  if (scopedDeviceId) {
+    validateScopePart(scopedDeviceId)
+    const owner = accountId + ':' + scopedDeviceId
+    await removePrefix('msg:' + owner + ':')
+    await remove('key:' + owner)
+    return
+  }
+  await removePrefix('msg:' + accountId + ':')
+  await removePrefix('key:' + accountId + ':')
 }

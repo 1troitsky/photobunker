@@ -281,14 +281,22 @@ export async function logout() {
   try {
     await identityRequest('/session', 'DELETE', undefined, previousAccount)
   } finally {
-    const db = await import('../crypto/database')
-    await db.remove('capture-current').catch(() => {})
-    await db
-      .remove(`trusted:${previousAccount}:${previousDevice}`)
-      .catch(() => {})
-    await forgetLocalAccountAccess()
-    localDevices.value = []
-    signingOut.value=false
+    try {
+      const db = await import('../crypto/database')
+      const cleanup: Promise<unknown>[] = [
+        db.remove('capture-current').catch(() => {}),
+        forgetLocalAccountAccess(),
+      ]
+      if (previousAccount && previousDevice) {
+        cleanup.push(db.remove(`trusted:${previousAccount}:${previousDevice}`).catch(() => {}))
+        cleanup.push(import('../messages/durable-outbox')
+          .then(outbox => outbox.eraseDurableOutbox(previousAccount, previousDevice)))
+      }
+      await Promise.all(cleanup)
+    } finally {
+      localDevices.value = []
+      signingOut.value=false
+    }
   }
 }
 

@@ -74,7 +74,107 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     await expect(b.page.locator('.messages-screen')).toHaveAttribute('data-crypto-stage', 'ready', { timeout: 90000 })
     await b.page.locator('.chat-row').first().click()
     await expect(b.page.locator('.message-bubble').filter({ hasText: 'Synthetic durable offline text' })).toHaveCount(1)
-    console.log(`${engine}: encrypted durable text survived offline reload, retried with one Matrix txn, decrypted once`)
+    // If identity changes in the narrow gap after the IDB transaction commits,
+    // save must reject AND remove the committed row. Otherwise the preserved
+    // Composer draft could later be delivered a second time.
+    stage = 'post-commit-identity-race'
+    await expect(a.page.locator('.chat-row')).toHaveCount(1, { timeout: 60000 })
+    await a.page.locator('.chat-row').first().click()
+    await expect(a.page.locator('.messages-screen')).not.toHaveAttribute('data-room', '')
+    const race = await a.page.evaluate(async () => {
+      try {
+        const load = path => {
+          const url = performance.getEntriesByType('resource').map(entry => entry.name)
+            .find(name => new URL(name).pathname === path)
+          return import(url || path)
+        }
+        const identity = await load('/src/identity/store.ts')
+        const messages = await load('/src/messages/store.ts')
+        const outbox = await load('/src/messages/durable-outbox.ts')
+        const roomId = messages.selected.value, previousAccount = identity.account.value
+        if (!roomId || !previousAccount) throw new Error('fixture_not_ready')
+        const txnId = 'pb-' + crypto.randomUUID(), original = IDBDatabase.prototype.transaction
+        let armed = true, rejected = false
+        IDBDatabase.prototype.transaction = function (...args) {
+          const tx = original.apply(this, args)
+          if (armed && args[1] === 'readwrite') {
+            armed = false
+            tx.addEventListener('complete', () => { identity.account.value = undefined }, { once: true })
+          }
+          return tx
+        }
+        try {
+          await outbox.saveDurableText({ id: '~pb-ui:' + txnId, txnId, roomId,
+            body: 'Synthetic cancelled durable text', time: Date.now() })
+        } catch { rejected = true }
+        finally { IDBDatabase.prototype.transaction = original }
+        const db = await new Promise((resolve, reject) => {
+          const request = indexedDB.open('photobunker-message-outbox-v1')
+          request.onsuccess = () => resolve(request.result); request.onerror = reject
+        })
+        try {
+          const keys = await new Promise((resolve, reject) => {
+            const request = db.transaction('records', 'readonly').objectStore('records').getAllKeys()
+            request.onsuccess = () => resolve(request.result); request.onerror = reject
+          })
+          return { rejected, ghost: keys.some(key => String(key).endsWith(':' + txnId)) }
+        } finally { db.close() }
+      } catch (error) { return { harnessError: error instanceof Error ? error.name : 'unknown' } }
+    })
+    expect(race).toEqual({ rejected: true, ghost: false })
+
+    // Logout must remove both ciphertext and its non-extractable per-device key.
+    stage = 'logout-outbox-cleanup'
+    await a.page.reload()
+    await expect(a.page.locator('.messages-screen')).toHaveAttribute('data-crypto-stage', 'ready', { timeout: 90000 })
+    await expect(a.page.locator('.chat-row')).toHaveCount(1, { timeout: 60000 })
+    await a.page.locator('.chat-row').first().click()
+    await expect(a.page.locator('.messages-screen')).not.toHaveAttribute('data-room', '')
+    const storedForLogout = await a.page.evaluate(async owner => {
+      const load = path => {
+        const url = performance.getEntriesByType('resource').map(entry => entry.name)
+          .find(name => new URL(name).pathname === path)
+        return import(url || path)
+      }
+      const messages = await load('/src/messages/store.ts')
+      const outbox = await load('/src/messages/durable-outbox.ts')
+      const roomId = messages.selected.value
+      if (!roomId) throw new Error('fixture_not_ready')
+      const txnId = 'pb-' + crypto.randomUUID()
+      await outbox.saveDurableText({ id: '~pb-ui:' + txnId, txnId, roomId,
+        body: 'Synthetic logout cleanup text', time: Date.now() })
+      const db = await new Promise((resolve, reject) => {
+        const request = indexedDB.open('photobunker-message-outbox-v1')
+        request.onsuccess = () => resolve(request.result); request.onerror = reject
+      })
+      try {
+        const keys = await new Promise((resolve, reject) => {
+          const request = db.transaction('records', 'readonly').objectStore('records').getAllKeys()
+          request.onsuccess = () => resolve(request.result); request.onerror = reject
+        })
+        return keys.some(key => String(key).includes(':' + owner + ':'))
+      } finally { db.close() }
+    }, a.me.account.id)
+    expect(storedForLogout).toBe(true)
+    await a.page.evaluate(async () => {
+      const url = performance.getEntriesByType('resource').map(entry => entry.name)
+        .find(name => new URL(name).pathname === '/src/identity/store.ts')
+      await (await import(url || '/src/identity/store.ts')).logout()
+    })
+    await expect.poll(async () => a.page.evaluate(async owner => {
+      const db = await new Promise((resolve, reject) => {
+        const request = indexedDB.open('photobunker-message-outbox-v1')
+        request.onsuccess = () => resolve(request.result); request.onerror = reject
+      })
+      try {
+        const keys = await new Promise((resolve, reject) => {
+          const request = db.transaction('records', 'readonly').objectStore('records').getAllKeys()
+          request.onsuccess = () => resolve(request.result); request.onerror = reject
+        })
+        return !keys.some(key => String(key).includes(':' + owner + ':'))
+      } finally { db.close() }
+    }, a.me.account.id), { timeout: 30000 }).toBe(true)
+    console.log(`${engine}: encrypted durable text survived offline reload, reconciled once, cancelled identity races cleanly and erased logout state`)
   } catch (error) {
     console.error(`${engine}: encrypted outbox QA failed at ${stage} (${error instanceof Error ? error.name : 'unknown'})`)
     throw new Error('durable_outbox_qa_failed')
