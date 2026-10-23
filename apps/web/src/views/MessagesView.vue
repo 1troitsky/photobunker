@@ -804,6 +804,12 @@ function selectMessage(message: Message) {
 }
 function cancelSelection() { selecting.value = false; selectedMessages.value = [] }
 function closeNewMessage() { newOpen.value = false; pendingPeer.value = '' }
+function closePendingConversation() {
+  actionGeneration++
+  pendingPeer.value = ''
+  pendingCall.value = false
+  actionError.value = ''
+}
 function toggleMessage(id: string) {
   selectedMessages.value = selectedMessages.value.includes(id) ? selectedMessages.value.filter(value => value !== id) : [...selectedMessages.value, id]
 }
@@ -1101,23 +1107,37 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
           <p v-if="messageBackupWarning" class="form-error message-error" role="alert">{{ m('backupBeforeLeaving') }}</p>
           <p v-if="outboxError" class="form-error message-error" role="alert">{{ m('outboxUnavailable') }}</p>
           </template>
-          <div v-else-if="pendingEntryPeer" class="conversation">
-            <div class="message-log" role="log" aria-live="polite" :aria-label="u('messages')"><div class="thread-start"><span>{{ personText('opening') }}</span></div></div>
-            <MessageComposer
-              ref="composer"
-              v-model="draft"
-              :placeholder="m('message')"
-              :input-label="m('message')"
-              :send-label="m('send')"
-              :cancel-reply-label="m('cancelReply')"
-              :reply-label="m('reply')"
-              :voice-dirty="false"
-              :disabled="textPersisting"
-              :allow-attachments="false"
-              @submit="submitPending"
-              @cancel-reply="reply = ''"
+          <template v-else-if="pendingEntryPeer">
+            <ThreadHeader
+              :name="foundPerson?.fields.name || foundPerson?.fields.username || pendingEntryPeer"
+              :subtitle="personText('opening')"
+              :avatar-class="avatarColor(pendingEntryPeer)"
+              :initials="initials(foundPerson?.fields.name || foundPerson?.fields.username || pendingEntryPeer)"
+              :group="false"
+              :show-back="true"
+              :back-label="s('back')"
+              :open-label="pendingEntryPeer"
+              @back="closePendingConversation"
+              @open="openPerson(pendingEntryPeer)"
             />
-          </div>
+            <div class="conversation">
+              <div class="message-log" role="log" aria-live="polite" :aria-label="u('messages')"><div class="thread-start"><span>{{ personText('opening') }}</span></div></div>
+              <MessageComposer
+                ref="composer"
+                v-model="draft"
+                :placeholder="m('message')"
+                :input-label="m('message')"
+                :send-label="m('send')"
+                :cancel-reply-label="m('cancelReply')"
+                :reply-label="m('reply')"
+                :voice-dirty="false"
+                :disabled="textPersisting"
+                :allow-attachments="false"
+                @submit="submitPending"
+                @cancel-reply="reply = ''"
+              />
+            </div>
+          </template>
           <div v-else class="messenger-desktop-empty"><span class="service-emblem"><AppIcon name="messages" /></span><h2>{{ ui('threadEmpty') }}</h2><p>{{ ui('threadEmptyHint') }}</p></div>
         </main>
       </MessengerSplitLayout>
