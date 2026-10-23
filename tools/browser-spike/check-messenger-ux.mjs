@@ -33,14 +33,19 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     await button(a.page, 'Стикеры: 😍').click()
     await expect(a.page.locator('.chatify-composer-attachment')).toContainText('sticker.png')
     stage = 'assign-folder'
-    await a.page.locator('.chat-row-menu').first().click()
+    // On mobile the chat sidebar is intentionally hidden while a thread is
+    // open. Use the *visible thread header* menu, not its hidden sidebar row.
+    await a.page.locator('.messenger-chat-header').getByRole('button', { name: 'Действия с чатом', exact: true }).click()
     await a.page.getByRole('button', { name: /Synthetic private.*Добавить в папку/ }).click()
     await button(a.page, 'Закрыть').last().click()
+    await a.page.locator('.messenger-chat-header').getByRole('button', { name: 'Назад', exact: true }).click()
     await a.page.locator('.messenger-filters').getByRole('button', { name: 'Synthetic private' }).click()
     await expect(a.page.locator('.chat-row')).toHaveCount(1)
+    await a.page.locator('.chat-row').first().click()
     stage = 'mute-notifications'
-    await a.page.locator('.chat-row-menu').first().click()
+    await a.page.locator('.messenger-chat-header').getByRole('button', { name: 'Действия с чатом', exact: true }).click()
     await button(a.page, 'Отключить уведомления').click()
+    await a.page.locator('.messenger-chat-header').getByRole('button', { name: 'Назад', exact: true }).click()
     await expect(a.page.locator('.chat-muted-icon')).toHaveCount(1, { timeout: 20000 })
     stage = 'reload-folder'
     await a.page.reload()

@@ -64,17 +64,27 @@ jobs:
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
         run: |
-          node tools/browser-spike/check-first-message.mjs
-          node tools/browser-spike/check-messenger-ui.mjs
-          node tools/browser-spike/check-attachments.mjs
-          node tools/browser-spike/check-edit-reactions.mjs
-          node tools/browser-spike/check-messenger-ux.mjs
-          node tools/browser-spike/check-messages.mjs
-
-      - name: MatrixRTC media E2EE, call lifecycle and admission revocation
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
-        run: node tools/browser-spike/check-calls.mjs
+          # Always collect the results of every messenger acceptance scenario.
+          # One onboarding failure must not silently skip all other features.
+          failed=0
+          for spec in \
+            check-first-message \
+            check-messenger-ui \
+            check-attachments \
+            check-edit-reactions \
+            check-messenger-ux \
+            check-durable-outbox \
+            check-messages; do
+            echo "::group::Messenger: ${spec}"
+            if node "tools/browser-spike/${spec}.mjs"; then
+              echo "PASS ${spec}"
+            else
+              echo "::error title=Messenger acceptance failed::${spec}"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "${failed}"
 
       - name: Direct first messages, legacy chat activation, profile privacy and encrypted voice
         env:
@@ -130,6 +140,15 @@ jobs:
 
       - name: Smoke after network restore
         run: ./scripts/dev smoke
+
+      # Calls are explicitly outside the current messenger scope. Keep their
+      # regression probe available when manually dispatching the workflow;
+      # never silently report call acceptance as part of PR messenger CI.
+      - name: Deferred MatrixRTC call acceptance (manual only)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/photobunker-playwright-browsers
+        run: node tools/browser-spike/check-calls.mjs
 
       - name: Service status on failure
         if: failure()

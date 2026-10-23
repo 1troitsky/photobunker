@@ -25,6 +25,8 @@ import { voiceText } from './voice-text'
 import { prepareAttachment, encryptAttachment, decryptAttachment, attachmentContent, MAX_ATTACHMENT_BYTES, type ChatAttachment } from './attachment'
 import { retrySignedEvent } from './trusted-decryption'
 import { visiblePendingText, type PendingText } from './optimistic'
+import { saveDurableText, readDurableText, eraseDurableText, type DurableText } from './durable-outbox'
+import { retryDelayMs, isTransientMessageError } from './retry-policy'
 import { summarizeReactions, isReactionKey, type ReactionKey, type ReactionRecord, type ReactionSummary } from './reactions'
 export type Peer = {
   username?: string | null
@@ -55,7 +57,7 @@ export type Message = {
   mine: boolean
   body: string
   time: number
-  status: 'sending' | 'sent' | 'read' | 'notSent'
+  status: 'queued' | 'sending' | 'sent' | 'read' | 'notSent'
   reply?: string
   photoId?: string
   locked: boolean
@@ -80,9 +82,26 @@ export const connection = ref<
   selected = ref(''),
   messages = ref<Message[]>([]),
   busy = ref(false)
-// Ephemeral preflight bubbles. The Matrix SDK owns all real local echoes,
-// retry IDs and E2EE. Nothing in this map is persisted or sent to analytics.
+// UI-only decrypted projections; the durable outbox stores AES-GCM ciphertext
+// (never browser plaintext storage). Matrix server events remain authoritative.
 const optimisticText = new Map<string, PendingText>()
+export type PendingDirectText = {
+  id: string
+  txnId: string
+  peerId: string
+  body: string
+  time: number
+}
+export const pendingDirectTexts = ref<PendingDirectText[]>([])
+export const outboxError = ref(false)
+let outboxRestoredScope = ''
+let directOutboxRestoredScope = ''
+let directOutboxRestoring: Promise<void> | undefined
+let outboxRestoring: Promise<void> | undefined
+let outboxDraining = false
+let retryTimer: ReturnType<typeof setTimeout> | undefined
+const retryAttempts = new Map<string, number>()
+const retryAfter = new Map<string, number>()
 const reactionLocks = new Set<string>()
 export const messageBackupWarning = ref(false)
 export const olderAvailable = ref(false)
@@ -111,6 +130,17 @@ export const verification = shallowRef<VerificationRequest>(),
   sas = shallowRef<ShowSasCallbacks>(),
   verificationPhase = ref(0)
 let contactsPoll: ReturnType<typeof setInterval> | undefined
+// Navigator offline events are immediate, while Matrix may only emit its
+// network-error transition after a long sync poll. Do not mark online until
+// Matrix itself establishes an authenticated sync.
+if (typeof window !== 'undefined') {
+  window.addEventListener('offline', () => {
+    if (client) connection.value = 'offline'
+  })
+  window.addEventListener('online', () => {
+    if (requested && account.value && !client) void startMessaging()
+  })
+}
 let client: MatrixClient | undefined,
   sdk: typeof import('matrix-js-sdk'),
   cryptoModule: typeof import('matrix-js-sdk/lib/crypto-api'),
@@ -301,6 +331,7 @@ export async function joinIncomingConversations(retry = false) {
         await current.joinRoom(room.roomId)
         requireClient(current)
         refresh()
+        void drainDurableOutbox(current)
       } catch {
         if (client === current) { failedIncoming.add(room.roomId); incomingError.value = true }
       } finally { if (client === current) joiningIncoming.delete(room.roomId) }
@@ -323,17 +354,31 @@ async function activateConversation(current: MatrixClient, id: string) {
   activatedConversations.add(id)
   refresh()
 }
+/** Custom reaction event deliberately uses an encrypted Matrix event type.
+ * matrix-js-sdk 44 explicitly skips encryption of standard m.reaction.
+ * Plaintext emoji are unacceptable under PhotoBunker's E2EE contract.
+ */
+const privateReactionEventType = 'org.photobunker.reaction.v2'
 /** Aggregate decrypted reactions, not arbitrary original wire content. */
 function visibleReactionRecords(room: Room, id: string): ReactionRecord[] {
-  const related = room.relations.getChildEventsForEvent(
-    id, sdk.RelationType.Annotation, sdk.EventType.Reaction,
-  )?.getRelations() ?? []
-  return related.flatMap(event => {
+  // Matrix SDK aggregates decrypted relations asynchronously. Room.timeline
+  // and MatrixEvent.Decrypted can fire before that collection is updated, so
+  // include actual decrypted timeline events instead of relying on the derived
+  // aggregation alone. Merge by event ID to prevent duplicate emoji counts.
+  // Do not expose Matrix m.relates_to: it would put the emoji key in an
+  // unencrypted event envelope. Resolve the private target from decrypted
+  // event content instead, and aggregate only locally.
+  const events = new Map<string, import('matrix-js-sdk').MatrixEvent>()
+  for (const event of [...room.getLiveTimeline().getEvents(), ...room.getPendingEvents()]) {
+    const id = event.getId()
+    if (id && event.getType() === privateReactionEventType) events.set(id, event)
+  }
+  return [...events.values()].flatMap(event => {
     if (!event.getId() || event.isRedacted() || event.isDecryptionFailure() ||
         !event.isEncrypted() || event.status === 'not_sent' ||
         blocked.has(event.getSender() || '')) return []
-    const relation = event.getContent()['m.relates_to']
-    if (relation?.rel_type !== sdk.RelationType.Annotation || relation.event_id !== id ||
+    const relation = event.getContent()['org.photobunker.reaction']
+    if (!relation || typeof relation !== 'object' || relation.event_id !== id ||
         typeof relation.key !== 'string' || !isReactionKey(relation.key)) return []
     return [{ key: relation.key, sender: event.getSender() || '', id: event.getId()!, timestamp: event.getTs() }]
   })
@@ -402,8 +447,8 @@ export async function toggleReaction(id: string, key: ReactionKey) {
     const own = visibleReactionRecords(room, id).find(row =>
       row.key === key && row.sender === current.getUserId())
     if (own) await current.redactEvent(room.roomId, own.id)
-    else await current.sendEvent(room.roomId, sdk.EventType.Reaction, {
-      'm.relates_to': { rel_type: sdk.RelationType.Annotation, event_id: id, key },
+    else await current.sendEvent(room.roomId, privateReactionEventType, {
+      'org.photobunker.reaction': { event_id: id, key },
     })
     requireClient(current)
     refreshMessages()
@@ -441,13 +486,16 @@ function refreshMessages() {
     txnId: event.getTxnId(),
     status: event.status,
   }))
-  // Once Matrix owns a confirmed server echo, retire its in-memory preflight
-  // text. Do not match on body: repeated identical texts are separate events.
+  // A real Matrix echo retires the local projection and its ciphertext
+  // outbox row. Never use body equality for reconciliation.
   for (const item of optimisticText.values()) {
     if (identities.some(event =>
       (!event.status && event.txnId === item.txnId) ||
-      (item.serverEventId && event.id === item.serverEventId)))
+      (item.serverEventId && event.id === item.serverEventId))) {
       optimisticText.delete(item.id)
+      clearRetry(item.id)
+      void eraseDurableText(item.txnId).catch(() => { outboxError.value = true })
+    }
   }
   const seen = new Set<string>()
   const matrixMessages = events
@@ -560,7 +608,7 @@ async function securityStatus() {
     crypto.getActiveSessionBackupVersion(),
     crypto.getCrossSigningStatus(),
   ])
-  if (current === client)
+  if (current === client) {
     security.value = {
       deviceSigned: trust?.signedByOwner === true,
       identityVerified: trust?.crossSigningVerified === true,
@@ -570,9 +618,179 @@ async function securityStatus() {
       backup: !!backup,
       remaining: security.value.remaining,
     }
+    if (security.value.verified) void restoreDurableOutbox(current)
+  }
 }
+/**
+ * Rehydrate only after Matrix identity and device trust are established.
+ * No plaintext is read for another account, a locked device or a foreign tab.
+ * A persisted txnId is never replaced with a new ID on retry.
+ */
+async function restoreDurableOutbox(current: MatrixClient): Promise<void> {
+  if (current !== client || !security.value.verified || !owner) return
+  if (outboxRestoring) { await outboxRestoring; return }
+  if (outboxRestoredScope === owner) {
+    if (connection.value === 'ready') void drainDurableOutbox(current)
+    return
+  }
+  const expectedOwner = owner
+  outboxRestoring = (async () => {
+    const saved = await readDurableText()
+    requireClient(current)
+    if (expectedOwner !== owner) return
+    for (const row of saved) {
+      if (typeof row.peerId === 'string') {
+        if (!pendingDirectTexts.value.some(item => item.id === row.id))
+          pendingDirectTexts.value.push(row)
+        continue
+      }
+      if (optimisticText.has(row.id)) continue
+      const room = current.getRoom(row.roomId)
+      const received = room?.getLiveTimeline().getEvents().some(event =>
+        event.getTxnId() === row.txnId && !event.status)
+      if (received) {
+        void eraseDurableText(row.txnId).catch(() => { outboxError.value = true })
+        continue
+      }
+      optimisticText.set(row.id, { ...row, status: 'queued', inFlight: false })
+    }
+    outboxRestoredScope = expectedOwner
+    outboxError.value = false
+    refreshMessages()
+  })()
+  try { await outboxRestoring }
+  catch { if (current === client) outboxError.value = true }
+  finally { outboxRestoring = undefined }
+  if (client === current && connection.value === 'ready' && security.value.verified)
+    void drainDurableOutbox(current)
+}
+export async function restorePendingDirectOutbox(): Promise<void> {
+  const scope = account.value?.id && deviceId.value ? `${account.value.id}:${deviceId.value}` : ''
+  if (!scope || directOutboxRestoredScope === scope) return
+  if (directOutboxRestoring) { await directOutboxRestoring; return }
+  directOutboxRestoring = (async () => {
+    const saved = await readDurableText()
+    if (`${account.value?.id || ''}:${deviceId.value}` !== scope) return
+    pendingDirectTexts.value = saved
+      .filter((row): row is DurableText & { peerId: string } => typeof row.peerId === 'string')
+      .map(({ id, txnId, peerId, body, time }) => ({ id, txnId, peerId, body, time }))
+    directOutboxRestoredScope = scope
+    outboxError.value = false
+  })()
+  try { await directOutboxRestoring }
+  catch { outboxError.value = true }
+  finally { directOutboxRestoring = undefined }
+}
+export async function queueDirectText(peerId: string, body: string): Promise<string> {
+  const text = body.trim()
+  if (!text || text.length > 10000) throw new Error('not_ready')
+  const txnId = 'pb-' + crypto.randomUUID()
+  const item: PendingDirectText = {
+    id: '~pb-ui:' + txnId,
+    txnId,
+    peerId,
+    body: text,
+    time: Date.now(),
+  }
+  pendingDirectTexts.value.push(item)
+  try {
+    await saveDurableText(item)
+    outboxError.value = false
+    return item.id
+  } catch (error) {
+    pendingDirectTexts.value = pendingDirectTexts.value.filter(value => value.id !== item.id)
+    outboxError.value = true
+    throw error
+  }
+}
+export async function bindDirectOutbox(peerId: string, roomId: string): Promise<void> {
+  const current = client
+  const room = current?.getRoom(roomId)
+  if (!current || !room || !roomChat(room).encrypted || roomChat(room).blocked)
+    throw new Error('not_ready')
+  for (const item of pendingDirectTexts.value.filter(value => value.peerId === peerId)) {
+    await saveDurableText({
+      id: item.id,
+      txnId: item.txnId,
+      roomId,
+      body: item.body,
+      time: item.time,
+    })
+    optimisticText.set(item.id, {
+      id: item.id,
+      txnId: item.txnId,
+      roomId,
+      body: item.body,
+      time: item.time,
+      status: 'queued',
+      inFlight: false,
+    })
+    pendingDirectTexts.value = pendingDirectTexts.value.filter(value => value.id !== item.id)
+  }
+  refreshMessages()
+  if (client === current && connection.value === 'ready' && security.value.verified)
+    void drainDurableOutbox(current)
+}
+function clearRetry(id: string) {
+  retryAttempts.delete(id)
+  retryAfter.delete(id)
+}
+function armRetryWake(current: MatrixClient) {
+  if (retryTimer) clearTimeout(retryTimer)
+  retryTimer = undefined
+  if (client !== current || connection.value !== 'ready' || !security.value.verified ||
+      !retryAfter.size) return
+  // A single timer watches ALL outstanding attempts, not merely the last
+  // failed send. After one retry, subsequent messages must not get stranded.
+  const earliest = Math.min(...retryAfter.values())
+  retryTimer = setTimeout(() => {
+    retryTimer = undefined
+    if (client === current && connection.value === 'ready' && security.value.verified)
+      void drainDurableOutbox(current)
+  }, Math.max(0, earliest - Date.now()))
+}
+function scheduleTextRetry(current: MatrixClient, entry: PendingText) {
+  if (client !== current || !security.value.verified) return
+  const attempt = retryAttempts.get(entry.id) ?? 0
+  retryAttempts.set(entry.id, attempt + 1)
+  retryAfter.set(entry.id, Date.now() + retryDelayMs(attempt))
+  armRetryWake(current)
+}
+async function drainDurableOutbox(current: MatrixClient) {
+  if (outboxDraining || client !== current || connection.value !== 'ready' ||
+      !security.value.verified || outboxRestoredScope !== owner) return
+  outboxDraining = true
+  try {
+    for (const item of optimisticText.values()) {
+      if (client !== current || connection.value !== 'ready' || !security.value.verified) return
+      if (item.status !== 'queued' || item.inFlight ||
+          (retryAfter.get(item.id) ?? 0) > Date.now()) continue
+      retryAfter.delete(item.id)
+      const room = current.getRoom(item.roomId)
+      if (!room || room.getMyMembership() !== 'join' || !roomChat(room).encrypted ||
+          roomChat(room).blocked) continue
+      try { await dispatchText(item, current) }
+      catch { /* A definitive failure becomes Not sent; the user retains Retry. */ }
+    }
+  } finally {
+    outboxDraining = false
+    armRetryWake(current)
+  }
+}
+
 export function stopMessaging(clearRequest = true) {
+  if (retryTimer) clearTimeout(retryTimer)
+  retryTimer = undefined
+  retryAttempts.clear()
+  retryAfter.clear()
   optimisticText.clear()
+  pendingDirectTexts.value = []
+  outboxRestoredScope = ''
+  directOutboxRestoredScope = ''
+  directOutboxRestoring = undefined
+  outboxRestoring = undefined
+  outboxDraining = false
+  outboxError.value = false
   reactionLocks.clear()
   messageBackupWarning.value = false
   joiningIncoming.clear(); failedIncoming.clear(); activatedConversations.clear(); incomingError.value = false
@@ -654,6 +872,8 @@ export function startMessaging(): Promise<void> {
       return
     }
     owner = `${account.value.id}:${deviceId.value}`
+    await restorePendingDirectOutbox()
+    if (current !== generation) return
     let initialized!: () => void
     const ready = new Promise<void>((resolve) => {
       initialized = resolve
@@ -864,8 +1084,10 @@ export function startMessaging(): Promise<void> {
                 state === sdk.SyncState.Prepared ||
                 state === sdk.SyncState.Syncing
               ) {
-                connection.value = 'ready'
+                connection.value = typeof navigator !== 'undefined' && navigator.onLine === false
+                  ? 'offline' : 'ready'
                 refresh()
+                if (security.value.verified) void restoreDurableOutbox(created)
                 syncReady()
               } else if (
                 state === sdk.SyncState.Error ||
@@ -910,6 +1132,7 @@ export function startMessaging(): Promise<void> {
             diagnostic.value = 'ready'
             await retryTrustedMessages(created)
             refresh()
+            if (security.value.verified) void restoreDurableOutbox(created)
             privacyTimer = setInterval(() => {
               if (client === created && document.visibilityState === 'visible') {
                 void refreshPeers().catch(() => {})
@@ -1101,8 +1324,10 @@ export async function leaveChat() {
 function prepareText(body: string, reply?: string, photoId?: string) {
   const current = client
   const room = current?.getRoom(selected.value)
-  if (!current || !room || connection.value !== 'ready' || !security.value.verified
-    || room.getMyMembership() !== 'join' || !roomChat(room).encrypted
+  // Network state never gates a locally known, verified encrypted room.
+  // Persist first and let the outbox drain when Matrix becomes ready.
+  if (!current || !room
+    || !['join', 'invite'].includes(room.getMyMembership()) || !roomChat(room).encrypted
     || roomChat(room).blocked || !body.trim() || body.length > 10000)
     throw new Error('not_ready')
   const txnId = 'pb-' + crypto.randomUUID()
@@ -1114,7 +1339,7 @@ function prepareText(body: string, reply?: string, photoId?: string) {
     reply,
     photoId,
     time: Date.now(),
-    status: 'sending',
+    status: connection.value === 'ready' && security.value.verified && room.getMyMembership() === 'join' ? 'sending' : 'queued',
     inFlight: false,
   }
   optimisticText.set(entry.id, entry)
@@ -1122,8 +1347,14 @@ function prepareText(body: string, reply?: string, photoId?: string) {
   return { entry, current }
 }
 
+function isMessagingOffline() { return connection.value === 'offline' }
 async function dispatchText(entry: PendingText, current: MatrixClient) {
   if (entry.inFlight || optimisticText.get(entry.id) !== entry) return
+  if (connection.value !== 'ready') {
+    entry.status = 'queued'
+    refreshMessages()
+    return
+  }
   entry.inFlight = true
   entry.status = 'sending'
   refreshMessages()
@@ -1149,17 +1380,32 @@ async function dispatchText(entry: PendingText, current: MatrixClient) {
     // Check again after network preflight. Block/revoke may race activation.
     if (roomChat(room).blocked || room.getMyMembership() !== 'join' || !security.value.verified)
       throw new Error('unsafe_room')
-    const ack = await current.sendMessage(room.roomId, {
-      ...(reference ? { 'org.photobunker.photo': { id: reference.photoId, assignmentId: reference.assignmentId } } : {}),
-      msgtype: sdk.MsgType.Text,
-      body: entry.body,
-      ...(entry.reply ? { 'm.relates_to': { 'm.in_reply_to': { event_id: entry.reply } } } : {}),
-    }, entry.txnId)
+    // Retry Matrix's existing local echo if it already owns this txnId.
+    // Creating a second SDK echo for the same operation causes phantom
+    // duplicate bubbles even though Matrix server HTTP PUT is idempotent.
+    const existingEcho = room.getPendingEvents().find(event => event.getTxnId() === entry.txnId)
+    if (existingEcho && existingEcho.status !== 'not_sent') {
+      entry.status = 'queued'
+      refreshMessages()
+      return
+    }
+    const ack = existingEcho
+      ? await current.resendEvent(existingEcho, room)
+      : await current.sendMessage(room.roomId, {
+          ...(reference ? { 'org.photobunker.photo': { id: reference.photoId, assignmentId: reference.assignmentId } } : {}),
+          msgtype: sdk.MsgType.Text,
+          body: entry.body,
+          ...(entry.reply ? { 'm.relates_to': { 'm.in_reply_to': { event_id: entry.reply } } } : {}),
+        }, entry.txnId)
     requireClient(current)
     // Matrix local echo and eventual sync use the very same transaction ID.
     entry.serverEventId = ack.event_id
     entry.status = 'sent'
     refreshMessages()
+    // Idempotent on reconnect: commit ACK and remove ciphertext outbox row.
+    clearRetry(entry.id)
+    try { await eraseDurableText(entry.txnId) }
+    catch { if (client === current) outboxError.value = true }
     // Key backup failure must never turn an ACKed message into "not sent",
     // but it remains an actionable recovery warning in the PhotoBunker UI.
     void preserveMessageKeys()
@@ -1167,7 +1413,10 @@ async function dispatchText(entry: PendingText, current: MatrixClient) {
       .catch(() => { if (client === current) messageBackupWarning.value = true })
   } catch (error) {
     if (client === current && optimisticText.get(entry.id) === entry) {
-      entry.status = 'notSent'
+      // Transient network and 5xx/429 faults must be queued, not lost.
+      const transient = isMessagingOffline() || isTransientMessageError(error)
+      entry.status = transient ? 'queued' : 'notSent'
+      if (transient && !isMessagingOffline()) scheduleTextRetry(current, entry)
       refreshMessages()
     }
     throw error
@@ -1176,19 +1425,52 @@ async function dispatchText(entry: PendingText, current: MatrixClient) {
   }
 }
 
-/** UI gets an immediate local optimistic event id and clears its composer. */
-export function queueTextMessage(body: string, reply?: string, photoId?: string): string {
+/** Optimistically insert before disk I/O; resolve only after AES-GCM
+ * ciphertext has been committed to IndexedDB. Caller may then clear draft.
+ * A failed disk write preserves the user's composer text.
+ */
+export async function queueTextMessage(body: string, reply?: string, photoId?: string): Promise<string> {
   const { entry, current } = prepareText(body, reply, photoId)
-  void dispatchText(entry, current).catch(() => {
-    // Failure is rendered as retryable notSent in the existing Matrix UI;
-    // no plaintext, account identifiers or exceptions go into logs.
-  })
+  try {
+    const data: DurableText = { id: entry.id, txnId: entry.txnId, roomId: entry.roomId,
+      body: entry.body, time: entry.time,
+      ...(entry.reply ? { reply: entry.reply } : {}),
+      ...(entry.photoId ? { photoId: entry.photoId } : {}) }
+    await saveDurableText(data)
+  } catch (error) {
+    optimisticText.delete(entry.id)
+    if (client === current) { outboxError.value = true; refreshMessages() }
+    throw error
+  }
+  if (client === current && connection.value === 'ready' && security.value.verified &&
+      current.getRoom(entry.roomId)?.getMyMembership() === 'join') {
+    void dispatchText(entry, current).catch(() => {
+      // Error remains available as Not sent with same txnId and Retry.
+    })
+  } else {
+    entry.status = 'queued'
+    if (client === current) refreshMessages()
+  }
   return entry.id
 }
 
-/** Backwards-compatible promise-based sender for non-composer consumers. */
+/** Promise-based sender used by non-composer callers. */
 export async function send(body: string, reply?: string, photoId?: string) {
   const { entry, current } = prepareText(body, reply, photoId)
+  try {
+    await saveDurableText({ id: entry.id, txnId: entry.txnId, roomId: entry.roomId,
+      body: entry.body, time: entry.time,
+      ...(entry.reply ? { reply: entry.reply } : {}),
+      ...(entry.photoId ? { photoId: entry.photoId } : {}) })
+  } catch (error) {
+    optimisticText.delete(entry.id)
+    if (client === current) refreshMessages()
+    throw error
+  }
+  if (connection.value !== 'ready' || !security.value.verified ||
+      current.getRoom(entry.roomId)?.getMyMembership() !== 'join') {
+    entry.status = 'queued'; refreshMessages(); return
+  }
   await dispatchText(entry, current)
 }
 export async function sendVoice(draft: VoiceDraft, reply?: string) {
@@ -1353,10 +1635,10 @@ export async function retryMessage(id: string) {
   // transaction ID to ensure server-side idempotency if an ACK was lost.
   if (optimistic) {
     if (!current || !room || room.roomId !== optimistic.roomId
-      || optimistic.inFlight || optimistic.status !== 'notSent') return
+      || optimistic.inFlight || !['notSent', 'queued'].includes(optimistic.status)) return
     const sdkEcho = room.getPendingEvents().find(event => event.getTxnId() === optimistic.txnId)
     if (!sdkEcho) {
-      await dispatchText(optimistic, current)
+      if (connection.value === 'ready') await dispatchText(optimistic, current)
       return
     }
     if (sdkEcho.status !== 'not_sent') return
@@ -1407,7 +1689,10 @@ export async function blockContact() {
   }
 }
 function requireClient(current: MatrixClient) {
-  if (client !== current) throw new Error('messages.cancelled')
+  // A stale network operation must never commit after a person/device switch,
+  // even before the reactive stopMessaging watcher has run.
+  if (client !== current || owner !== `${account.value?.id}:${deviceId.value}`)
+    throw new Error('messages.cancelled')
 }
 let savingMessageKeys: Promise<void> | undefined
 export async function preserveMessageKeys() {

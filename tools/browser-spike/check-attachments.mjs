@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { origin, button, label, accountFixture, cleanupFixtures, monitorRuntime } from './account-qa.mjs'
 
 const png = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2BUdcAAAAASUVORK5CYII=', 'base64')
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR4nGP4z/D/PwgzQOn/AGeqC/W88sLDAAAAAElFTkSuQmCC', 'base64')
 const fileSelector = '.chatify-message-composer input[type=file]'
 async function ready(page) {
   await page.goto(`${origin}/messages`)
@@ -14,9 +14,10 @@ async function ready(page) {
 for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(',')) {
   const browser = await ({ chromium, webkit }[engine]).launch({ headless: true })
   const fixtures = [], errors = [], diagnostics = { nativePhotoPoll: 0 }, uploads = []
-  let stage = 'account'
+  let stage = 'account', sender
   try {
     const a = await accountFixture(browser, `${engine} attachment sender`, fixtures)
+    sender = a
     const b = await accountFixture(browser, `${engine} attachment receiver`, fixtures)
     for (const item of fixtures) await monitorRuntime(item.page, engine, errors, diagnostics)
     a.page.on('response', response => {
@@ -75,8 +76,17 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     assert.deepEqual(errors, [])
     console.log(`${engine}: encrypted photo/file, explicit decrypt/download, composer cancel, failed upload retry, ciphertext upload passed`)
   } catch (error) {
-    console.error(`${engine}: attachment QA failed at ${stage}`, error instanceof Error ? error.message : error)
-    console.error({ errors, diagnostics })
+    console.error(`${engine}: attachment QA failed at ${stage}`, error instanceof Error ? error.name : 'unknown')
+    const state = await sender?.page?.evaluate(async () => {
+      const store = await import('/src/messages/store.ts')
+      return { connection: store.connection.value, crypto: store.diagnostic.value,
+        selected: !!store.selected.value,
+        timeline: store.messages.value.map(row => ({
+          status: row.status, locked: row.locked,
+          attachment: !!row.attachment, voice: !!row.voice, hasText: !!row.body,
+        })) }
+    }).catch(() => ({ unavailable: true }))
+    console.error({ errors: errors.length, uploads, diagnostics, state })
     throw error
   } finally {
     await cleanupFixtures(fixtures)

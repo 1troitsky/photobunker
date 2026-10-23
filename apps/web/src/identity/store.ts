@@ -76,7 +76,12 @@ function clear(invalidate = true) {
   bindIdentity('')
   changed()
 }
-channel?.addEventListener('message', () => {
+channel?.addEventListener('message', (event: MessageEvent<unknown>) => {
+  const message = event.data
+  if (message && typeof message === 'object') {
+    const accountId = (message as { accountId?: unknown }).accountId
+    if (typeof accountId === 'string' && account.value?.id && accountId !== account.value.id) return
+  }
   const used = identityReady.value
   clear()
   identityReady.value = false
@@ -204,7 +209,7 @@ function authenticated(result: Session) {
   sessionNotice.value = false
   generation++
   accept(result)
-  channel?.postMessage('changed')
+  channel?.postMessage({ kind: 'session', accountId: result.account.id })
 }
 export async function register(
   root: { privateKey: CryptoKey; publicKey: string },
@@ -277,18 +282,26 @@ export async function logout() {
   photoSecurity.hardLock()
   sessionNotice.value = false
   publicCaptureUnknown.value = false
-  channel?.postMessage('changed')
+  channel?.postMessage({ kind: 'logout', accountId: previousAccount })
   try {
     await identityRequest('/session', 'DELETE', undefined, previousAccount)
   } finally {
-    const db = await import('../crypto/database')
-    await db.remove('capture-current').catch(() => {})
-    await db
-      .remove(`trusted:${previousAccount}:${previousDevice}`)
-      .catch(() => {})
-    await forgetLocalAccountAccess()
-    localDevices.value = []
-    signingOut.value=false
+    try {
+      const db = await import('../crypto/database')
+      const cleanup: Promise<unknown>[] = [
+        db.remove('capture-current').catch(() => {}),
+        forgetLocalAccountAccess(),
+      ]
+      if (previousAccount && previousDevice) {
+        cleanup.push(db.remove(`trusted:${previousAccount}:${previousDevice}`).catch(() => {}))
+        cleanup.push(import('../messages/durable-outbox')
+          .then(outbox => outbox.eraseDurableOutbox(previousAccount, previousDevice)))
+      }
+      await Promise.all(cleanup)
+    } finally {
+      localDevices.value = []
+      signingOut.value=false
+    }
   }
 }
 

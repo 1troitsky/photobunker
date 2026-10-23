@@ -75,6 +75,8 @@ const copy = {
   send: ['Отправить', 'Send'],
   reply: ['Ответить', 'Reply'],
   cancelReply: ['Отменить ответ', 'Cancel reply'],
+  queued: ['В очереди · отправится после подключения', 'Queued · will send after reconnect'],
+  outboxUnavailable: ['Не удалось безопасно сохранить сообщение на устройстве. Текст остался в поле ввода.', 'Could not safely save the message on this device. Your text remains in the composer.'],
   sending: ['Отправляется', 'Sending'],
   sent: ['Принято сервером', 'Accepted by server'],
   read: ['Прочитано', 'Read'],

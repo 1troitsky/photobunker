@@ -42,11 +42,13 @@ import { w } from '../workspace/text'
 import { m } from '../messages/text'
 import { ui, initials, avatarColor, dayLabel, chatTime } from '../messages/presentation'
 import { usePersonLookup } from '../messages/lookup'
+import { decideChatEntry, canAutoOpenChat } from '../messages/chat-entry'
 import { personText } from '../identity/person-text'
 import type { Message } from '../messages/store'
 import {
   accountRecoveryReady,
   messageBackupWarning,
+  outboxError,
   preserveMessageKeys,
   archiveConversation,
   setConversationMuted,
@@ -99,6 +101,9 @@ import {
   joinIncomingConversations,
   incomingError,
   queueTextMessage,
+  pendingDirectTexts,
+  queueDirectText,
+  bindDirectOutbox,
   retryMessage,
   olderMessages,
   olderAvailable,
@@ -289,27 +294,45 @@ const { person: foundPerson, busy: lookupBusy, error: lookupError, find: findPer
   computed(() => `${account.value?.id || ''}:${identityDeviceId.value}`),
 )
 const chatDrafts = new Map<string, { text: string; reply: string }>()
+function chatEntryError(reason: 'offline' | 'otherTab' | 'unsupported' | 'error') {
+  return m(reason === 'error' ? failure.value || 'failed' : reason)
+}
 function readyToWrite(handle?: string) {
-  if (security.value.verified && connection.value === 'ready') return true
-  pendingPeer.value = handle || ''
-  if (connection.value !== 'ready' || diagnostic.value !== 'ready') {
-    actionError.value = m(connection.value === 'error' ? failure.value || 'failed' : connection.value === 'offline' ? 'offline' : connection.value === 'unsupported' ? 'unsupported' : connection.value === 'otherTab' ? 'otherTab' : 'connecting')
-    return false
+  const decision = decideChatEntry(connection.value, diagnostic.value, security.value.verified)
+  if (decision.kind === 'ready') return true
+  if (handle) {
+    pendingPeer.value = handle
+    newOpen.value = false
   }
-  newOpen.value = false
-  securityOpen.value = true
+  if (decision.kind === 'recover') {
+    // A group draft has no direct peer to resume: keep its selected people
+    // and title rather than destroying the draft during device recovery.
+    securityOpen.value = true
+    actionError.value = ''
+  } else {
+    actionError.value = decision.kind === 'unavailable' ? chatEntryError(decision.reason) : m('connecting')
+  }
   return false
 }
 async function writeDirect(handle: string, call = false) {
   if (actionBusy.value) return
+  const peer = handle.trim()
+  if (!peer) return
+  // Opening a conversation is a local UI action. Keep the intent visible
+  // immediately instead of waiting for Matrix startup/network recovery.
+  pendingPeer.value = peer
   pendingCall.value = call
+  newOpen.value = false
+  tab.value = 'chats'
   await perform(async () => {
     const version = actionGeneration
     await startMessaging()
     if (version !== actionGeneration) return
-    if (!readyToWrite(handle)) return
-    await createChat([handle.trim()], '')
+    if (!readyToWrite(peer)) return
+    await createChat([peer], '')
     if (version !== actionGeneration) return
+    pendingPeer.value = ''
+    await bindDirectOutbox(peer, selected.value)
     directHandle.value = ''
     newOpen.value = false
     tab.value = 'chats'
@@ -317,15 +340,38 @@ async function writeDirect(handle: string, call = false) {
     if (call) await joinCall(selected.value)
   })
 }
+// Deep-linked Write is an intent that must *never* disappear in recovery
+// or offline states. Limit automatic room creation to once per intent; Retry
+// remains explicit. The recipient id is used only for local control flow.
+let autoOpenIntent = ''
 watch(
-  [() => route.query.peer, () => security.value.verified, connection, diagnostic],
+  [() => route.query.peer, () => route.query.call, () => account.value?.id,
+    () => security.value.verified, connection, diagnostic, actionBusy],
   () => {
-    if (
-      typeof route.query.peer === 'string' &&
-      security.value.verified &&
-      connection.value === 'ready' && diagnostic.value === 'ready'
-    )
-      void writeDirect(route.query.peer, route.query.call === 'audio')
+    const peer = typeof route.query.peer === 'string' ? route.query.peer.trim() : ''
+    if (!peer) { autoOpenIntent = ''; return }
+    const call = route.query.call === 'audio'
+    const decision = decideChatEntry(connection.value, diagnostic.value, security.value.verified)
+    if (decision.kind === 'recover') {
+      pendingPeer.value = peer
+      pendingCall.value = call
+      if (!securityOpen.value) {
+        newOpen.value = false
+        securityOpen.value = true
+      }
+      return
+    }
+    if (decision.kind === 'unavailable') {
+      actionError.value = chatEntryError(decision.reason)
+      return
+    }
+    if (decision.kind !== 'ready') return
+    const intent = `${account.value?.id || ''}:${peer}:${call}`
+    if (!canAutoOpenChat(decision, actionBusy.value, autoOpenIntent === intent)) return
+    autoOpenIntent = intent
+    pendingPeer.value = ''
+    securityOpen.value = false
+    void writeDirect(peer, call)
   },
   { immediate: true },
 )
@@ -444,20 +490,29 @@ watch(
   { immediate: true },
 )
 const needsSecurity = computed(() => connection.value === 'ready' && diagnostic.value === 'ready' && !security.value.verified)
-watch([() => security.value.verified, connection], ([value, state]) => {
-  if (value && state === 'ready' && pendingPeer.value) {
-    const peer = pendingPeer.value
-    pendingPeer.value = ''
-    securityOpen.value = false
-    void writeDirect(peer, pendingCall.value)
-  }
+const pendingEntryPeer = computed(() => {
+  const routePeer = typeof route.query.peer === 'string' ? route.query.peer.trim() : ''
+  return routePeer || pendingPeer.value || pendingDirectTexts.value[0]?.peerId || ''
+})
+watch([() => security.value.verified, connection, diagnostic, actionBusy, pendingEntryPeer], () => {
+  if (actionBusy.value) return
+  if (decideChatEntry(connection.value, diagnostic.value, security.value.verified).kind !== 'ready' ||
+      !pendingEntryPeer.value) return
+  const peer = pendingEntryPeer.value
+  // Route-driven opens are handled by the route watcher, preventing
+  // two async createChat calls when verification finishes.
+  if (route.query.peer === peer) return
+  pendingPeer.value = ''
+  securityOpen.value = false
+  void writeDirect(peer, pendingCall.value)
 })
 const voiceDirty = ref(false)
+const textPersisting = ref(false)
 const dirty = computed(
   () =>
-    voiceDirty.value || !!draft.value.trim() ||
+    voiceDirty.value || !!draft.value.trim() || !!pendingDirectTexts.value.length ||
     messages.value.some(
-      (message) => message.status === 'sending' || message.status === 'notSent',
+      (message) => message.status === 'sending' || message.status === 'queued' || message.status === 'notSent',
     ),
 )
 guardReload(dirty, recoveryBusy)
@@ -625,29 +680,46 @@ async function submitEdit() {
     if (version === actionGeneration) actionBusy.value = false
   }
 }
-function submit() {
-  if (actionBusy.value || attachmentBusy.value || voiceDirty.value || connection.value !== 'ready' || !security.value.verified) return
-  if (editingMessage.value) { void submitEdit(); return }
-  if (chosenAttachment.value) { void submitChosenAttachment(); return }
-  const body = draft.value
+async function submit() {
+  if (actionBusy.value || textPersisting.value || attachmentBusy.value || voiceDirty.value) return
+  if (editingMessage.value || chosenAttachment.value) {
+    if (connection.value !== 'ready') { actionError.value = m('offline'); return }
+    if (editingMessage.value) { void submitEdit(); return }
+    void submitChosenAttachment(); return
+  }
+  const body = draft.value, replyTo = reply.value, photo = linkedPhoto.value
   if (!body.trim()) return
-  const roomId = selected.value
+  const roomId = selected.value, ownerId = account.value?.id, version = actionGeneration
+  textPersisting.value = true
   try {
-    // Synchronous validation + local queue insert; network preflight happens
-    // afterwards. A rejected queue never clears a draft.
-    queueTextMessage(body, reply.value || undefined, linkedPhoto.value || undefined)
+    // A local bubble appears synchronously; keep the composer intact until
+    // the AES-GCM encrypted outbox transaction actually commits to disk.
+    await queueTextMessage(body, replyTo || undefined, photo || undefined)
+    if (version !== actionGeneration || ownerId !== account.value?.id || selected.value !== roomId) return
     chatDrafts.delete(roomId)
-    if (selected.value !== roomId) return
-    if (draft.value === body) {
-      draft.value = ''
-      reply.value = ''
-      linkedPhoto.value = ''
+    if (draft.value === body && reply.value === replyTo && linkedPhoto.value === photo) {
+      draft.value = ''; reply.value = ''; linkedPhoto.value = ''
     }
+    actionError.value = ''
     if (atBottom.value) void nextTick(scrollToLatest)
   } catch (error) {
-    actionError.value = m(error instanceof Error && error.message === 'not_ready'
-      ? 'deviceRecoveryHint' : 'failed')
-  }
+    if (version === actionGeneration && ownerId === account.value?.id && selected.value === roomId)
+      actionError.value = m(error instanceof Error && error.message === 'not_ready'
+        ? 'deviceRecoveryHint' : 'outboxUnavailable')
+  } finally { textPersisting.value = false }
+}
+async function submitPending() {
+  const peer = pendingEntryPeer.value
+  const body = draft.value.trim()
+  if (!peer || !body || textPersisting.value) return
+  textPersisting.value = true
+  try {
+    await queueDirectText(peer, body)
+    if (draft.value.trim() === body) draft.value = ''
+    actionError.value = ''
+    if (!actionBusy.value) void writeDirect(peer)
+  } catch { actionError.value = m('outboxUnavailable') }
+  finally { textPersisting.value = false }
 }
 async function newChat() {
   if (!readyToWrite()) return
@@ -744,6 +816,12 @@ function selectMessage(message: Message) {
 }
 function cancelSelection() { selecting.value = false; selectedMessages.value = [] }
 function closeNewMessage() { newOpen.value = false; pendingPeer.value = '' }
+function closePendingConversation() {
+  actionGeneration++
+  pendingPeer.value = ''
+  pendingCall.value = false
+  actionError.value = ''
+}
 function toggleMessage(id: string) {
   selectedMessages.value = selectedMessages.value.includes(id) ? selectedMessages.value.filter(value => value !== id) : [...selectedMessages.value, id]
 }
@@ -822,12 +900,12 @@ watch(listQuery, query => {
 watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); void nextTick(() => document.querySelector<HTMLInputElement>('.conversation-search input')?.focus()) } else messageQuery.value = '' })
 </script>
 <template>
-  <section class="native-screen messages-screen" :class="{ 'has-conversation': !!activeChat }" :style="{ '--messenger-viewport': viewport + 'px' }" :data-room="selected" :data-connection="connection" :data-crypto-stage="diagnostic" :data-device-verified="security.verified" :data-history-backup="security.backup" :data-discussion-state="linkedErrorCode">
+  <section class="native-screen messages-screen" :class="{ 'has-conversation': !!activeChat || !!pendingEntryPeer }" :style="{ '--messenger-viewport': viewport + 'px' }" :data-room="selected" :data-connection="connection" :data-crypto-stage="diagnostic" :data-device-verified="security.verified" :data-history-backup="security.backup" :data-discussion-state="linkedErrorCode">
     <CallPanel v-if="!hidden" />
     <div v-if="hidden" class="native-empty"><AppIcon name="lock" /><h2>{{ m('privacy') }}</h2></div>
     <RouterView v-else-if="profileOpen" v-slot="{ Component }"><component :is="Component" in-messages @message="profileMessage" @call="(id: string) => profileMessage(id, true)" /></RouterView>
     <template v-if="!hidden">
-      <div v-if="!profileOpen && typeof route.query.peer === 'string'" class="messenger-opening" role="status"><p>{{ actionError || (actionBusy ? personText('opening') : m(connection === 'error' ? failure || 'failed' : connection === 'otherTab' ? 'otherTab' : connection === 'unsupported' ? 'unsupported' : connection === 'offline' ? 'offline' : 'connecting')) }}</p><button v-if="!actionBusy" class="quiet-button" @click="writeDirect(String(route.query.peer), route.query.call === 'audio')">{{ personText('retry') }}</button><button v-if="!actionBusy" class="quiet-button" @click="openPerson(String(route.query.peer))">{{ personText('open') }}</button></div>
+      <div v-if="!profileOpen && typeof route.query.peer === 'string'" class="messenger-opening" role="status"><p>{{ actionError || (actionBusy ? personText('opening') : needsSecurity ? m('deviceRecoveryHint') : m(connection === 'error' ? failure || 'failed' : connection === 'otherTab' ? 'otherTab' : connection === 'unsupported' ? 'unsupported' : connection === 'offline' ? 'offline' : 'connecting')) }}</p><button v-if="needsSecurity" class="quiet-button" @click="securityOpen = true">{{ m('verifyDevice') }}</button><button v-else-if="!actionBusy" class="quiet-button" @click="writeDirect(String(route.query.peer), route.query.call === 'audio')">{{ personText('retry') }}</button><button v-if="!actionBusy" class="quiet-button" @click="openPerson(String(route.query.peer))">{{ personText('open') }}</button></div>
       <MessengerSplitLayout v-show="!profileOpen">
         <aside class="messenger-sidebar" :aria-label="m('chats')">
           <SidebarHeader
@@ -887,7 +965,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
             </div>
           </template>
         </aside>
-        <main class="messenger-thread" :class="{ 'messenger-thread-placeholder': !activeChat }" :aria-label="activeChat?.name || ui('threadEmpty')">
+        <main class="messenger-thread" :class="{ 'messenger-thread-placeholder': !activeChat && !pendingEntryPeer }" :aria-label="activeChat?.name || pendingEntryPeer || ui('threadEmpty')">
           <template v-if="activeChat">
             <ThreadHeader
               :name="selecting ? selectedMessages.length + ' ' + ui('messageSelected').toLocaleLowerCase() : activeChat.name"
@@ -912,7 +990,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
               </template>
             </ThreadHeader>
             <div v-if="activeChat.membership !== 'join'" class="messenger-joining" role="status"><p>{{ personText('opening') }}</p><button v-if="incomingError" class="quiet-button" @click="joinIncomingConversations(true)">{{ personText('retry') }}</button></div>
-            <div v-else class="conversation">
+            <div class="conversation">
               <div v-if="messageSearchOpen" class="messenger-search conversation-search"><AppIcon name="search" /><input v-model="messageQuery" type="search" :aria-label="ui('searchChat')" :placeholder="ui('searchChat')" /><button class="app-icon-button" :aria-label="ui('closeSearch')" @click="messageSearchOpen = false"><AppIcon name="close" /></button></div>
               <button v-if="pinnedIds.length" class="pinned-strip" @click="jumpToMessage(pinnedIds[0]!)"><span class="pinned-indicator" /><span><strong>{{ ui('pinned') }}<small v-if="pinnedIds.length > 1"> · {{ pinnedIds.length }}</small></strong><span>{{ messages.find(message => message.id === pinnedIds[0])?.body || ui('pinned') }}</span></span><AppIcon name="chevron" /></button>
               <div ref="log" class="message-log" role="log" aria-live="polite" :aria-label="u('messages')" @scroll="scrolled">
@@ -992,9 +1070,9 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
               <ScrollToBottomButton v-if="!atBottom" :label="ui('jump')" @click="scrollToLatest" />
               <div v-if="selecting" class="message-selection"><button class="quiet-button" :disabled="!selectedMessages.length || actionBusy" @click="askMessageDelete(selectedMessages, false)">{{ ui('deleteMine') }}</button><button v-if="canDeleteForEveryone(selectedMessages)" class="quiet-button" :disabled="!selectedMessages.length || actionBusy" @click="askMessageDelete(selectedMessages, true)">{{ ui('deleteAll') }}</button></div>
               <p v-else-if="!activeChat.encrypted || activeChat.blocked" class="message-error form-error" role="alert">{{ m(activeChat.blocked ? 'blocked' : 'unencrypted') }}</p>
-              <div v-else-if="!security.verified" class="message-device-setup"><p>{{ m(diagnostic === 'ready' ? 'deviceRecoveryHint' : 'connecting') }}</p><button v-if="diagnostic === 'ready'" class="quiet-button" @click="securityOpen = true">{{ m(security.storage ? 'restore' : 'verifyDevice') }}</button></div>
-              <MessageComposer
-                v-else
+              <template v-else>
+                <div v-if="!security.verified" class="message-device-setup"><p>{{ m(diagnostic === 'ready' ? 'deviceRecoveryHint' : 'connecting') }}</p><button v-if="diagnostic === 'ready'" class="quiet-button" @click="securityOpen = true">{{ m(security.storage ? 'restore' : 'verifyDevice') }}</button></div>
+                <MessageComposer
                 ref="composer"
                 v-model="draft"
                 :placeholder="m('message')"
@@ -1004,11 +1082,12 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                 :reply-label="editingMessage ? ui('editing') : m('reply')"
                 :reply-preview="editingMessage ? editingMessage.original : reply ? replyBody(reply) : undefined"
                 :voice-dirty="voiceDirty"
-                :disabled="actionBusy || attachmentBusy || connection !== 'ready' || !security.verified"
+                :disabled="actionBusy || textPersisting || attachmentBusy || ((connection !== 'ready' || !security.verified) && !!(chosenAttachment || editingMessage))"
+                :allow-draft-when-disabled="connection === 'offline' && security.verified && !actionBusy && !textPersisting && !attachmentBusy"
                 :attachment="chosenAttachment ? { name: chosenAttachment.name, kind: chosenAttachment.type.startsWith('image/') ? 'image' : 'file', size: chosenAttachment.size, preview: attachmentPreviewUrl } : undefined"
                 :attachment-busy="attachmentBusy"
-                :attach-label="editingMessage ? undefined : ui('attachmentAdd')"
-                :allow-attachments="!editingMessage"
+                :attach-label="editingMessage || !security.verified ? undefined : ui('attachmentAdd')"
+                :allow-attachments="security.verified && !editingMessage"
                 :picker-label="ui('pickerTitle')"
                 :remove-attachment-label="ui('attachmentRemove')"
                 @submit="submit"
@@ -1023,13 +1102,14 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                   <VoiceRecorder
                     v-show="!editingMessage && !chosenAttachment && (!draft.trim() || voiceDirty)"
                     :key="selected"
-                    :disabled="actionBusy || connection !== 'ready'"
+                    :disabled="actionBusy || connection !== 'ready' || !security.verified"
                     :active="!profileOpen && !hidden"
                     :send="submitVoice"
                     @dirty="voiceDirty = $event"
                   />
                 </template>
-              </MessageComposer>
+                </MessageComposer>
+              </template>
               <p v-if="attachmentBusy" class="field-hint chatify-attachment-status" role="status">{{ ui('attachmentSending') }}</p>
               <p v-if="attachmentError" class="form-error" role="alert">{{ attachmentError }}</p>
               <p v-if="chosenAttachment && !attachmentBusy" class="field-hint chatify-attachment-privacy">{{ ui('attachmentOriginalNote') }}</p>
@@ -1037,6 +1117,61 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
             <p v-if="linkedError" class="form-error message-error" role="alert">{{ linkedError }}<button class="quiet-button" @click="enterDiscussion">{{ w('retry') }}</button></p>
             <p v-if="actionError" class="form-error message-error" role="alert">{{ actionError }}</p>
           <p v-if="messageBackupWarning" class="form-error message-error" role="alert">{{ m('backupBeforeLeaving') }}</p>
+          <p v-if="outboxError" class="form-error message-error" role="alert">{{ m('outboxUnavailable') }}</p>
+          </template>
+          <template v-else-if="pendingEntryPeer">
+            <ThreadHeader
+              :name="foundPerson?.fields.name || foundPerson?.fields.username || pendingEntryPeer"
+              :subtitle="personText('opening')"
+              :avatar-class="avatarColor(pendingEntryPeer)"
+              :initials="initials(foundPerson?.fields.name || foundPerson?.fields.username || pendingEntryPeer)"
+              :group="false"
+              :show-back="true"
+              :back-label="s('back')"
+              :open-label="pendingEntryPeer"
+              @back="closePendingConversation"
+              @open="openPerson(pendingEntryPeer)"
+            />
+            <div class="conversation">
+              <div class="message-log" role="log" aria-live="polite" :aria-label="u('messages')">
+                <div class="thread-start"><span>{{ personText('opening') }}</span></div>
+                <MessageBubble
+                  v-for="item in pendingDirectTexts.filter(value => value.peerId === pendingEntryPeer)"
+                  :id="item.id"
+                  :key="item.id"
+                  :mine="true"
+                  :locked="false"
+                  :grouped="false"
+                  :highlighted="false"
+                  :selected="false"
+                  :selecting="false"
+                  sender=""
+                  :show-sender="false"
+                  :body="item.body"
+                  :time-label="new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })"
+                  status="queued"
+                  :status-label="m('queued')"
+                  :menu-label="ui('messageActions')"
+                  :select-label="ui('selectOne') + ': ' + item.body"
+                  :has-voice="false"
+                  :has-photo="false"
+                />
+              </div>
+              <MessageComposer
+                ref="composer"
+                v-model="draft"
+                :placeholder="m('message')"
+                :input-label="m('message')"
+                :send-label="m('send')"
+                :cancel-reply-label="m('cancelReply')"
+                :reply-label="m('reply')"
+                :voice-dirty="false"
+                :disabled="textPersisting"
+                :allow-attachments="false"
+                @submit="submitPending"
+                @cancel-reply="reply = ''"
+              />
+            </div>
           </template>
           <div v-else class="messenger-desktop-empty"><span class="service-emblem"><AppIcon name="messages" /></span><h2>{{ ui('threadEmpty') }}</h2><p>{{ ui('threadEmptyHint') }}</p></div>
         </main>

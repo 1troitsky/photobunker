@@ -54,7 +54,18 @@ for(const engine of (process.env.MESSAGE_BROWSERS??'chromium,webkit').split(',')
   await first.page.setViewportSize({width:390,height:844})
   // A second tab never opens the same Rust store concurrently.
   const other=await first.context.newPage();await monitor(other);await other.goto(`${origin}/messages`);await expect(other.locator('.messages-screen')).toHaveAttribute('data-connection','otherTab',{timeout:30000});assert.deepEqual(errors,[]);other.removeAllListeners('pageerror');await other.close();await first.page.bringToFront()
-  await first.context.setOffline(true);await expect(first.page.locator('.messages-screen')).toHaveAttribute('data-connection','offline',{timeout:45000});await label(first.page,'Сообщение').fill('QA offline draft');await expect(button(first.page,'Отправить')).toBeDisabled();await first.context.setOffline(false);await ready(first.page);await expect(label(first.page,'Сообщение')).toHaveValue('QA offline draft');await button(first.page,'Отправить').click();await expect(visibleMessage(third.page,'QA offline draft')).toBeVisible({timeout:60000})
+  // Text now queues locally while offline; this is no longer an unsent draft.
+  // A retry must preserve its Matrix transaction ID and decrypt exactly once.
+  await first.context.setOffline(true)
+  await expect(first.page.locator('.messages-screen')).toHaveAttribute('data-connection','offline',{timeout:45000})
+  await label(first.page,'Сообщение').fill('QA offline durable')
+  await expect(button(first.page,'Отправить')).toBeEnabled()
+  await button(first.page,'Отправить').click()
+  await expect(first.page.locator('.message-bubble').filter({hasText:'QA offline durable'}).locator('.message-state-queued')).toBeVisible({timeout:30000})
+  await expect(label(first.page,'Сообщение')).toHaveValue('')
+  await first.context.setOffline(false)
+  await ready(first.page)
+  await expect(visibleMessage(third.page,'QA offline durable')).toHaveCount(1,{timeout:60000})
   await first.page.reload();await ready(first.page);await expect(first.page.locator('.chat-row').filter({hasText:'QA encrypted group'})).toBeVisible();await first.page.locator('.chat-row').filter({hasText:'QA encrypted group'}).click();await expect(visibleMessage(first.page,groupText)).toBeVisible({timeout:60000})
   // Ordinary logout must rotate the Matrix crypto identity, while preserving explicit device-key login.
   const beforeLogout=await(await first.context.request.post(`${origin}/api/v1/identity/matrix/session`,{headers})).json()
@@ -102,6 +113,7 @@ for(const engine of (process.env.MESSAGE_BROWSERS??'chromium,webkit').split(',')
   }finally{releaseUpload()}
   assert.deepEqual(errors,[]);assert.deepEqual(forbidden,[])
   if(diagnostics.nativePhotoPoll)console.log(`${engine}: ${diagnostics.nativePhotoPoll} native photo-poll transport diagnostics; zero window errors/unhandled rejections`)
+  if(diagnostics.nativeMatrixSyncAbort) console.log(`${engine}: ${diagnostics.nativeMatrixSyncAbort} WebKit Matrix sync native-abort diagnostics; verified application state remains required`)
   console.log(`${engine}: three-member E2EE group, protected wire payloads, one crypto owner, offline/reconnect, encrypted-store reload, wrong recovery denial, actual history backup restore, new verified device, live revoke, blocked-invite decline and account-switch cancellation passed`)
  }catch(error){for(const f of fixtures)console.error(await f.page.evaluate(async()=>{const s=await import('/src/messages/store.ts');return{phase:s.verificationPhase.value,sas:!!s.sas.value,request:!!s.verification.value,messages:s.messages.value.map(({locked,decryptionFailure,status})=>({locked,decryptionFailure,status}))}}).catch(()=>({closed:true})));for(const context of extraContexts)for(const page of context.pages())console.error(await page.evaluate(()=>({path:location.pathname,crypto:document.querySelector('.messages-screen')?.getAttribute('data-crypto-stage'),connection:document.querySelector('.messages-screen')?.getAttribute('data-connection'),inputs:document.querySelectorAll('input').length,alerts:document.querySelectorAll('[role=alert]').length})).catch(()=>({closed:true})));console.error(JSON.stringify({errors,diagnostics}));throw error}finally{await Promise.all(extraContexts.map(context=>context.close()));await cleanupFixtures(fixtures);await browser.close()}
 }

@@ -91,8 +91,15 @@ case "${1:-help}" in
     ;;
   smoke)
     require_env
+    # Infrastructure and HTTP health only, NOT messenger acceptance.
     node scripts/smoke.mjs
     docker compose exec -T api php artisan photobunker:storage-check --signed
+    ;;
+  messenger-smoke)
+    require_env
+    # Real browser, two isolated accounts, both Write entry points and an E2EE
+    # first message. Fails rather than claiming success on HTTP health alone.
+    node tools/browser-spike/check-first-message.mjs
     ;;
   offline)
     require_env
@@ -111,6 +118,6 @@ case "${1:-help}" in
     docker compose exec -T web "$@"
     ;;
   *)
-    printf '%s\n' 'Usage: ./scripts/dev {setup|up|matrix|rtc|down|status|check|smoke|offline|api <command>|web <command>}'
+    printf '%s\n' 'Usage: ./scripts/dev {setup|up|matrix|rtc|down|status|check|smoke|messenger-smoke|offline|api <command>|web <command>}'
     ;;
 esac

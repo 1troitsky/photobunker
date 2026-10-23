@@ -1,6 +1,8 @@
 // Synthetic fixtures only. Screenshots contain deliberately public sample names.
 import { chromium, webkit, expect } from '@playwright/test'
 import assert from 'node:assert/strict'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { origin, headers, button, label, accountFixture, cleanupFixtures, monitorRuntime } from './account-qa.mjs'
 const ready = async f => { await f.page.goto(`${origin}/messages`); await expect(f.page.locator('.messages-screen')).toHaveAttribute('data-crypto-stage', 'ready', { timeout: 90000 }); await expect(f.page.locator('.messages-screen')).toHaveAttribute('data-history-backup', 'true') }
 async function profile(f, name, username) { const me = (await (await f.context.request.get(`${origin}/api/v1/identity/me`, { headers })).json()).account; assert.equal((await f.context.request.patch(`${origin}/api/v1/identity/profile`, { headers, data: { accountId: me.id, revision: me.revision, fields: { ...me.fields, name, username }, visibility: { ...me.visibility, name: 'public' } } })).status(), 200) }
@@ -37,7 +39,7 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     assert.ok(matrixId)
     await lookup.fill(matrixId); await expect(card).toContainText(b.me.account.publicId)
     await page.setViewportSize({ width: 320, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
-    await page.screenshot({ animations: 'disabled', path: `/private/tmp/photobunker-messenger-${engine}-person.png` })
+    await page.screenshot({ animations: 'disabled', path: join(tmpdir(), `photobunker-messenger-${engine}-person.png`) })
     await page.setViewportSize({ width: 390, height: 844 })
     stage = 'chat-retry'
     const failingChat = '**/api/v1/identity/matrix/conversations/prepare'
@@ -73,7 +75,19 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     await expect(page.locator('.message-mine').last().locator('.message-state')).toBeVisible()
     await expect(page.locator('nav.navigation')).toBeHidden()
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
-    await page.screenshot({ animations: 'disabled', path: `/private/tmp/photobunker-messenger-${engine}-chat.png` })
+    await page.screenshot({ animations: 'disabled', path: join(tmpdir(), `photobunker-messenger-${engine}-chat.png`) })
+    stage = 'chatify-touch-actions'
+    // A user on a phone must be able to discover actions with one tap.
+    const latestMessage = page.locator('.message-bubble').filter({ hasText: 'Если понадобятся изменения' })
+    const actionButton = latestMessage.getByRole('button', { name: 'Действия с сообщением' })
+    await expect(actionButton).toBeVisible()
+    const actionBox = await actionButton.boundingBox()
+    assert.ok(actionBox && actionBox.width >= 36 && actionBox.height >= 36)
+    assert.ok(actionBox.x >= 0 && actionBox.x + actionBox.width <= 390)
+    await actionButton.click()
+    await expect(page.getByRole('dialog', { name: 'Действия с сообщением', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog', { name: 'Действия с сообщением', exact: true })).toHaveCount(0)
     stage = 'long-press-reply'
     await menu(page, 'Отлично, спасибо!'); await button(page, 'Ответить').click(); await expect(page.locator('.reply-preview')).toContainText('Посмотрю вечером')
     await send(a, 'Договорились!'); await expect(page.locator('.message-bubble').filter({ hasText: 'Договорились!' }).locator('blockquote')).toContainText('Посмотрю вечером')
@@ -98,13 +112,13 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     await expect(page.locator('.chat-row')).toHaveCount(1); await expect(page.locator('.chat-summary')).toContainText('Договорились!')
     await expect(page.locator('.chat-summary')).not.toContainText('Защита переписки')
     await expect(page.locator('.chat-row time')).not.toBeEmpty()
-    await page.screenshot({ animations: 'disabled', path: `/private/tmp/photobunker-messenger-${engine}-list.png` })
+    await page.screenshot({ animations: 'disabled', path: join(tmpdir(), `photobunker-messenger-${engine}-list.png`) })
     stage = 'responsive'
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
       await page.locator('.chat-row').click(); await expect(page.locator('.message-composer')).toBeVisible()
       const composer = await page.locator('.message-composer').boundingBox(); assert.ok(composer.y >= 0 && composer.y + composer.height <= 845)
-      if (width === 1440) { await expect(page.locator('.messenger-sidebar')).toBeVisible(); await page.screenshot({ animations: 'disabled', path: `/private/tmp/photobunker-messenger-${engine}-desktop.png` }); await page.evaluate(() => { document.documentElement.dataset.theme = 'light' }); await page.screenshot({ animations: 'disabled', path: `/private/tmp/photobunker-messenger-${engine}-desktop-light.png` }) }
+      if (width === 1440) { await expect(page.locator('.messenger-sidebar')).toBeVisible(); await page.screenshot({ animations: 'disabled', path: join(tmpdir(), `photobunker-messenger-${engine}-desktop.png`) }); await page.evaluate(() => { document.documentElement.dataset.theme = 'light' }); await page.screenshot({ animations: 'disabled', path: join(tmpdir(), `photobunker-messenger-${engine}-desktop-light.png`) }) }
       await page.evaluate(async () => { (await import('/src/messages/store.ts')).openRoom('') })
     }
     stage = 'reading-history'

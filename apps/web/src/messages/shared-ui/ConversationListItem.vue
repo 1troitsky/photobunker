@@ -25,9 +25,10 @@ const emit = defineEmits<{ select: [] }>()
   <button
     type="button"
     class="chat-row chatify-conversation-item"
-    :class="{ 'chat-active': active }"
+    :class="{ 'chat-active': active, 'chatify-has-unread': conversation.unreadCount > 0 }"
     :style="swiped ? { transform: 'translateX(-112px)' } : undefined"
     :aria-current="active ? 'true' : undefined"
+    :data-unread="conversation.unreadCount > 0 ? 'true' : 'false'"
     @click="emit('select')"
   >
     <span :class="['chat-avatar', conversation.avatarClass]">
@@ -42,7 +43,7 @@ const emit = defineEmits<{ select: [] }>()
         <svg v-if="conversation.muted" class="chat-muted-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-label="Muted notifications">
           <path d="M4 4 20 20M9 5a4 4 0 0 1 7 3v4c0 1.5.5 2.5 1.5 4M5.5 16h13M10 20h4" stroke-linecap="round"/>
         </svg>
-        <time>{{ conversation.timeLabel }}</time>
+        <time v-if="conversation.timeLabel">{{ conversation.timeLabel }}</time>
       </span>
       <span class="chat-summary-preview">
         <span>{{ conversation.preview }}</span>
