@@ -494,14 +494,27 @@ const pendingEntryPeer = computed(() => {
   const routePeer = typeof route.query.peer === 'string' ? route.query.peer.trim() : ''
   return routePeer || pendingPeer.value || pendingDirectTexts.value[0]?.peerId || ''
 })
+let pendingOpenAttempt = ''
+const pendingAttemptKey = (peer: string) => `${account.value?.id || ''}:${peer}`
+function retryPendingConversation() {
+  const peer = pendingEntryPeer.value
+  if (!peer || actionBusy.value) return
+  pendingOpenAttempt = pendingAttemptKey(peer)
+  actionError.value = ''
+  void writeDirect(peer, pendingCall.value)
+}
 watch([() => security.value.verified, connection, diagnostic, actionBusy, pendingEntryPeer], () => {
   if (actionBusy.value) return
+  if (!pendingEntryPeer.value) { pendingOpenAttempt = ''; return }
   if (decideChatEntry(connection.value, diagnostic.value, security.value.verified).kind !== 'ready' ||
       !pendingEntryPeer.value) return
   const peer = pendingEntryPeer.value
   // Route-driven opens are handled by the route watcher, preventing
   // two async createChat calls when verification finishes.
   if (route.query.peer === peer) return
+  const attempt = pendingAttemptKey(peer)
+  if (pendingOpenAttempt === attempt) return
+  pendingOpenAttempt = attempt
   pendingPeer.value = ''
   securityOpen.value = false
   void writeDirect(peer, pendingCall.value)
@@ -1131,6 +1144,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
               @back="closePendingConversation"
               @open="openPerson(pendingEntryPeer)"
             />
+            <div v-if="actionError" class="messenger-connection-error" role="alert"><p>{{ actionError }}</p><button class="quiet-button" :disabled="actionBusy" @click="retryPendingConversation">{{ personText('retry') }}</button></div>
             <div class="conversation">
               <div class="message-log" role="log" aria-live="polite" :aria-label="u('messages')">
                 <div class="thread-start"><span>{{ personText('opening') }}</span></div>
