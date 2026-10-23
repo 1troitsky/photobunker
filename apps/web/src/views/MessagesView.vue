@@ -522,11 +522,9 @@ watch([() => security.value.verified, connection, diagnostic, actionBusy, pendin
 const voiceDirty = ref(false)
 const textPersisting = ref(false)
 const dirty = computed(
-  () =>
-    voiceDirty.value || !!draft.value.trim() || !!pendingDirectTexts.value.length ||
-    messages.value.some(
-      (message) => message.status === 'sending' || message.status === 'queued' || message.status === 'notSent',
-    ),
+  // Durable queued/sending/not-sent operations are already AES-GCM persisted
+  // and survive reload. Only content that has not reached the outbox is dirty.
+  () => voiceDirty.value || !!draft.value.trim() || !!chosenAttachment.value,
 )
 guardReload(dirty, recoveryBusy)
 let actionGeneration = 0
