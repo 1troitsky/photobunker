@@ -297,11 +297,13 @@ function chatEntryError(reason: 'offline' | 'otherTab' | 'unsupported' | 'error'
 function readyToWrite(handle?: string) {
   const decision = decideChatEntry(connection.value, diagnostic.value, security.value.verified)
   if (decision.kind === 'ready') return true
+  if (handle) {
+    pendingPeer.value = handle
+    newOpen.value = false
+  }
   if (decision.kind === 'recover') {
-    pendingPeer.value = handle || ''
     // A group draft has no direct peer to resume: keep its selected people
     // and title rather than destroying the draft during device recovery.
-    if (handle) newOpen.value = false
     securityOpen.value = true
     actionError.value = ''
   } else {
@@ -311,13 +313,20 @@ function readyToWrite(handle?: string) {
 }
 async function writeDirect(handle: string, call = false) {
   if (actionBusy.value) return
+  const peer = handle.trim()
+  if (!peer) return
+  // Opening a conversation is a local UI action. Keep the intent visible
+  // immediately instead of waiting for Matrix startup/network recovery.
+  pendingPeer.value = peer
   pendingCall.value = call
+  newOpen.value = false
+  tab.value = 'chats'
   await perform(async () => {
     const version = actionGeneration
     await startMessaging()
     if (version !== actionGeneration) return
-    if (!readyToWrite(handle)) return
-    await createChat([handle.trim()], '')
+    if (!readyToWrite(peer)) return
+    await createChat([peer], '')
     if (version !== actionGeneration) return
     directHandle.value = ''
     newOpen.value = false
@@ -1103,7 +1112,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
               :cancel-reply-label="m('cancelReply')"
               :reply-label="m('reply')"
               :voice-dirty="false"
-              :disabled="actionBusy || textPersisting"
+              :disabled="textPersisting"
               :allow-attachments="false"
               @submit="submitPending"
               @cancel-reply="reply = ''"
