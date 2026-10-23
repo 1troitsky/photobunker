@@ -288,6 +288,7 @@ function chooseAttachment(event: Event) {
   if (file) acceptAttachment(file)
 }
 const directHandle = ref(''), pendingPeer = ref(''), pendingCall = ref(false)
+let actionGeneration = 0
 const { person: foundPerson, busy: lookupBusy, error: lookupError, find: findPerson } = usePersonLookup(
   directHandle,
   computed(() => newOpen.value && !group.value && !hidden.value),
@@ -489,7 +490,6 @@ watch(
   },
   { immediate: true },
 )
-const needsSecurity = computed(() => connection.value === 'ready' && diagnostic.value === 'ready' && !security.value.verified)
 const pendingEntryPeer = computed(() => {
   const routePeer = typeof route.query.peer === 'string' ? route.query.peer.trim() : ''
   return routePeer || pendingPeer.value || pendingDirectTexts.value[0]?.peerId || ''
@@ -518,7 +518,7 @@ watch([() => security.value.verified, connection, diagnostic, actionBusy, pendin
   pendingPeer.value = ''
   securityOpen.value = false
   void writeDirect(peer, pendingCall.value)
-})
+}, { immediate: true })
 const voiceDirty = ref(false)
 const textPersisting = ref(false)
 const dirty = computed(
@@ -528,7 +528,6 @@ const dirty = computed(
   () => voiceDirty.value || !!chosenAttachment.value,
 )
 guardReload(dirty, recoveryBusy)
-let actionGeneration = 0
 function resume(event: PageTransitionEvent) {
   if (event.persisted && account.value) void startMessaging()
 }
@@ -939,7 +938,6 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
           </div>
           <div v-if="incomingError" class="messenger-connection-error" role="status"><p>{{ m('failed') }}</p><button class="quiet-button" @click="joinIncomingConversations(true)">{{ m('retry') }}</button></div>
           <p v-if="actionError && !activeChat && !pendingEntryPeer && !newOpen" class="message-error form-error" role="alert">{{ actionError }}</p>
-          <div v-if="needsSecurity" class="message-backup-notice"><p>{{ m(accountRecoveryReady ? 'accountRecoveryPending' : 'accountKeyRequired') }}</p><button class="quiet-button" @click="accountRecoveryReady ? securityOpen = true : router.push('/profile/account?mode=connect')">{{ m(accountRecoveryReady ? 'security' : 'connectAccountKey') }}</button></div>
           <ContactsView v-if="tab === 'contacts'" embedded @profile="openPerson" />
           <template v-else>
             <ConversationSearch
@@ -1082,7 +1080,6 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
               <div v-if="selecting" class="message-selection"><button class="quiet-button" :disabled="!selectedMessages.length || actionBusy" @click="askMessageDelete(selectedMessages, false)">{{ ui('deleteMine') }}</button><button v-if="canDeleteForEveryone(selectedMessages)" class="quiet-button" :disabled="!selectedMessages.length || actionBusy" @click="askMessageDelete(selectedMessages, true)">{{ ui('deleteAll') }}</button></div>
               <p v-else-if="!activeChat.encrypted || activeChat.blocked" class="message-error form-error" role="alert">{{ m(activeChat.blocked ? 'blocked' : 'unencrypted') }}</p>
               <template v-else>
-                <div v-if="!security.verified" class="message-device-setup"><p>{{ m(diagnostic === 'ready' ? 'deviceRecoveryHint' : 'connecting') }}</p><button v-if="diagnostic === 'ready'" class="quiet-button" @click="securityOpen = true">{{ m(security.storage ? 'restore' : 'verifyDevice') }}</button></div>
                 <MessageComposer
                 ref="composer"
                 v-model="draft"

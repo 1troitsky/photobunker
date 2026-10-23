@@ -1248,11 +1248,13 @@ export async function createChat(ids: string[], title: string) {
         refresh()
       }
       await activateConversation(current, existing.roomId)
-      await saveConversation(existing.roomId, {
+      openRoom(existing.roomId)
+      // Archiving/deletion are presentation preferences. Failure to persist
+      // them must never prevent an already valid room from opening or sending.
+      void saveConversation(existing.roomId, {
         archived: false,
         deleted: false,
-      })
-      openRoom(existing.roomId)
+      }).catch(() => {})
       return
     }
   }
