@@ -882,7 +882,7 @@ watch(listQuery, query => {
 watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); void nextTick(() => document.querySelector<HTMLInputElement>('.conversation-search input')?.focus()) } else messageQuery.value = '' })
 </script>
 <template>
-  <section class="native-screen messages-screen" :class="{ 'has-conversation': !!activeChat }" :style="{ '--messenger-viewport': viewport + 'px' }" :data-room="selected" :data-connection="connection" :data-crypto-stage="diagnostic" :data-device-verified="security.verified" :data-history-backup="security.backup" :data-discussion-state="linkedErrorCode">
+  <section class="native-screen messages-screen" :class="{ 'has-conversation': !!activeChat || !!pendingEntryPeer }" :style="{ '--messenger-viewport': viewport + 'px' }" :data-room="selected" :data-connection="connection" :data-crypto-stage="diagnostic" :data-device-verified="security.verified" :data-history-backup="security.backup" :data-discussion-state="linkedErrorCode">
     <CallPanel v-if="!hidden" />
     <div v-if="hidden" class="native-empty"><AppIcon name="lock" /><h2>{{ m('privacy') }}</h2></div>
     <RouterView v-else-if="profileOpen" v-slot="{ Component }"><component :is="Component" in-messages @message="profileMessage" @call="(id: string) => profileMessage(id, true)" /></RouterView>
