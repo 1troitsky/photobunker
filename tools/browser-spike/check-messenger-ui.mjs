@@ -74,6 +74,18 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     await expect(page.locator('nav.navigation')).toBeHidden()
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
     await page.screenshot({ animations: 'disabled', path: `/private/tmp/photobunker-messenger-${engine}-chat.png` })
+    stage = 'chatify-touch-actions'
+    // A user on a phone must be able to discover actions with one tap.
+    const latestMessage = page.locator('.message-bubble').filter({ hasText: 'Если понадобятся изменения' })
+    const actionButton = latestMessage.getByRole('button', { name: 'Действия с сообщением' })
+    await expect(actionButton).toBeVisible()
+    const actionBox = await actionButton.boundingBox()
+    assert.ok(actionBox && actionBox.width >= 36 && actionBox.height >= 36)
+    assert.ok(actionBox.x >= 0 && actionBox.x + actionBox.width <= 390)
+    await actionButton.click()
+    await expect(page.getByRole('dialog', { name: 'Действия с сообщением', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog', { name: 'Действия с сообщением', exact: true })).toHaveCount(0)
     stage = 'long-press-reply'
     await menu(page, 'Отлично, спасибо!'); await button(page, 'Ответить').click(); await expect(page.locator('.reply-preview')).toContainText('Посмотрю вечером')
     await send(a, 'Договорились!'); await expect(page.locator('.message-bubble').filter({ hasText: 'Договорились!' }).locator('blockquote')).toContainText('Посмотрю вечером')
