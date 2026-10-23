@@ -16,7 +16,7 @@ const copy = {
   newChatHint: ['Введите @username или выберите контакт, чтобы написать. Для группы выберите участников и задайте название.', 'Enter a @username or tap a contact to write. For a group, choose participants and a name.'],
   backupOptional: ['Сообщения уже зашифрованы. Сохраните резервную копию, чтобы восстановить историю на новом устройстве.', 'Messages are already encrypted. Set up a backup to restore history on a new device.'],
   backupFromTrusted: ['Создайте резервную копию истории на устройстве, где вы впервые открыли сообщения. Это устройство уже подтверждено и может отправлять сообщения.', 'Set up history backup on the device where you first opened Messages. This device is already verified and can send messages.'],
-  deviceRecoveryHint: ['Подтвердите это устройство с другого подключённого устройства или восстановите историю сохранённым ключом. Контакты доступны ниже.', 'Verify this device from another connected device or restore history with your saved key. Your contacts are available below.'],
+  deviceRecoveryHint: ['Старая история недоступна, пока устройство не подтверждено. Новые сообщения можно отправлять.', 'Old history is unavailable until this device is verified. You can send new messages now.'],
   verifyDevice: ['Подтвердить с другого устройства', 'Verify from another device'],
   contactUnavailable: ['Пользователь не найден. Проверьте точный @username или публичный ID.', 'User not found. Check the exact @username or public ID.'],
   contactBlocked: ['Переписка с этим пользователем недоступна. Проверьте список заблокированных контактов.', 'Messaging this user is unavailable. Check your blocked contacts.'],

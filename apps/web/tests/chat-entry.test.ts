@@ -7,8 +7,8 @@ describe('P0 / first-message chat entry state machine', () => {
       expect(decideChatEntry('ready', stage, true)).toEqual({ kind: 'waiting' })
     }
   })
-  it('routes an unverified but otherwise ready device into key recovery instead of silently ignoring Message', () => {
-    expect(decideChatEntry('ready', 'ready', false)).toEqual({ kind: 'recover' })
+  it('allows a fresh encrypted conversation while old history still needs device recovery', () => {
+    expect(decideChatEntry('ready', 'ready', false)).toEqual({ kind: 'ready' })
   })
   it('allows room opening only after actual verified Matrix readiness', () => {
     expect(decideChatEntry('ready', 'ready', true)).toEqual({ kind: 'ready' })
@@ -18,7 +18,7 @@ describe('P0 / first-message chat entry state machine', () => {
     expect(canAutoOpenChat(ready, true, false)).toBe(false)
     expect(canAutoOpenChat(ready, false, false)).toBe(true)
     expect(canAutoOpenChat(ready, false, true)).toBe(false)
-    expect(canAutoOpenChat(decideChatEntry('ready', 'ready', false), false, false)).toBe(false)
+    expect(canAutoOpenChat(decideChatEntry('ready', 'ready', false), false, false)).toBe(true)
   })
   it('makes connection failures actionable and distinct from key recovery', () => {
     for (const reason of ['offline', 'otherTab', 'unsupported', 'error'] as const) {

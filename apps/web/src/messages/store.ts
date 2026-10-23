@@ -316,7 +316,7 @@ async function retryTrustedMessages(current: MatrixClient) {
 }
 export async function joinIncomingConversations(retry = false) {
   const current = client
-  if (!current || !security.value.verified) return
+  if (!current || diagnostic.value !== 'ready') return
   if (retry) { failedIncoming.clear(); incomingError.value = false }
   for (const room of current.getRooms()) {
     const chat = roomChat(room)
@@ -618,16 +618,17 @@ async function securityStatus() {
       backup: !!backup,
       remaining: security.value.remaining,
     }
-    if (security.value.verified) void restoreDurableOutbox(current)
+    void restoreDurableOutbox(current)
   }
 }
 /**
- * Rehydrate only after Matrix identity and device trust are established.
+ * Rehydrate after Matrix crypto is initialized. Device verification controls
+ * recovery of old history; it must not strand fresh outgoing operations.
  * No plaintext is read for another account, a locked device or a foreign tab.
  * A persisted txnId is never replaced with a new ID on retry.
  */
 async function restoreDurableOutbox(current: MatrixClient): Promise<void> {
-  if (current !== client || !security.value.verified || !owner) return
+  if (current !== client || diagnostic.value !== 'ready' || !owner) return
   if (outboxRestoring) { await outboxRestoring; return }
   if (outboxRestoredScope === owner) {
     if (connection.value === 'ready') void drainDurableOutbox(current)
@@ -661,7 +662,7 @@ async function restoreDurableOutbox(current: MatrixClient): Promise<void> {
   try { await outboxRestoring }
   catch { if (current === client) outboxError.value = true }
   finally { outboxRestoring = undefined }
-  if (client === current && connection.value === 'ready' && security.value.verified)
+  if (client === current && connection.value === 'ready')
     void drainDurableOutbox(current)
 }
 export async function restorePendingDirectOutbox(): Promise<void> {
@@ -728,7 +729,7 @@ export async function bindDirectOutbox(peerId: string, roomId: string): Promise<
     pendingDirectTexts.value = pendingDirectTexts.value.filter(value => value.id !== item.id)
   }
   refreshMessages()
-  if (client === current && connection.value === 'ready' && security.value.verified)
+  if (client === current && connection.value === 'ready')
     void drainDurableOutbox(current)
 }
 function clearRetry(id: string) {
@@ -738,19 +739,19 @@ function clearRetry(id: string) {
 function armRetryWake(current: MatrixClient) {
   if (retryTimer) clearTimeout(retryTimer)
   retryTimer = undefined
-  if (client !== current || connection.value !== 'ready' || !security.value.verified ||
+  if (client !== current || connection.value !== 'ready' ||
       !retryAfter.size) return
   // A single timer watches ALL outstanding attempts, not merely the last
   // failed send. After one retry, subsequent messages must not get stranded.
   const earliest = Math.min(...retryAfter.values())
   retryTimer = setTimeout(() => {
     retryTimer = undefined
-    if (client === current && connection.value === 'ready' && security.value.verified)
+    if (client === current && connection.value === 'ready')
       void drainDurableOutbox(current)
   }, Math.max(0, earliest - Date.now()))
 }
 function scheduleTextRetry(current: MatrixClient, entry: PendingText) {
-  if (client !== current || !security.value.verified) return
+  if (client !== current) return
   const attempt = retryAttempts.get(entry.id) ?? 0
   retryAttempts.set(entry.id, attempt + 1)
   retryAfter.set(entry.id, Date.now() + retryDelayMs(attempt))
@@ -758,11 +759,11 @@ function scheduleTextRetry(current: MatrixClient, entry: PendingText) {
 }
 async function drainDurableOutbox(current: MatrixClient) {
   if (outboxDraining || client !== current || connection.value !== 'ready' ||
-      !security.value.verified || outboxRestoredScope !== owner) return
+      diagnostic.value !== 'ready' || outboxRestoredScope !== owner) return
   outboxDraining = true
   try {
     for (const item of optimisticText.values()) {
-      if (client !== current || connection.value !== 'ready' || !security.value.verified) return
+      if (client !== current || connection.value !== 'ready') return
       if (item.status !== 'queued' || item.inFlight ||
           (retryAfter.get(item.id) ?? 0) > Date.now()) continue
       retryAfter.delete(item.id)
@@ -1087,7 +1088,7 @@ export function startMessaging(): Promise<void> {
                 connection.value = typeof navigator !== 'undefined' && navigator.onLine === false
                   ? 'offline' : 'ready'
                 refresh()
-                if (security.value.verified) void restoreDurableOutbox(created)
+                void restoreDurableOutbox(created)
                 syncReady()
               } else if (
                 state === sdk.SyncState.Error ||
@@ -1132,7 +1133,7 @@ export function startMessaging(): Promise<void> {
             diagnostic.value = 'ready'
             await retryTrustedMessages(created)
             refresh()
-            if (security.value.verified) void restoreDurableOutbox(created)
+            void restoreDurableOutbox(created)
             privacyTimer = setInterval(() => {
               if (client === created && document.visibilityState === 'visible') {
                 void refreshPeers().catch(() => {})
@@ -1217,7 +1218,7 @@ export async function markRead() {
   if (event) await client.sendReadReceipt(event).catch(() => {})
 }
 export async function createChat(ids: string[], title: string) {
-  if (!client || !security.value.verified) throw new Error('not_ready')
+  if (!client || diagnostic.value !== 'ready') throw new Error('not_ready')
   const current = client
   const { peers: contacts } = await identityRequest<{ peers: Peer[] }>('/matrix/conversations/prepare', 'POST', { peers: ids })
   requireClient(current)
@@ -1339,7 +1340,7 @@ function prepareText(body: string, reply?: string, photoId?: string) {
     reply,
     photoId,
     time: Date.now(),
-    status: connection.value === 'ready' && security.value.verified && room.getMyMembership() === 'join' ? 'sending' : 'queued',
+    status: connection.value === 'ready' && room.getMyMembership() === 'join' ? 'sending' : 'queued',
     inFlight: false,
   }
   optimisticText.set(entry.id, entry)
@@ -1361,13 +1362,13 @@ async function dispatchText(entry: PendingText, current: MatrixClient) {
   try {
     requireClient(current)
     const room = current.getRoom(entry.roomId)
-    if (!room || !security.value.verified || room.getMyMembership() !== 'join')
+    if (!room || room.getMyMembership() !== 'join')
       throw new Error('not_ready')
     await refreshPeers()
     requireClient(current)
     await activateConversation(current, room.roomId)
     requireClient(current)
-    if (!security.value.verified || room.getMyMembership() !== 'join'
+    if (room.getMyMembership() !== 'join'
       || roomChat(room).blocked || !(await current.getCrypto()!.isEncryptionEnabledInRoom(room.roomId)))
       throw new Error('unsafe_room')
     requireClient(current)
@@ -1378,7 +1379,7 @@ async function dispatchText(entry: PendingText, current: MatrixClient) {
     requireClient(current)
     if (reference && reference.roomId !== room.roomId) throw new Error('unsafe_room')
     // Check again after network preflight. Block/revoke may race activation.
-    if (roomChat(room).blocked || room.getMyMembership() !== 'join' || !security.value.verified)
+    if (roomChat(room).blocked || room.getMyMembership() !== 'join')
       throw new Error('unsafe_room')
     // Retry Matrix's existing local echo if it already owns this txnId.
     // Creating a second SDK echo for the same operation causes phantom
@@ -1442,7 +1443,7 @@ export async function queueTextMessage(body: string, reply?: string, photoId?: s
     if (client === current) { outboxError.value = true; refreshMessages() }
     throw error
   }
-  if (client === current && connection.value === 'ready' && security.value.verified &&
+  if (client === current && connection.value === 'ready' &&
       current.getRoom(entry.roomId)?.getMyMembership() === 'join') {
     void dispatchText(entry, current).catch(() => {
       // Error remains available as Not sent with same txnId and Retry.
@@ -1467,7 +1468,7 @@ export async function send(body: string, reply?: string, photoId?: string) {
     if (client === current) refreshMessages()
     throw error
   }
-  if (connection.value !== 'ready' || !security.value.verified ||
+  if (connection.value !== 'ready' ||
       current.getRoom(entry.roomId)?.getMyMembership() !== 'join') {
     entry.status = 'queued'; refreshMessages(); return
   }

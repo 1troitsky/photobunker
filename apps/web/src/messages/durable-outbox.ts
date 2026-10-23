@@ -4,8 +4,9 @@ import { appLocked } from '../app/lock'
 /**
  * Device-only encrypted outgoing text. No clear message is written to
  * localStorage, CacheStorage, Matrix account_data or an HTTP endpoint.
- * Not a substitute for Matrix Megolm E2EE; server send still requires
- * a verified account, joined encrypted room and the Matrix crypto SDK.
+ * Not a substitute for Matrix Megolm E2EE; server send still requires a
+ * joined encrypted room and the Matrix crypto SDK. Device verification is
+ * required for old-history recovery, not fresh-message encryption.
  *
  * Same-origin XSS can invoke the stored non-extractable AES key; CSP and
  * PhotoBunker's app lock remain mandatory defenses.
