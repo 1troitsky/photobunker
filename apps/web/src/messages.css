@@ -154,6 +154,7 @@
 .messenger-contacts .contact-tabs { gap: 4px; padding: 0; background: transparent; margin-bottom: 8px; }
 .messenger-contacts .contact-tabs button { border-radius: 8px; padding: 8px; min-height: 38px; font-size: 12px; }
 .messenger-contacts .picker-row { padding: 12px 2px; border: 0; background: none; border-radius: 0; }
+.messenger-contacts .contact-person-row > .chat-avatar { width: 42px; height: 42px; flex: 0 0 42px; }
 .messenger-contacts .picker-row strong { font-size: 14px; }.messenger-contacts .picker-row small { font-size: 12px; }
 .history-loading { color: var(--muted); font-size: 11px; text-align: center; padding: 8px; }
 

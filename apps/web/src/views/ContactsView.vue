@@ -43,6 +43,13 @@ const visible = computed(() =>
         ),
     ),
 )
+function contactName(person: Person) {
+  return person.fields.name || (person.username ? '@' + person.username : person.fields.username || person.publicId)
+}
+function contactSecondary(person: Person) {
+  const value = person.username ? '@' + person.username : person.publicId
+  return value === contactName(person) ? '' : value
+}
 async function refresh() {
   const owner = account.value?.id
   if (!owner) return
@@ -126,7 +133,7 @@ async function unblock(value: string) {
 }
 </script>
 <template>
-  <section :class="embedded ? 'messenger-contacts' : 'native-screen'">
+  <section :class="embedded ? 'messenger-contacts' : 'native-screen contacts-screen'">
     <ScreenHeader v-if="!embedded" :title="a('contacts')" back="/profile" />
     <div :class="embedded ? 'contact-body' : 'screen-body'">
       <template v-if="account"
@@ -169,19 +176,13 @@ async function unblock(value: string) {
           ><button
             v-for="item in visible"
             :key="item.publicId"
-            class="picker-row"
+            class="picker-row contact-person-row"
             @click="openProfile(item.publicId)"
           >
             <span :class="['chat-avatar', avatarColor(item.publicId)]">{{ initials(item.fields.name || item.username || item.publicId) }}</span
-            ><span
-              ><strong>{{
-                item.fields.name || (item.username ? '@' + item.username : item.fields.username || item.publicId)
-              }}</strong
-              ><small
-                >{{ item.username ? '@' + item.username : item.publicId
-                }}
-                ></small
-              ></span
+            ><span class="contact-person-copy"
+              ><strong>{{ contactName(item) }}</strong
+              ><small v-if="contactSecondary(item)">{{ contactSecondary(item) }}</small></span
             ><AppIcon name="chevron" />
           </button>
           <div v-if="!visible.length" class="native-empty">

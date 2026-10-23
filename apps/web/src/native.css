@@ -284,6 +284,9 @@
 .contact-search > label { min-width:0; }
 
 .contact-tabs { flex-wrap:wrap; }
+.contacts-screen .screen-body { width: 100%; max-width: 760px; margin: 0 auto; }
+.contact-person-row > .chat-avatar { width: 48px; height: 48px; flex: 0 0 48px; border-radius: 50%; overflow: hidden; }
+.contact-person-row > .contact-person-copy { flex: 1 1 auto; min-width: 0; }
 /* B02: conversations keep private text in the active viewport only. */
 .account-fields dd { overflow-wrap:anywhere; white-space:pre-wrap; }
 .messaging-setup { display:flex; flex-direction:column; align-items:flex-start; gap:18px; }
