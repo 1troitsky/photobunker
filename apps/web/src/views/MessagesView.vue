@@ -663,8 +663,7 @@ async function submitEdit() {
   }
 }
 async function submit() {
-  if (actionBusy.value || textPersisting.value || attachmentBusy.value || voiceDirty.value ||
-      !security.value.verified) return
+  if (actionBusy.value || textPersisting.value || attachmentBusy.value || voiceDirty.value) return
   if (editingMessage.value || chosenAttachment.value) {
     if (connection.value !== 'ready') { actionError.value = m('offline'); return }
     if (editingMessage.value) { void submitEdit(); return }
@@ -1034,9 +1033,9 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
               <ScrollToBottomButton v-if="!atBottom" :label="ui('jump')" @click="scrollToLatest" />
               <div v-if="selecting" class="message-selection"><button class="quiet-button" :disabled="!selectedMessages.length || actionBusy" @click="askMessageDelete(selectedMessages, false)">{{ ui('deleteMine') }}</button><button v-if="canDeleteForEveryone(selectedMessages)" class="quiet-button" :disabled="!selectedMessages.length || actionBusy" @click="askMessageDelete(selectedMessages, true)">{{ ui('deleteAll') }}</button></div>
               <p v-else-if="!activeChat.encrypted || activeChat.blocked" class="message-error form-error" role="alert">{{ m(activeChat.blocked ? 'blocked' : 'unencrypted') }}</p>
-              <div v-else-if="!security.verified" class="message-device-setup"><p>{{ m(diagnostic === 'ready' ? 'deviceRecoveryHint' : 'connecting') }}</p><button v-if="diagnostic === 'ready'" class="quiet-button" @click="securityOpen = true">{{ m(security.storage ? 'restore' : 'verifyDevice') }}</button></div>
-              <MessageComposer
-                v-else
+              <template v-else>
+                <div v-if="!security.verified" class="message-device-setup"><p>{{ m(diagnostic === 'ready' ? 'deviceRecoveryHint' : 'connecting') }}</p><button v-if="diagnostic === 'ready'" class="quiet-button" @click="securityOpen = true">{{ m(security.storage ? 'restore' : 'verifyDevice') }}</button></div>
+                <MessageComposer
                 ref="composer"
                 v-model="draft"
                 :placeholder="m('message')"
@@ -1046,12 +1045,12 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                 :reply-label="editingMessage ? ui('editing') : m('reply')"
                 :reply-preview="editingMessage ? editingMessage.original : reply ? replyBody(reply) : undefined"
                 :voice-dirty="voiceDirty"
-                :disabled="actionBusy || textPersisting || attachmentBusy || !security.verified || (connection !== 'ready' && !!(chosenAttachment || editingMessage))"
+                :disabled="actionBusy || textPersisting || attachmentBusy || ((connection !== 'ready' || !security.verified) && !!(chosenAttachment || editingMessage))"
                 :allow-draft-when-disabled="connection === 'offline' && security.verified && !actionBusy && !textPersisting && !attachmentBusy"
                 :attachment="chosenAttachment ? { name: chosenAttachment.name, kind: chosenAttachment.type.startsWith('image/') ? 'image' : 'file', size: chosenAttachment.size, preview: attachmentPreviewUrl } : undefined"
                 :attachment-busy="attachmentBusy"
-                :attach-label="editingMessage ? undefined : ui('attachmentAdd')"
-                :allow-attachments="!editingMessage"
+                :attach-label="editingMessage || !security.verified ? undefined : ui('attachmentAdd')"
+                :allow-attachments="security.verified && !editingMessage"
                 :picker-label="ui('pickerTitle')"
                 :remove-attachment-label="ui('attachmentRemove')"
                 @submit="submit"
@@ -1066,13 +1065,14 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                   <VoiceRecorder
                     v-show="!editingMessage && !chosenAttachment && (!draft.trim() || voiceDirty)"
                     :key="selected"
-                    :disabled="actionBusy || connection !== 'ready'"
+                    :disabled="actionBusy || connection !== 'ready' || !security.verified"
                     :active="!profileOpen && !hidden"
                     :send="submitVoice"
                     @dirty="voiceDirty = $event"
                   />
                 </template>
-              </MessageComposer>
+                </MessageComposer>
+              </template>
               <p v-if="attachmentBusy" class="field-hint chatify-attachment-status" role="status">{{ ui('attachmentSending') }}</p>
               <p v-if="attachmentError" class="form-error" role="alert">{{ attachmentError }}</p>
               <p v-if="chosenAttachment && !attachmentBusy" class="field-hint chatify-attachment-privacy">{{ ui('attachmentOriginalNote') }}</p>
