@@ -291,6 +291,19 @@ const { person: foundPerson, busy: lookupBusy, error: lookupError, find: findPer
   computed(() => `${account.value?.id || ''}:${identityDeviceId.value}`),
 )
 const chatDrafts = new Map<string, { text: string; reply: string }>()
+type PendingDirectText = { id: string; peer: string; body: string; time: number }
+const pendingDirectTexts = ref<PendingDirectText[]>([])
+let flushingPendingDirect = false
+async function flushPendingDirect(peer: string) {
+  if (flushingPendingDirect || !selected.value || !activeChat.value) return
+  flushingPendingDirect = true
+  try {
+    for (const item of pendingDirectTexts.value.filter(value => value.peer === peer)) {
+      await queueTextMessage(item.body)
+      pendingDirectTexts.value = pendingDirectTexts.value.filter(value => value.id !== item.id)
+    }
+  } finally { flushingPendingDirect = false }
+}
 function chatEntryError(reason: 'offline' | 'otherTab' | 'unsupported' | 'error') {
   return m(reason === 'error' ? failure.value || 'failed' : reason)
 }
@@ -328,6 +341,8 @@ async function writeDirect(handle: string, call = false) {
     if (!readyToWrite(peer)) return
     await createChat([peer], '')
     if (version !== actionGeneration) return
+    pendingPeer.value = ''
+    await flushPendingDirect(peer)
     directHandle.value = ''
     newOpen.value = false
     tab.value = 'chats'
@@ -505,7 +520,7 @@ const voiceDirty = ref(false)
 const textPersisting = ref(false)
 const dirty = computed(
   () =>
-    voiceDirty.value || !!draft.value.trim() ||
+    voiceDirty.value || !!draft.value.trim() || !!pendingDirectTexts.value.length ||
     messages.value.some(
       (message) => message.status === 'sending' || message.status === 'queued' || message.status === 'notSent',
     ),
@@ -705,9 +720,12 @@ async function submit() {
 }
 async function submitPending() {
   const peer = pendingEntryPeer.value
-  if (!peer || !draft.value.trim() || actionBusy.value || textPersisting.value) return
-  await writeDirect(peer)
-  if (selected.value && activeChat.value) await submit()
+  const body = draft.value.trim()
+  if (!peer || !body || textPersisting.value) return
+  pendingDirectTexts.value.push({ id: '~pb-pending:' + crypto.randomUUID(), peer, body, time: Date.now() })
+  draft.value = ''
+  actionError.value = ''
+  if (!actionBusy.value) void writeDirect(peer)
 }
 async function newChat() {
   if (!readyToWrite()) return
@@ -1121,7 +1139,30 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
               @open="openPerson(pendingEntryPeer)"
             />
             <div class="conversation">
-              <div class="message-log" role="log" aria-live="polite" :aria-label="u('messages')"><div class="thread-start"><span>{{ personText('opening') }}</span></div></div>
+              <div class="message-log" role="log" aria-live="polite" :aria-label="u('messages')">
+                <div class="thread-start"><span>{{ personText('opening') }}</span></div>
+                <MessageBubble
+                  v-for="item in pendingDirectTexts.filter(value => value.peer === pendingEntryPeer)"
+                  :id="item.id"
+                  :key="item.id"
+                  :mine="true"
+                  :locked="false"
+                  :grouped="false"
+                  :highlighted="false"
+                  :selected="false"
+                  :selecting="false"
+                  sender=""
+                  :show-sender="false"
+                  :body="item.body"
+                  :time-label="new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })"
+                  status="queued"
+                  :status-label="m('queued')"
+                  :menu-label="ui('messageActions')"
+                  :select-label="ui('selectOne') + ': ' + item.body"
+                  :has-voice="false"
+                  :has-photo="false"
+                />
+              </div>
               <MessageComposer
                 ref="composer"
                 v-model="draft"
