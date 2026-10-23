@@ -49,6 +49,20 @@ describe('PB-U03 Chatify composer UI', () => {
     expect(wrapper.emitted('submit')).toHaveLength(1)
   })
 
+  it('allows trusted offline draft edits without enabling send', async () => {
+    const wrapper = mount(MessageComposer, {
+      props: { ...props, modelValue: 'draft', disabled: true, allowDraftWhenDisabled: true },
+    })
+    expect(wrapper.get('textarea').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('button.message-send').attributes('disabled')).toBeDefined()
+    await wrapper.get('textarea').setValue('edited offline draft')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['edited offline draft'])
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('submit')).toBeUndefined()
+    await wrapper.setProps({ allowDraftWhenDisabled: false })
+    expect(wrapper.get('textarea').attributes('disabled')).toBeDefined()
+  })
+
   it('renders reply securely, and cancels without erasing the draft', async () => {
     const wrapper = mount(MessageComposer, { props: { ...props, modelValue: 'draft', replyPreview: '<img src=x onerror=bad()>' } })
     expect(wrapper.get('.reply-preview').text()).toContain('<img src=x')

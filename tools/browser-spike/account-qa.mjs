@@ -18,7 +18,7 @@ export async function accountFixture(browser,name,fixtures,{legacy=false}={}) {
    // CI starts against a cold Vite server; first compilation of the onboarding
    // route can exceed the ordinary interaction budget. Do not retry account
    // creation or bypass the visible onboarding contract.
-   await label(page,'Название устройства').waitFor({ state: 'visible', timeout: 90000 })
+   await label(page,'Название устройства').waitFor({ state: 'visible', timeout: 180000 })
    stage='device-name'
    await label(page,'Название устройства').fill(`QA ${name}`)
    stage='create-account'

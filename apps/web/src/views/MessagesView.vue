@@ -1047,6 +1047,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                 :reply-preview="editingMessage ? editingMessage.original : reply ? replyBody(reply) : undefined"
                 :voice-dirty="voiceDirty"
                 :disabled="actionBusy || textPersisting || attachmentBusy || !['ready', 'offline'].includes(connection) || !security.verified || (connection !== 'ready' && !!(chosenAttachment || editingMessage))"
+                :allow-draft-when-disabled="connection === 'offline' && security.verified && !actionBusy && !textPersisting && !attachmentBusy"
                 :attachment="chosenAttachment ? { name: chosenAttachment.name, kind: chosenAttachment.type.startsWith('image/') ? 'image' : 'file', size: chosenAttachment.size, preview: attachmentPreviewUrl } : undefined"
                 :attachment-busy="attachmentBusy"
                 :attach-label="editingMessage ? undefined : ui('attachmentAdd')"
