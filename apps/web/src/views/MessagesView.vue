@@ -905,7 +905,6 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
     <div v-if="hidden" class="native-empty"><AppIcon name="lock" /><h2>{{ m('privacy') }}</h2></div>
     <RouterView v-else-if="profileOpen" v-slot="{ Component }"><component :is="Component" in-messages @message="profileMessage" @call="(id: string) => profileMessage(id, true)" /></RouterView>
     <template v-if="!hidden">
-      <div v-if="!profileOpen && typeof route.query.peer === 'string'" class="messenger-opening" role="status"><p>{{ actionError || (actionBusy ? personText('opening') : needsSecurity ? m('deviceRecoveryHint') : m(connection === 'error' ? failure || 'failed' : connection === 'otherTab' ? 'otherTab' : connection === 'unsupported' ? 'unsupported' : connection === 'offline' ? 'offline' : 'connecting')) }}</p><button v-if="needsSecurity" class="quiet-button" @click="securityOpen = true">{{ m('verifyDevice') }}</button><button v-else-if="!actionBusy" class="quiet-button" @click="writeDirect(String(route.query.peer), route.query.call === 'audio')">{{ personText('retry') }}</button><button v-if="!actionBusy" class="quiet-button" @click="openPerson(String(route.query.peer))">{{ personText('open') }}</button></div>
       <MessengerSplitLayout v-show="!profileOpen">
         <aside class="messenger-sidebar" :aria-label="m('chats')">
           <SidebarHeader
@@ -927,7 +926,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
             <button v-else class="quiet-button" @click="startMessaging">{{ m('retry') }}</button>
           </div>
           <div v-if="incomingError" class="messenger-connection-error" role="status"><p>{{ m('failed') }}</p><button class="quiet-button" @click="joinIncomingConversations(true)">{{ m('retry') }}</button></div>
-          <p v-if="actionError && !activeChat && !newOpen" class="message-error form-error" role="alert">{{ actionError }}</p>
+          <p v-if="actionError && !activeChat && !pendingEntryPeer && !newOpen" class="message-error form-error" role="alert">{{ actionError }}</p>
           <div v-if="needsSecurity" class="message-backup-notice"><p>{{ m(accountRecoveryReady ? 'accountRecoveryPending' : 'accountKeyRequired') }}</p><button class="quiet-button" @click="accountRecoveryReady ? securityOpen = true : router.push('/profile/account?mode=connect')">{{ m(accountRecoveryReady ? 'security' : 'connectAccountKey') }}</button></div>
           <ContactsView v-if="tab === 'contacts'" embedded @profile="openPerson" />
           <template v-else>
