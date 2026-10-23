@@ -494,11 +494,11 @@ const pendingEntryPeer = computed(() => {
   const routePeer = typeof route.query.peer === 'string' ? route.query.peer.trim() : ''
   return routePeer || pendingPeer.value || pendingDirectTexts.value[0]?.peerId || ''
 })
-watch([() => security.value.verified, connection, diagnostic, actionBusy], () => {
+watch([() => security.value.verified, connection, diagnostic, actionBusy, pendingEntryPeer], () => {
   if (actionBusy.value) return
   if (decideChatEntry(connection.value, diagnostic.value, security.value.verified).kind !== 'ready' ||
-      !pendingPeer.value) return
-  const peer = pendingPeer.value
+      !pendingEntryPeer.value) return
+  const peer = pendingEntryPeer.value
   // Route-driven opens are handled by the route watcher, preventing
   // two async createChat calls when verification finishes.
   if (route.query.peer === peer) return

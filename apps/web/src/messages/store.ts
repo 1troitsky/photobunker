@@ -722,8 +722,7 @@ export async function bindDirectOutbox(peerId: string, roomId: string): Promise<
       roomId,
       body: item.body,
       time: item.time,
-      status: connection.value === 'ready' && security.value.verified && room.getMyMembership() === 'join'
-        ? 'sending' : 'queued',
+      status: 'queued',
       inFlight: false,
     })
     pendingDirectTexts.value = pendingDirectTexts.value.filter(value => value.id !== item.id)
