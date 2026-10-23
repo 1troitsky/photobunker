@@ -343,14 +343,12 @@ async function activateConversation(current: MatrixClient, id: string) {
   if (!['direct', 'group'].includes(kind) || activatedConversations.has(id)) return
   await identityRequest('/matrix/conversations/activate', 'POST', { roomId: id })
   requireClient(current)
-  const deadline = Date.now() + 15000
-  while (true) {
-    requireClient(current)
-    const room = current.getRoom(id)
-    if (room && room.getMyMembership() === 'join' && !room.getMembers().some(member => member.membership === 'invite') && (!roomChat(room).direct || room.getHistoryVisibility() !== 'joined')) break
-    if (Date.now() >= deadline) throw new Error('room_not_ready')
-    await new Promise(resolve => setTimeout(resolve, 100))
-  }
+  const room = current.getRoom(id)
+  if (!room || room.getMyMembership() !== 'join') throw new Error('room_not_ready')
+  // The activation endpoint validates the encrypted room and joins invited
+  // PhotoBunker accounts using their workspace sessions before it responds.
+  // Do not wait for the sender's /sync loop to observe those remote membership
+  // events: doing so kept an already-active conversation stuck on "Opening".
   activatedConversations.add(id)
   refresh()
 }
