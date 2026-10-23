@@ -101,6 +101,9 @@ import {
   joinIncomingConversations,
   incomingError,
   queueTextMessage,
+  pendingDirectTexts,
+  queueDirectText,
+  bindDirectOutbox,
   retryMessage,
   olderMessages,
   olderAvailable,
@@ -291,19 +294,6 @@ const { person: foundPerson, busy: lookupBusy, error: lookupError, find: findPer
   computed(() => `${account.value?.id || ''}:${identityDeviceId.value}`),
 )
 const chatDrafts = new Map<string, { text: string; reply: string }>()
-type PendingDirectText = { id: string; peer: string; body: string; time: number }
-const pendingDirectTexts = ref<PendingDirectText[]>([])
-let flushingPendingDirect = false
-async function flushPendingDirect(peer: string) {
-  if (flushingPendingDirect || !selected.value || !activeChat.value) return
-  flushingPendingDirect = true
-  try {
-    for (const item of pendingDirectTexts.value.filter(value => value.peer === peer)) {
-      await queueTextMessage(item.body)
-      pendingDirectTexts.value = pendingDirectTexts.value.filter(value => value.id !== item.id)
-    }
-  } finally { flushingPendingDirect = false }
-}
 function chatEntryError(reason: 'offline' | 'otherTab' | 'unsupported' | 'error') {
   return m(reason === 'error' ? failure.value || 'failed' : reason)
 }
@@ -342,7 +332,7 @@ async function writeDirect(handle: string, call = false) {
     await createChat([peer], '')
     if (version !== actionGeneration) return
     pendingPeer.value = ''
-    await flushPendingDirect(peer)
+    await bindDirectOutbox(peer, selected.value)
     directHandle.value = ''
     newOpen.value = false
     tab.value = 'chats'
@@ -502,7 +492,7 @@ watch(
 const needsSecurity = computed(() => connection.value === 'ready' && diagnostic.value === 'ready' && !security.value.verified)
 const pendingEntryPeer = computed(() => {
   const routePeer = typeof route.query.peer === 'string' ? route.query.peer.trim() : ''
-  return routePeer || pendingPeer.value
+  return routePeer || pendingPeer.value || pendingDirectTexts.value[0]?.peerId || ''
 })
 watch([() => security.value.verified, connection, diagnostic, actionBusy], () => {
   if (actionBusy.value) return
@@ -722,10 +712,14 @@ async function submitPending() {
   const peer = pendingEntryPeer.value
   const body = draft.value.trim()
   if (!peer || !body || textPersisting.value) return
-  pendingDirectTexts.value.push({ id: '~pb-pending:' + crypto.randomUUID(), peer, body, time: Date.now() })
-  draft.value = ''
-  actionError.value = ''
-  if (!actionBusy.value) void writeDirect(peer)
+  textPersisting.value = true
+  try {
+    await queueDirectText(peer, body)
+    if (draft.value.trim() === body) draft.value = ''
+    actionError.value = ''
+    if (!actionBusy.value) void writeDirect(peer)
+  } catch { actionError.value = m('outboxUnavailable') }
+  finally { textPersisting.value = false }
 }
 async function newChat() {
   if (!readyToWrite()) return
@@ -1142,7 +1136,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
               <div class="message-log" role="log" aria-live="polite" :aria-label="u('messages')">
                 <div class="thread-start"><span>{{ personText('opening') }}</span></div>
                 <MessageBubble
-                  v-for="item in pendingDirectTexts.filter(value => value.peer === pendingEntryPeer)"
+                  v-for="item in pendingDirectTexts.filter(value => value.peerId === pendingEntryPeer)"
                   :id="item.id"
                   :key="item.id"
                   :mine="true"

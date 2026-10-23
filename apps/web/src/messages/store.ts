@@ -85,8 +85,18 @@ export const connection = ref<
 // UI-only decrypted projections; the durable outbox stores AES-GCM ciphertext
 // (never browser plaintext storage). Matrix server events remain authoritative.
 const optimisticText = new Map<string, PendingText>()
+export type PendingDirectText = {
+  id: string
+  txnId: string
+  peerId: string
+  body: string
+  time: number
+}
+export const pendingDirectTexts = ref<PendingDirectText[]>([])
 export const outboxError = ref(false)
 let outboxRestoredScope = ''
+let directOutboxRestoredScope = ''
+let directOutboxRestoring: Promise<void> | undefined
 let outboxRestoring: Promise<void> | undefined
 let outboxDraining = false
 let retryTimer: ReturnType<typeof setTimeout> | undefined
@@ -123,10 +133,14 @@ let contactsPoll: ReturnType<typeof setInterval> | undefined
 // Navigator offline events are immediate, while Matrix may only emit its
 // network-error transition after a long sync poll. Do not mark online until
 // Matrix itself establishes an authenticated sync.
-if (typeof window !== 'undefined')
+if (typeof window !== 'undefined') {
   window.addEventListener('offline', () => {
     if (client) connection.value = 'offline'
   })
+  window.addEventListener('online', () => {
+    if (requested && account.value && !client) void startMessaging()
+  })
+}
 let client: MatrixClient | undefined,
   sdk: typeof import('matrix-js-sdk'),
   cryptoModule: typeof import('matrix-js-sdk/lib/crypto-api'),
@@ -625,6 +639,11 @@ async function restoreDurableOutbox(current: MatrixClient): Promise<void> {
     requireClient(current)
     if (expectedOwner !== owner) return
     for (const row of saved) {
+      if (typeof row.peerId === 'string') {
+        if (!pendingDirectTexts.value.some(item => item.id === row.id))
+          pendingDirectTexts.value.push(row)
+        continue
+      }
       if (optimisticText.has(row.id)) continue
       const room = current.getRoom(row.roomId)
       const received = room?.getLiveTimeline().getEvents().some(event =>
@@ -642,6 +661,74 @@ async function restoreDurableOutbox(current: MatrixClient): Promise<void> {
   try { await outboxRestoring }
   catch { if (current === client) outboxError.value = true }
   finally { outboxRestoring = undefined }
+  if (client === current && connection.value === 'ready' && security.value.verified)
+    void drainDurableOutbox(current)
+}
+export async function restorePendingDirectOutbox(): Promise<void> {
+  const scope = account.value?.id && deviceId.value ? `${account.value.id}:${deviceId.value}` : ''
+  if (!scope || directOutboxRestoredScope === scope) return
+  if (directOutboxRestoring) { await directOutboxRestoring; return }
+  directOutboxRestoring = (async () => {
+    const saved = await readDurableText()
+    if (`${account.value?.id || ''}:${deviceId.value}` !== scope) return
+    pendingDirectTexts.value = saved
+      .filter((row): row is DurableText & { peerId: string } => typeof row.peerId === 'string')
+      .map(({ id, txnId, peerId, body, time }) => ({ id, txnId, peerId, body, time }))
+    directOutboxRestoredScope = scope
+    outboxError.value = false
+  })()
+  try { await directOutboxRestoring }
+  catch { outboxError.value = true }
+  finally { directOutboxRestoring = undefined }
+}
+export async function queueDirectText(peerId: string, body: string): Promise<string> {
+  const text = body.trim()
+  if (!text || text.length > 10000) throw new Error('not_ready')
+  const txnId = 'pb-' + crypto.randomUUID()
+  const item: PendingDirectText = {
+    id: '~pb-ui:' + txnId,
+    txnId,
+    peerId,
+    body: text,
+    time: Date.now(),
+  }
+  pendingDirectTexts.value.push(item)
+  try {
+    await saveDurableText(item)
+    outboxError.value = false
+    return item.id
+  } catch (error) {
+    pendingDirectTexts.value = pendingDirectTexts.value.filter(value => value.id !== item.id)
+    outboxError.value = true
+    throw error
+  }
+}
+export async function bindDirectOutbox(peerId: string, roomId: string): Promise<void> {
+  const current = client
+  const room = current?.getRoom(roomId)
+  if (!current || !room || !roomChat(room).encrypted || roomChat(room).blocked)
+    throw new Error('not_ready')
+  for (const item of pendingDirectTexts.value.filter(value => value.peerId === peerId)) {
+    await saveDurableText({
+      id: item.id,
+      txnId: item.txnId,
+      roomId,
+      body: item.body,
+      time: item.time,
+    })
+    optimisticText.set(item.id, {
+      id: item.id,
+      txnId: item.txnId,
+      roomId,
+      body: item.body,
+      time: item.time,
+      status: connection.value === 'ready' && security.value.verified && room.getMyMembership() === 'join'
+        ? 'sending' : 'queued',
+      inFlight: false,
+    })
+    pendingDirectTexts.value = pendingDirectTexts.value.filter(value => value.id !== item.id)
+  }
+  refreshMessages()
   if (client === current && connection.value === 'ready' && security.value.verified)
     void drainDurableOutbox(current)
 }
@@ -698,7 +785,10 @@ export function stopMessaging(clearRequest = true) {
   retryAttempts.clear()
   retryAfter.clear()
   optimisticText.clear()
+  pendingDirectTexts.value = []
   outboxRestoredScope = ''
+  directOutboxRestoredScope = ''
+  directOutboxRestoring = undefined
   outboxRestoring = undefined
   outboxDraining = false
   outboxError.value = false
@@ -783,6 +873,8 @@ export function startMessaging(): Promise<void> {
       return
     }
     owner = `${account.value.id}:${deviceId.value}`
+    await restorePendingDirectOutbox()
+    if (current !== generation) return
     let initialized!: () => void
     const ready = new Promise<void>((resolve) => {
       initialized = resolve

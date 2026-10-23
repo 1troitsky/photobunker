@@ -76,7 +76,12 @@ function clear(invalidate = true) {
   bindIdentity('')
   changed()
 }
-channel?.addEventListener('message', () => {
+channel?.addEventListener('message', (event: MessageEvent<unknown>) => {
+  const message = event.data
+  if (message && typeof message === 'object') {
+    const accountId = (message as { accountId?: unknown }).accountId
+    if (typeof accountId === 'string' && account.value?.id && accountId !== account.value.id) return
+  }
   const used = identityReady.value
   clear()
   identityReady.value = false
@@ -204,7 +209,7 @@ function authenticated(result: Session) {
   sessionNotice.value = false
   generation++
   accept(result)
-  channel?.postMessage('changed')
+  channel?.postMessage({ kind: 'session', accountId: result.account.id })
 }
 export async function register(
   root: { privateKey: CryptoKey; publicKey: string },
@@ -277,7 +282,7 @@ export async function logout() {
   photoSecurity.hardLock()
   sessionNotice.value = false
   publicCaptureUnknown.value = false
-  channel?.postMessage('changed')
+  channel?.postMessage({ kind: 'logout', accountId: previousAccount })
   try {
     await identityRequest('/session', 'DELETE', undefined, previousAccount)
   } finally {

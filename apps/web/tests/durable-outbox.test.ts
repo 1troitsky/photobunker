@@ -27,6 +27,14 @@ describe('P0 encrypted outbox contract', () => {
     ]) expect(() => validateDurableText(value)).toThrow('outbox.invalid')
     expect(MAX_DURABLE_TEXT).toBeLessThanOrEqual(200)
   })
+  it('persists a direct recipient before a Matrix room exists and requires one target', () => {
+    const { roomId: _roomId, ...base } = valid
+    const pending = { ...base, peerId: 'pb_recipient123' }
+    expect(validateDurableText(pending)).toEqual(pending)
+    expect(() => validateDurableText({ ...pending, roomId: valid.roomId })).toThrow('outbox.invalid')
+    expect(() => validateDurableText({ ...base })).toThrow('outbox.invalid')
+    expect(() => validateDurableText({ ...base, peerId: 'not a public id' })).toThrow('outbox.invalid')
+  })
   it('does not allow attacker-controlled unknown fields to survive canonical serialization', () => {
     const received = validateDurableText({ ...valid, injection: 'bad', rawAccessToken: 'example' }) as unknown as Record<string, unknown>
     expect(received).not.toHaveProperty('injection')

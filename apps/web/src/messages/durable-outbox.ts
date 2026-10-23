@@ -10,15 +10,18 @@ import { appLocked } from '../app/lock'
  * Same-origin XSS can invoke the stored non-extractable AES key; CSP and
  * PhotoBunker's app lock remain mandatory defenses.
  */
-export type DurableText = {
+type DurableTextBase = {
   id: string
   txnId: string
-  roomId: string
   body: string
   reply?: string
   photoId?: string
   time: number
 }
+export type DurableText = DurableTextBase & (
+  | { roomId: string; peerId?: never }
+  | { peerId: string; roomId?: never }
+)
 type Sealed = { version: 1; iv: Uint8Array<ArrayBuffer>; ciphertext: ArrayBuffer }
 const DB = 'photobunker-message-outbox-v1'
 const textEncoder = new TextEncoder()
@@ -36,17 +39,22 @@ function validateScopePart(value: string) {
 export function validateDurableText(value: unknown): DurableText {
   if (!value || typeof value !== 'object') throw new Error('outbox.invalid')
   const item = value as Record<string, unknown>
+  const roomTarget = typeof item.roomId === 'string' && item.roomId.startsWith('!') && item.roomId.length <= 255
+  const peerTarget = typeof item.peerId === 'string' && item.peerId.length <= 255 &&
+    (/^pb_[a-z0-9]+$/i.test(item.peerId) || /^@[a-z0-9_.-]+(?::[a-z0-9.:-]+)?$/i.test(item.peerId))
   if (typeof item.txnId !== 'string' || !item.txnId.startsWith('pb-') ||
       !UUID.test(item.txnId.slice(3)) || item.id !== '~pb-ui:' + item.txnId ||
-      typeof item.roomId !== 'string' || !item.roomId.startsWith('!') ||
-      item.roomId.length > 255 || typeof item.body !== 'string' ||
+      roomTarget === peerTarget || typeof item.body !== 'string' ||
       !item.body.trim() || item.body.length > 10000 ||
       !Number.isSafeInteger(item.time) || (item.time as number) <= 0 ||
       (item.reply !== undefined && (typeof item.reply !== 'string' ||
         !item.reply.startsWith('$') || item.reply.length > 255)) ||
       (item.photoId !== undefined && (typeof item.photoId !== 'string' ||
         !UUID.test(item.photoId)))) throw new Error('outbox.invalid')
-  return { id: item.id as string, txnId: item.txnId, roomId: item.roomId,
+  const target = roomTarget
+    ? { roomId: item.roomId as string }
+    : { peerId: item.peerId as string }
+  return { id: item.id as string, txnId: item.txnId, ...target,
     body: item.body, time: item.time as number,
     ...(item.reply ? { reply: item.reply as string } : {}),
     ...(item.photoId ? { photoId: item.photoId as string } : {}) }
