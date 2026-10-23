@@ -17,7 +17,7 @@ export async function accountFixture(browser,name,fixtures,{legacy=false}={}) {
    await page.goto(`${origin}/profile/account`)
    // A cold CI/Vite onboarding bundle may need longer than an interactive
    // page transition. Never bypass account creation or retry credentials.
-   await label(page,'Название устройства').waitFor({ state: 'visible', timeout: 90000 })
+   await label(page,'Название устройства').waitFor({ state: 'visible', timeout: 180000 })
    stage='device-name'
    await label(page,'Название устройства').fill(`QA ${name}`)
    stage='create-account'
