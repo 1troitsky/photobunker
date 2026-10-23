@@ -246,13 +246,19 @@ const sections = [
       </template>
     </div>
     <AppSheet :open="logoutOpen" :title="q('Выйти из аккаунта?')" :busy="authBusy || signingOut" @close="logoutOpen = false">
-      <p>{{ q('При выходе ключ будет удалён с этого устройства. Для повторного входа и доступа к фотографиям и сообщениям понадобится сохранённый ключ аккаунта.') }}</p>
-      <p class="form-error">{{ q('Если вы потеряли ключ и не сохранили его на другом устройстве, доступ ко всем данным будет потерян без возможности восстановления.') }}</p>
-      <p v-if="delivery.pending" class="field-hint">{{ q('На устройстве есть фотографии, которые ещё не загружены. Дождитесь отправки перед выходом.') }}</p>
-      <button class="secondary-button" :disabled="authBusy" @click="saveKey">{{ q('Сохранить ключ аккаунта в файл') }}</button>
-      <button class="primary-button" :disabled="authBusy" @click="logoutOpen = false">{{ q('Остаться в аккаунте') }}</button>
-      <button class="danger-button" :disabled="authBusy || signingOut" @click="signOut">{{ q('Всё равно выйти') }}</button>
-      <p v-if="authError" class="form-error" role="alert">{{ authError }}</p>
+      <div class="logout-sheet-body">
+        <div class="logout-sheet-copy">
+          <p>{{ q('Ключ аккаунта будет удалён с этого устройства. Чтобы снова открыть фотографии и сообщения, понадобится сохранённый ключ.') }}</p>
+          <p class="logout-sheet-warning">{{ q('Потерянный ключ восстановить нельзя.') }}</p>
+          <p v-if="delivery.pending" class="field-hint">{{ q('Сначала дождитесь отправки фотографий с этого устройства.') }}</p>
+        </div>
+        <div class="logout-sheet-actions">
+          <button class="primary-button full-button" :disabled="authBusy" @click="logoutOpen = false">{{ q('Остаться в аккаунте') }}</button>
+          <button class="secondary-button full-button" :disabled="authBusy" @click="saveKey">{{ q('Сохранить ключ в файл') }}</button>
+          <button class="danger-button full-button logout-sheet-danger" :disabled="authBusy || signingOut" @click="signOut">{{ q('Выйти без сохранения') }}</button>
+        </div>
+        <p v-if="authError" class="form-error" role="alert">{{ authError }}</p>
+      </div>
     </AppSheet>
   </section>
 </template>
