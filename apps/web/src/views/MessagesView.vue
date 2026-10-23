@@ -523,8 +523,9 @@ const voiceDirty = ref(false)
 const textPersisting = ref(false)
 const dirty = computed(
   // Durable queued/sending/not-sent operations are already AES-GCM persisted
-  // and survive reload. Only content that has not reached the outbox is dirty.
-  () => voiceDirty.value || !!draft.value.trim() || !!chosenAttachment.value,
+  // and survive reload. A plain text composer draft must never trap the user
+  // behind the browser's native "unsaved changes" dialog.
+  () => voiceDirty.value || !!chosenAttachment.value,
 )
 guardReload(dirty, recoveryBusy)
 let actionGeneration = 0
