@@ -317,6 +317,7 @@ export async function joinIncomingConversations(retry = false) {
         await current.joinRoom(room.roomId)
         requireClient(current)
         refresh()
+        void drainDurableOutbox(current)
       } catch {
         if (client === current) { failedIncoming.add(room.roomId); incomingError.value = true }
       } finally { if (client === current) joiningIncoming.delete(room.roomId) }
@@ -1235,7 +1236,7 @@ function prepareText(body: string, reply?: string, photoId?: string) {
   // Network state never gates a locally known, verified encrypted room.
   // Persist first and let the outbox drain when Matrix becomes ready.
   if (!current || !room
-    || room.getMyMembership() !== 'join' || !roomChat(room).encrypted
+    || !['join', 'invite'].includes(room.getMyMembership()) || !roomChat(room).encrypted
     || roomChat(room).blocked || !body.trim() || body.length > 10000)
     throw new Error('not_ready')
   const txnId = 'pb-' + crypto.randomUUID()
@@ -1247,7 +1248,7 @@ function prepareText(body: string, reply?: string, photoId?: string) {
     reply,
     photoId,
     time: Date.now(),
-    status: connection.value === 'ready' && security.value.verified ? 'sending' : 'queued',
+    status: connection.value === 'ready' && security.value.verified && room.getMyMembership() === 'join' ? 'sending' : 'queued',
     inFlight: false,
   }
   optimisticText.set(entry.id, entry)
@@ -1350,7 +1351,8 @@ export async function queueTextMessage(body: string, reply?: string, photoId?: s
     if (client === current) { outboxError.value = true; refreshMessages() }
     throw error
   }
-  if (client === current && connection.value === 'ready' && security.value.verified) {
+  if (client === current && connection.value === 'ready' && security.value.verified &&
+      current.getRoom(entry.roomId)?.getMyMembership() === 'join') {
     void dispatchText(entry, current).catch(() => {
       // Error remains available as Not sent with same txnId and Retry.
     })
@@ -1374,7 +1376,10 @@ export async function send(body: string, reply?: string, photoId?: string) {
     if (client === current) refreshMessages()
     throw error
   }
-  if (connection.value !== 'ready' || !security.value.verified) { entry.status = 'queued'; refreshMessages(); return }
+  if (connection.value !== 'ready' || !security.value.verified ||
+      current.getRoom(entry.roomId)?.getMyMembership() !== 'join') {
+    entry.status = 'queued'; refreshMessages(); return
+  }
   await dispatchText(entry, current)
 }
 export async function sendVoice(draft: VoiceDraft, reply?: string) {

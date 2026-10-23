@@ -476,6 +476,10 @@ watch(
   { immediate: true },
 )
 const needsSecurity = computed(() => connection.value === 'ready' && diagnostic.value === 'ready' && !security.value.verified)
+const pendingEntryPeer = computed(() => {
+  const routePeer = typeof route.query.peer === 'string' ? route.query.peer.trim() : ''
+  return routePeer || pendingPeer.value
+})
 watch([() => security.value.verified, connection, diagnostic, actionBusy], () => {
   if (actionBusy.value) return
   if (decideChatEntry(connection.value, diagnostic.value, security.value.verified).kind !== 'ready' ||
@@ -689,6 +693,12 @@ async function submit() {
       actionError.value = m(error instanceof Error && error.message === 'not_ready'
         ? 'deviceRecoveryHint' : 'outboxUnavailable')
   } finally { textPersisting.value = false }
+}
+async function submitPending() {
+  const peer = pendingEntryPeer.value
+  if (!peer || !draft.value.trim() || actionBusy.value || textPersisting.value) return
+  await writeDirect(peer)
+  if (selected.value && activeChat.value) await submit()
 }
 async function newChat() {
   if (!readyToWrite()) return
@@ -928,7 +938,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
             </div>
           </template>
         </aside>
-        <main class="messenger-thread" :class="{ 'messenger-thread-placeholder': !activeChat }" :aria-label="activeChat?.name || ui('threadEmpty')">
+        <main class="messenger-thread" :class="{ 'messenger-thread-placeholder': !activeChat && !pendingEntryPeer }" :aria-label="activeChat?.name || pendingEntryPeer || ui('threadEmpty')">
           <template v-if="activeChat">
             <ThreadHeader
               :name="selecting ? selectedMessages.length + ' ' + ui('messageSelected').toLocaleLowerCase() : activeChat.name"
@@ -953,7 +963,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
               </template>
             </ThreadHeader>
             <div v-if="activeChat.membership !== 'join'" class="messenger-joining" role="status"><p>{{ personText('opening') }}</p><button v-if="incomingError" class="quiet-button" @click="joinIncomingConversations(true)">{{ personText('retry') }}</button></div>
-            <div v-else class="conversation">
+            <div class="conversation">
               <div v-if="messageSearchOpen" class="messenger-search conversation-search"><AppIcon name="search" /><input v-model="messageQuery" type="search" :aria-label="ui('searchChat')" :placeholder="ui('searchChat')" /><button class="app-icon-button" :aria-label="ui('closeSearch')" @click="messageSearchOpen = false"><AppIcon name="close" /></button></div>
               <button v-if="pinnedIds.length" class="pinned-strip" @click="jumpToMessage(pinnedIds[0]!)"><span class="pinned-indicator" /><span><strong>{{ ui('pinned') }}<small v-if="pinnedIds.length > 1"> · {{ pinnedIds.length }}</small></strong><span>{{ messages.find(message => message.id === pinnedIds[0])?.body || ui('pinned') }}</span></span><AppIcon name="chevron" /></button>
               <div ref="log" class="message-log" role="log" aria-live="polite" :aria-label="u('messages')" @scroll="scrolled">
@@ -1082,6 +1092,23 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
           <p v-if="messageBackupWarning" class="form-error message-error" role="alert">{{ m('backupBeforeLeaving') }}</p>
           <p v-if="outboxError" class="form-error message-error" role="alert">{{ m('outboxUnavailable') }}</p>
           </template>
+          <div v-else-if="pendingEntryPeer" class="conversation">
+            <div class="message-log" role="log" aria-live="polite" :aria-label="u('messages')"><div class="thread-start"><span>{{ personText('opening') }}</span></div></div>
+            <MessageComposer
+              ref="composer"
+              v-model="draft"
+              :placeholder="m('message')"
+              :input-label="m('message')"
+              :send-label="m('send')"
+              :cancel-reply-label="m('cancelReply')"
+              :reply-label="m('reply')"
+              :voice-dirty="false"
+              :disabled="actionBusy || textPersisting"
+              :allow-attachments="false"
+              @submit="submitPending"
+              @cancel-reply="reply = ''"
+            />
+          </div>
           <div v-else class="messenger-desktop-empty"><span class="service-emblem"><AppIcon name="messages" /></span><h2>{{ ui('threadEmpty') }}</h2><p>{{ ui('threadEmptyHint') }}</p></div>
         </main>
       </MessengerSplitLayout>
