@@ -1232,7 +1232,9 @@ export async function leaveChat() {
 function prepareText(body: string, reply?: string, photoId?: string) {
   const current = client
   const room = current?.getRoom(selected.value)
-  if (!current || !room || !['ready', 'offline'].includes(connection.value) || !security.value.verified
+  // Network state never gates a locally known, verified encrypted room.
+  // Persist first and let the outbox drain when Matrix becomes ready.
+  if (!current || !room || !security.value.verified
     || room.getMyMembership() !== 'join' || !roomChat(room).encrypted
     || roomChat(room).blocked || !body.trim() || body.length > 10000)
     throw new Error('not_ready')
@@ -1245,7 +1247,7 @@ function prepareText(body: string, reply?: string, photoId?: string) {
     reply,
     photoId,
     time: Date.now(),
-    status: connection.value === 'offline' ? 'queued' : 'sending',
+    status: connection.value === 'ready' ? 'sending' : 'queued',
     inFlight: false,
   }
   optimisticText.set(entry.id, entry)

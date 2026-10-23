@@ -664,7 +664,7 @@ async function submitEdit() {
 }
 async function submit() {
   if (actionBusy.value || textPersisting.value || attachmentBusy.value || voiceDirty.value ||
-      !security.value.verified || !['ready', 'offline'].includes(connection.value)) return
+      !security.value.verified) return
   if (editingMessage.value || chosenAttachment.value) {
     if (connection.value !== 'ready') { actionError.value = m('offline'); return }
     if (editingMessage.value) { void submitEdit(); return }
@@ -1046,7 +1046,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                 :reply-label="editingMessage ? ui('editing') : m('reply')"
                 :reply-preview="editingMessage ? editingMessage.original : reply ? replyBody(reply) : undefined"
                 :voice-dirty="voiceDirty"
-                :disabled="actionBusy || textPersisting || attachmentBusy || !['ready', 'offline'].includes(connection) || !security.verified || (connection !== 'ready' && !!(chosenAttachment || editingMessage))"
+                :disabled="actionBusy || textPersisting || attachmentBusy || !security.verified || (connection !== 'ready' && !!(chosenAttachment || editingMessage))"
                 :allow-draft-when-disabled="connection === 'offline' && security.verified && !actionBusy && !textPersisting && !attachmentBusy"
                 :attachment="chosenAttachment ? { name: chosenAttachment.name, kind: chosenAttachment.type.startsWith('image/') ? 'image' : 'file', size: chosenAttachment.size, preview: attachmentPreviewUrl } : undefined"
                 :attachment-busy="attachmentBusy"
