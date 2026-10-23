@@ -41,6 +41,43 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     }
    }
   })
+  const nativeRecorder = await a.page.evaluate(forceFallback => {
+   if (forceFallback) Reflect.deleteProperty(window, 'MediaRecorder')
+   return typeof MediaRecorder !== 'undefined'
+  }, process.env.QA_FORCE_MEDIA_RECORDER_FALLBACK === '1')
+  if (!nativeRecorder) {
+   stage = 'unsupported-recorder'
+   await button(a.page,'Записать голосовое сообщение').click()
+   await expect(a.page.locator('.voice-error')).toContainText('Этот браузер не поддерживает запись голоса.')
+   expect(await a.page.evaluate(() => window.qaStreams.length)).toBe(0)
+   // Playwright's Linux WebKit build has no MediaRecorder although current
+   // Safari does. Preserve the truthful unsupported assertion above, then use
+   // a valid WAV-only test recorder to exercise the rest of the application
+   // pipeline (encryption, upload, retry, playback and deletion) in WebKit.
+   await a.page.evaluate(() => {
+    class SyntheticWavRecorder {
+     static isTypeSupported(type) { return type === 'audio/wav' }
+     state = 'inactive'; mimeType; ondataavailable = null; onstop = null; onerror = null
+     constructor(_stream, options = {}) { this.mimeType = options.mimeType || 'audio/wav' }
+     start() { this.state = 'recording' }
+     pause() { this.state = 'paused' }
+     resume() { this.state = 'recording' }
+     stop() {
+      if (this.state === 'inactive') return
+      this.state = 'inactive'
+      const rate = 8000, frames = rate, buffer = new ArrayBuffer(44 + frames * 2), view = new DataView(buffer)
+      const write = (offset, value) => { for (let index = 0; index < value.length; index++) view.setUint8(offset + index, value.charCodeAt(index)) }
+      write(0, 'RIFF'); view.setUint32(4, 36 + frames * 2, true); write(8, 'WAVE'); write(12, 'fmt ')
+      view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true)
+      view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true)
+      write(36, 'data'); view.setUint32(40, frames * 2, true)
+      for (let index = 0; index < frames; index++) view.setInt16(44 + index * 2, Math.sin(index * 440 * Math.PI * 2 / rate) * 12000, true)
+      queueMicrotask(() => { this.ondataavailable?.({ data: new Blob([buffer], { type: this.mimeType }) }); this.onstop?.() })
+     }
+    }
+    window.MediaRecorder = SyntheticWavRecorder
+   })
+  }
   stage = 'record-preview'
   await button(a.page,'Записать голосовое сообщение').click()
   await expect(a.page.locator('.voice-recorder')).toHaveAttribute('data-recording-state','recording')
@@ -95,7 +132,7 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
   })
   expect(encrypted).toBe(true); expect(media).toEqual([{status:200,ciphertext:true},{status:503,ciphertext:true},{status:200,ciphertext:true}])
   expect(errors).toEqual([])
-  console.log(`${engine}: voice record, preview, microphone release, encrypted send, automatic receive, playback, speed, text reply, slide cancel, permission denial, pause, failed-send retry and incoming deletion for everyone passed`)
+  console.log(`${engine}: voice record${nativeRecorder ? '' : ' (QA WAV fallback after unsupported UX)'}, preview, microphone release, encrypted send, automatic receive, playback, speed, text reply, slide cancel, permission denial, pause, failed-send retry and incoming deletion for everyone passed`)
  } catch(error) { for (const f of fixtures) console.error(await f.page.evaluate(async () => { const store = await import('/src/messages/store.ts'); return { phase: document.querySelector('.voice-recorder')?.getAttribute('data-recording-state'), messages: store.messages.value.map(value => ({ voice: !!value.voice, locked: value.locked, status: value.status, decryption: value.decryptionFailure })), error: !!document.querySelector('.voice-error'), synthetic: navigator.mediaDevices.getUserMedia.toString().includes('oscillator'), streams: window.qaStreams?.length, syntheticStage: window.qaSyntheticMediaStage, syntheticFailure: window.qaSyntheticMediaFailure, syntheticResumeRejected: !!window.qaSyntheticMediaResumeRejected } }).catch(()=>({ unavailable: true }))); console.error({ media }); console.error(`${engine}: voice QA failed at ${stage} (${error.name})`); throw error }
  finally { await cleanupFixtures(fixtures); await browser.close() }
 }

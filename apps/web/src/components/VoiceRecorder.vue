@@ -38,7 +38,7 @@ async function start(lock = false) {
     capture = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false })
     if (current !== version || owner !== account.value?.id || !props.active) { capture.getTracks().forEach(track => track.stop()); return }
     stream = capture
-    const type = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/webm'].find(value => MediaRecorder.isTypeSupported(value))
+    const type = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/webm', 'audio/wav'].find(value => MediaRecorder.isTypeSupported(value))
     if (!type) throw new Error('voice.unsupported')
     recorder = new MediaRecorder(stream, { mimeType: type, audioBitsPerSecond: 32000 })
     chunks = []; samples = []; pausedFor = 0; paused.value = false; elapsed.value = 0
