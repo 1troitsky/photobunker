@@ -1255,7 +1255,7 @@ export async function createChat(ids: string[], title: string) {
         archived: false,
         deleted: false,
       }).catch(() => {})
-      return
+      return existing.roomId
     }
   }
   const result = await current.createRoom({
@@ -1308,6 +1308,7 @@ export async function createChat(ids: string[], title: string) {
   await activateConversation(current, result.room_id)
   refresh()
   openRoom(result.room_id)
+  return result.room_id
 }
 export async function leaveChat() {
   const current = client,

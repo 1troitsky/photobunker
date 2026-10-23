@@ -330,15 +330,16 @@ async function writeDirect(handle: string, call = false) {
     await startMessaging()
     if (version !== actionGeneration) return
     if (!readyToWrite(peer)) return
-    await createChat([peer], '')
+    const roomId = await createChat([peer], '')
     if (version !== actionGeneration) return
     pendingPeer.value = ''
-    await bindDirectOutbox(peer, selected.value)
+    await bindDirectOutbox(peer, roomId)
+    openRoom(roomId)
     directHandle.value = ''
     newOpen.value = false
     tab.value = 'chats'
     if (route.query.peer) void router.replace({ query: { ...route.query, peer: undefined, call: undefined } })
-    if (call) await joinCall(selected.value)
+    if (call) await joinCall(roomId)
   })
 }
 // Deep-linked Write is an intent that must *never* disappear in recovery
