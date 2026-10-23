@@ -2,7 +2,7 @@
 // UI adapted from Chatify v2 MessageComposer.vue, commit
 // 4a39eacb44e2405baa8c1e3bd3b4644fc5c8707d (MIT).
 // No Matrix, Laravel, SDK, crypto, storage, network, or side effects.
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onMounted, ref, watch } from 'vue'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -47,6 +47,12 @@ function onInput(event: Event) {
   resize()
 }
 function onKeydown(event: KeyboardEvent) {
+  // Chatify-style Escape closes the reply/edit preview but preserves the draft.
+  if (event.key === 'Escape' && props.replyPreview !== undefined && !props.voiceDirty) {
+    event.preventDefault()
+    emit('cancelReply')
+    return
+  }
   if (event.key !== 'Enter' || event.isComposing || event.shiftKey || event.defaultPrevented || props.disabled || (!props.modelValue.trim() && !props.attachment)) return
   // Desktop Enter and Cmd/Ctrl+Enter; mobile Enter inserts a newline.
   const finePointer = typeof matchMedia === 'function' && matchMedia('(pointer:fine)').matches
@@ -64,6 +70,7 @@ function onPaste(event: ClipboardEvent) {
   const file = event.clipboardData?.files?.[0]
   if (file) { event.preventDefault(); emit('selectFile', file) }
 }
+onMounted(() => { void nextTick(resize) })
 watch(() => props.modelValue, () => { void nextTick(resize) })
 defineExpose({
   focus: () => textarea.value?.focus(),
