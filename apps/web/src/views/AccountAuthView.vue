@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import ScreenHeader from '../components/ScreenHeader.vue'
-import { createRoot } from '../identity/keys'
+import { createRoot, parseKit } from '../identity/keys'
 import { account, register, recover, deviceId, signingOut } from '../identity/store'
 import { IdentityError, IdentityNetworkError, IdentityTimeoutError } from '../identity/api'
 import { rememberAccountKey, stageImportedPhotoKey } from '../identity/vault'
@@ -19,7 +19,7 @@ const route = useRoute(), router = useRouter(), busy = ref(false), error = ref('
   kitSaved = ref(false), kit = ref(''), registered = ref(false)
 const connecting = computed(() => route.query.mode === 'connect')
 const recovering = computed(() => route.query.mode === 'recover' || connecting.value)
-let root: Awaited<ReturnType<typeof createRoot>> | undefined, done = false, sequence = 0
+let root: Awaited<ReturnType<typeof createRoot>> | undefined, done = false, sequence = 0, registeredScope = ''
 const dirty = computed(() => !!kit.value && !done)
 guardReload(dirty, busy)
 
@@ -31,8 +31,7 @@ function message(failure: unknown) {
     if (failure.status === 429) return a('authRateLimited')
     if (failure.status >= 500) return a('authServer')
     if (failure.status === 409) return a('authConflict')
-    if (failure.status === 401 || failure.status === 403) return a(recovering.value ? 'invalidKit' : 'denied')
-    if (failure.status === 422 && recovering.value) return a('invalidKit')
+    if (failure.status === 401 || failure.status === 403) return a('denied')
     return a('failed')
   }
   if (['invalid_backup', 'identity.invalid_key', 'identity.invalid_kit', 'recovery.wrong_account'].includes(code))
@@ -67,11 +66,16 @@ async function submit() {
   busy.value = true
   error.value = ''
   try {
+    let completedScope = ''
     if (recovering.value) {
       const backup = parseRecoveryBackup(kit.value)
-      await recover(backup.accountKey)
+      if (connecting.value) {
+        const parsed = await parseKit(backup.accountKey)
+        if (!account.value || account.value.rootKey !== parsed.publicKey) throw new Error('recovery.wrong_account')
+      } else await recover(backup.accountKey)
       if (attempt !== sequence) throw new DOMException('Sign-in cancelled', 'AbortError')
       const scope = `${account.value?.id}:${deviceId.value}`
+      completedScope = scope
       await rememberAccountKey(backup.accountKey)
       if (scope !== `${account.value?.id}:${deviceId.value}`) throw new DOMException('Account changed', 'AbortError')
       // Old PB4 backups are stored encrypted locally first; photo setup can
@@ -82,11 +86,15 @@ async function submit() {
       if (!registered.value) {
         await register(root)
         registered.value = true
+        registeredScope = `${account.value?.id}:${deviceId.value}`
       }
       if (attempt !== sequence) throw new DOMException('Sign-in cancelled', 'AbortError')
+      if (registeredScope !== `${account.value?.id}:${deviceId.value}`) throw new DOMException('Account changed', 'AbortError')
+      completedScope = registeredScope
       await rememberAccountKey(root.kit)
     }
-    if (attempt !== sequence || !account.value || signingOut.value) throw new DOMException('Account changed', 'AbortError')
+    if (attempt !== sequence || !account.value || signingOut.value || completedScope !== `${account.value.id}:${deviceId.value}`)
+      throw new DOMException('Account changed', 'AbortError')
     done = true
     void startOnboarding()
     await router.replace(profileReturnTo(route.query.returnTo))

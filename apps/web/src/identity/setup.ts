@@ -7,8 +7,8 @@ export function ensureAccountPhotos(): Promise<void> {
   const owner = account.value?.id, device = deviceId.value
   const scope = `${owner}:${device}`
   if (setup?.scope === scope) return setup.promise
-  if (setup) return setup.promise.catch(() => {}).then(() => ensureAccountPhotos())
   const check = () => { if (!owner || account.value?.id !== owner || deviceId.value !== device) throw new Error('recovery.cancelled') }
+  if (setup) return setup.promise.catch(() => {}).then(() => { check(); return ensureAccountPhotos() })
   const promise = (async () => {
     const root = await accountKey()
     if (!root) throw new Error('recovery.key_required')
@@ -21,13 +21,15 @@ export function ensureAccountPhotos(): Promise<void> {
     if (protectionEnabled.value) {
       const imported = await pendingImportedPhotoKey()
       check()
-      const photoKey = await rememberedKit() || saved?.photoKey || imported
+      const photoKey = imported || await rememberedKit() || saved?.photoKey
       if (!photoKey) throw new Error('recovery.legacy_photo_key')
-      if (!saved?.photoKey) await saveAccountSecrets({ photoKey })
+      // Validate an explicitly imported key before replacing a saved backup.
+      // Keep its staged copy until unlock and recovery publication both succeed.
+      if (imported || !strongUnlocked.value) await unlock(photoKey)
       check()
-      if (imported && saved?.photoKey || imported === photoKey) await clearImportedPhotoKey()
+      if (saved?.photoKey !== photoKey) await saveAccountSecrets({ photoKey })
       check()
-      if (!strongUnlocked.value) await unlock(photoKey)
+      if (imported) await clearImportedPhotoKey()
     } else {
       if (!candidateKit.value) await beginSetup(root)
       check()

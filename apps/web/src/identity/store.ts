@@ -9,7 +9,6 @@ import {
   reconcileOnboardingDevice,
   parseKit,
   prove,
-  saveCredential,
   type DeviceCredential,
 } from './keys'
 export type ProfileField =
@@ -222,6 +221,10 @@ export async function register(
   name = automaticDeviceName(),
 ) {
   const epoch = generation
+  if (account.value?.rootKey === root.publicKey && deviceId.value) {
+    assertLoginEpoch(epoch)
+    return
+  }
   const device = await onboardingDevice(root.publicKey, name)
   assertLoginEpoch(epoch)
   const result = await prove<Session>(
@@ -242,7 +245,10 @@ export async function register(
 export async function recover(kit: string, name = automaticDeviceName()) {
   const epoch = generation
   const root = await parseKit(kit)
-  if (account.value?.rootKey === root.publicKey && deviceId.value) return
+  if (account.value?.rootKey === root.publicKey && deviceId.value) {
+    assertLoginEpoch(epoch)
+    return
+  }
   const device = await onboardingDevice(root.publicKey, name)
   assertLoginEpoch(epoch)
   const result = await prove<Session>(

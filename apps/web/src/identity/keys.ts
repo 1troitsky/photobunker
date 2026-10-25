@@ -30,7 +30,18 @@ export function automaticDeviceName(): string {
 
 export async function newDevice(name:string):Promise<DeviceCredential> {const pair=await crypto.subtle.generateKey(algorithm,false,['sign','verify']);return {id:crypto.randomUUID(), publicId:'', name:name.trim(), privateKey:pair.privateKey,publicKey:b64(await crypto.subtle.exportKey('spki',pair.publicKey))}}
 export async function createRoot() {const pair=await crypto.subtle.generateKey(algorithm,true,['sign','verify']);const publicKey=b64(await crypto.subtle.exportKey('spki',pair.publicKey)), privateValue=b64(await crypto.subtle.exportKey('pkcs8',pair.privateKey));return {privateKey:pair.privateKey, publicKey, kit:`PB1.${publicKey}.${privateValue}`}}
-export async function parseKit(value:string) { const parts=value.trim().split('.');if(parts.length!==3||parts[0]!=='PB1'||value.length>1000)throw new Error('identity.invalid_kit');return {publicKey:parts[1]!, privateKey:await crypto.subtle.importKey('pkcs8',unb64(parts[2]!),algorithm,false,['sign'])} }
+export async function parseKit(value:string) {
+  const parts = value.trim().split('.')
+  if (parts.length !== 3 || parts[0] !== 'PB1' || value.length > 1000) throw new Error('identity.invalid_kit')
+  try {
+    unb64(parts[1]!)
+    return { publicKey: parts[1]!, privateKey: await crypto.subtle.importKey('pkcs8', unb64(parts[2]!), algorithm, false, ['sign']) }
+  } catch (failure) {
+    if (failure instanceof DOMException && ['DataError', 'OperationError', 'InvalidCharacterError'].includes(failure.name))
+      throw new Error('identity.invalid_kit')
+    throw failure
+  }
+}
 export async function prove<T>(payload:Record<string,string>, key:CryptoKey):Promise<T> {
   const challenge=await identityRequest<{id:string;nonce:string;message:string;expiresAt:number}>('/challenges','POST',payload)
   const canonical=JSON.stringify(Object.fromEntries(Object.entries(payload).sort(([a],[b])=>a.localeCompare(b,'en'))))
@@ -80,7 +91,9 @@ export async function completeOnboardingDevice(rootKey: string, device: DeviceCr
       const saved = request.result as DeviceCredential | undefined
       if (saved && saved.id !== device.id) { tx.abort(); return }
       tx.objectStore('devices').put({ ...device, publicId })
-      if (saved) pending.delete(rootKey)
+      // Keep the root-public-key reservation after Identity succeeds. A later
+      // key-storage failure/reload without a cookie must reuse this device too.
+      pending.put({ ...device, publicId }, rootKey)
     }
     tx.oncomplete = () => { db.close(); resolve() }
     tx.onabort = () => { db.close(); reject(tx.error ?? new Error('identity.storage_unavailable')) }
@@ -100,7 +113,7 @@ export async function reconcileOnboardingDevice(device: string, publicId: string
       const saved = row.value as DeviceCredential
       if (saved.id === device) {
         tx.objectStore('devices').put({ ...saved, publicId })
-        row.delete()
+        row.update({ ...saved, publicId })
       } else row.continue()
     }
     tx.oncomplete = () => { db.close(); resolve() }

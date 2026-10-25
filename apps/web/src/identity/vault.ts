@@ -32,25 +32,25 @@ export async function rememberAccountKey(value: string) {
 // a photo API request. Only this account/device can decrypt the staging row.
 const photoImportScope = () => `account-photo-import:${localScope()}`
 export async function stageImportedPhotoKey(value: string) {
-  const scope = photoImportScope()
-  assertScope(localScope())
+  const ownerScope = localScope(), scope = photoImportScope()
+  assertScope(ownerScope)
   const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const bytes = new TextEncoder().encode(value)
   try {
     const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: new TextEncoder().encode(scope) }, key, bytes)
-    if (scope !== photoImportScope()) throw new Error('recovery.cancelled')
+    assertScope(ownerScope)
     await db.put(scope, { key, iv, ciphertext } satisfies Wrapped)
     if (scope !== photoImportScope()) { await db.remove(scope); throw new Error('recovery.cancelled') }
   } finally { bytes.fill(0) }
 }
 export async function pendingImportedPhotoKey(): Promise<string | undefined> {
-  const scope = photoImportScope()
+  const ownerScope = localScope(), scope = photoImportScope()
   const row = await db.get<Wrapped>(scope)
-  assertScope(localScope())
+  assertScope(ownerScope)
   if (!row || row.key.extractable) return
   const clear = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: row.iv, additionalData: new TextEncoder().encode(scope) }, row.key, row.ciphertext))
-  try { assertScope(localScope()); return new TextDecoder().decode(clear) }
+  try { assertScope(ownerScope); return new TextDecoder().decode(clear) }
   finally { clear.fill(0) }
 }
 export async function clearImportedPhotoKey() {
