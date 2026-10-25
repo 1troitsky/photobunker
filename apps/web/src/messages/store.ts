@@ -1758,13 +1758,17 @@ async function ensureMessagingRecovery(current: MatrixClient) {
     requireClient(current)
     await crypto.checkKeyBackupAndEnable()
     if (saved.matrixSecrets.backup) {
-      const restored = await crypto.restoreKeyBackup()
-      restoredKeys.value = restored.imported
+      // Old history is optional to fresh messaging. Never hold the synced
+      // composer hostage to a slow/missing backup or invent replacement keys.
+      void crypto.restoreKeyBackup()
+        .then(result => { if (client === current) { restoredKeys.value = result.imported; refresh() } })
+        .catch(() => { if (client === current) messageBackupWarning.value = true })
     }
   }
   if (saved?.roomKeys?.length) {
-    await crypto.importRoomKeys(saved.roomKeys)
-    requireClient(current)
+    void crypto.importRoomKeys(saved.roomKeys)
+      .then(() => { if (client === current) refresh() })
+      .catch(() => { if (client === current) messageBackupWarning.value = true })
   }
   await securityStatus()
   requireClient(current)
@@ -1774,16 +1778,25 @@ async function ensureMessagingRecovery(current: MatrixClient) {
   }
   await securityStatus()
   if (!security.value.verified) return // Legacy identity: never reset its keys.
-  if (!security.value.storage) {
-    await prepareRecovery()
-    await enableRecovery()
-    if (recoveryError.value) throw new Error('recovery.setup_failed')
-  } else {
-    await crypto.checkKeyBackupAndEnable()
-    const secrets = await crypto.exportSecretsBundle!()
+  // Backup maintenance can involve several server roundtrips. Keep it
+  // asynchronous once the device's cryptographic identity is established.
+  // History/recovery errors remain visible in Security and never authorize
+  // plaintext transport or an untrusted device.
+  void (async () => {
+    if (!security.value.storage) {
+      await prepareRecovery()
+      await enableRecovery()
+      if (recoveryError.value) throw new Error('recovery.setup_failed')
+    } else {
+      await crypto.checkKeyBackupAndEnable()
+      requireClient(current)
+      const secrets = await crypto.exportSecretsBundle!()
+      requireClient(current)
+      await saveAccountSecrets({ matrixSecrets: secrets })
+    }
     requireClient(current)
-    await saveAccountSecrets({ matrixSecrets: secrets })
-  }
+    await securityStatus()
+  })().catch(() => { if (client === current) messageBackupWarning.value = true })
   requireClient(current)
   for (const room of current.getRooms())
     for (const event of room.getLiveTimeline().getEvents())
