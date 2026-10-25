@@ -5,7 +5,7 @@ type Benefit = { title: string; description: string }
 const copy = {
   en: {
     brand: 'PhotoBunker',
-    lead: 'Your photos. Your access. Your choice.',
+    lead: 'Capture. Protect. Share. On your terms.',
     create: 'Create New Account',
     createHint: 'No email or phone number required',
     recover: 'Recover Account',
@@ -29,7 +29,7 @@ const copy = {
   },
   ru: {
     brand: 'PhotoBunker',
-    lead: 'Ваши фотографии. Ваши правила доступа.',
+    lead: 'Снимайте. Защищайте. Делитесь. На своих условиях.',
     create: 'Создать новый аккаунт',
     createHint: 'Без электронной почты и телефона',
     recover: 'Восстановить аккаунт',

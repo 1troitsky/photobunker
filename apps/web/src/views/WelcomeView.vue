@@ -61,7 +61,6 @@ function toggleLanguage() { setLocale(locale.value === 'ru' ? 'en' : 'ru') }
 <template>
   <section class="welcome-screen" aria-labelledby="welcome-heading">
     <header class="welcome-topbar">
-      <span class="welcome-topbrand">PhotoBunker</span>
       <button type="button" class="welcome-language" :aria-label="text.changeLanguage"
         @click="toggleLanguage"><AppIcon name="globe" />{{ locale === 'ru' ? 'RU' : 'EN' }}</button>
     </header>
@@ -82,22 +81,24 @@ function toggleLanguage() { setLocale(locale.value === 'ru' ? 'en' : 'ru') }
       <nav class="welcome-actions" :aria-label="text.brand">
         <RouterLink class="welcome-action welcome-create"
           :to="{ path: '/profile/account', query: { mode: 'create', from: 'welcome' } }">
+          <span class="welcome-action-icon welcome-create-icon"><AppIcon name="user" /><AppIcon name="plus" /></span>
           <span class="welcome-action-copy"><strong>{{ text.create }}</strong><small>{{ text.createHint }}</small></span>
           <AppIcon name="arrow" />
         </RouterLink>
         <RouterLink class="welcome-action welcome-recover"
           :to="{ path: '/profile/account', query: { mode: 'recover', from: 'welcome' } }">
+          <span class="welcome-action-icon"><AppIcon name="key" /></span>
           <span class="welcome-action-copy"><strong>{{ text.recover }}</strong><small>{{ text.recoverHint }}</small></span>
           <AppIcon name="arrow" />
         </RouterLink>
       </nav>
 
       <section class="welcome-why" aria-labelledby="welcome-why-heading">
-        <h2 id="welcome-why-heading">{{ text.why }}</h2>
         <div class="welcome-carousel" role="region" aria-roledescription="carousel"
           :aria-label="text.why" tabindex="0" :title="text.carouselHelp"
           @keydown="onKeydown" @touchstart.passive="startSwipe" @touchend.passive="finishSwipe"
           @touchcancel="touchStart = undefined">
+          <h2 id="welcome-why-heading">{{ text.why }}</h2>
           <div class="welcome-slide" role="group" aria-roledescription="slide"
             :aria-label="(slide + 1) + ' ' + text.position + ' ' + text.features.length"
             aria-live="polite" aria-atomic="true">

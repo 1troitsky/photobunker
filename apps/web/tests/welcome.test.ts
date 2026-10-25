@@ -88,6 +88,9 @@ describe('R1-10 / guest Welcome', () => {
     await router.push('/')
     await router.isReady()
     expect(router.currentRoute.value.path).toBe('/camera')
+    // Other imported startup services can perform a real /me check in jsdom.
+    // Restore this synthetic confirmed session before the explicit guard case.
+    sessionState.value = 'authenticated'
     await router.push('/welcome')
     expect(router.currentRoute.value.path).toBe('/camera')
   })
