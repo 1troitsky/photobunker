@@ -54,7 +54,7 @@ export type ContributorRules = {
   thumbnailsOnly: boolean
   sharingAllowed: boolean
   participantsOnly: boolean
-  useAssignmentPhotoId?: boolean
+  useAssignmentPhotoId: boolean
 }
 export type Task = {
   id: string
