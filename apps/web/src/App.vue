@@ -49,6 +49,7 @@ import { startActivity } from './identity/activity'
 import { selected as selectedConversation, pendingConversationUi } from './messages/store'
 import { purgeAccountFromDevice } from './identity/storage'
 import { locationEnabled, startGrantedLocation, stopLocation } from './profiles/location'
+import { warmNames } from './local/photo-names'
 
 const route = useRoute(),
   router = useRouter()
@@ -139,6 +140,12 @@ watch(
   },
   { immediate: true },
 )
+// Warm the next NAME-ID lease before Camera is opened. This never requests
+// permission and never blocks normal capture or the Welcome screen.
+watch([() => account.value?.id, deviceId, sessionState, appLocked], () => {
+  if (hasConfirmedIdentity() && !appLocked.value)
+    void warmNames().catch(() => {})
+}, { immediate: true })
 const native = computed(() =>
   [
     'welcome',
