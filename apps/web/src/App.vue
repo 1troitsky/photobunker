@@ -53,7 +53,7 @@ const route = useRoute(),
   router = useRouter()
 const privatePhotoRoute = computed(() => route.path.startsWith('/gallery'))
 const openRoute = computed(() =>
-  ['shared-photo', 'profile', 'account-auth', 'person-profile'].includes(String(route.name)),
+  ['shared-photo', 'welcome', 'profile', 'account-auth', 'person-profile'].includes(String(route.name)),
 )
 const offlineLocalRoute = computed(() =>
   // A known non-extractable device may display its own encrypted outbox, but
@@ -118,6 +118,7 @@ let stopActivity: (() => void) | undefined
 const hidden = ref(false)
 const native = computed(() =>
   [
+    'welcome',
     'camera',
     'gallery',
     'photo',
@@ -277,9 +278,9 @@ watch(
   { immediate: true },
 )
 watch(
-  [title, locale],
+  [title, locale, () => route.name],
   () => {
-    document.title = `${title.value} · PhotoBunker`
+    document.title = route.name === 'welcome' ? 'PhotoBunker' : `${title.value} · PhotoBunker`
   },
   { immediate: true },
 )
@@ -305,6 +306,7 @@ watch(
         {
           'camera-shell': immersive,
           'native-shell': native,
+          'welcome-shell': route.name === 'welcome',
           'editor-shell': editor,
           'privacy-screen': hidden,
           'messenger-shell': route.matched.some(record => record.name === 'messages'),
