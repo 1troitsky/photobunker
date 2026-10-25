@@ -751,6 +751,16 @@ watch(
     shot.value = ''
   },
 )
+watch(
+  [() => account.value?.id, () => studioSession.value?.taskId,
+    () => studioSession.value?.rules.useAssignmentPhotoId],
+  () => {
+    if (account.value)
+      void warmNames(studioSession.value?.taskId &&
+        studioSession.value.rules.useAssignmentPhotoId !== false
+          ? studioSession.value.taskId : null).catch(() => {})
+  },
+)
 watch(category, (value) => {
   updateSessionCategory(value)
 })
