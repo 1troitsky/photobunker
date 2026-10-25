@@ -322,6 +322,7 @@ onBeforeRouteLeave(
           </p>
         </div>
         <div v-show="tab === 'rules'" class="form-section">
+          <ToggleRow v-model="draft.rules.useAssignmentPhotoId" :label="s('useAssignmentPhotoId')" :hint="s('useAssignmentPhotoIdHint')" />
           <p class="field-hint">{{ s('rulesHint') }}</p>
           <div class="form-card">
             <ToggleRow
