@@ -180,22 +180,27 @@ export function warmNames(assignmentId: string | null = null): Promise<void> {
   return job
 }
 /** Idempotent server binding happens before upload; response loss is safe. */
-export async function ensureName(photoId: string, assignmentId: string | null): Promise<string> {
+export async function ensureName(photoId: string, assignmentId: string | null, expected?: string): Promise<string> {
   const key = scope()
   current(key)
   if (!hasConfirmedIdentity()) throw new Error('photo_names.offline')
   // Use the durable pre-consumed number; if no lease was available at capture,
   // server atomically allocates one keyed by this immutable photo UUID.
   const assigned = (await read(key)).state.photos.find(row => row.photoId === photoId)
+  // A preassigned permanent name must never silently change after local
+  // cache corruption/eviction. Report an actionable reconciliation error.
+  if (isNameId(expected) && (!assigned || assigned.code !== expected))
+    throw new Error('photo_names.local_reservation_missing')
   const result = await identityRequest<{ photoId: string; code: string }>(
     '/photo-names/claim', 'POST', {
       photoId, assignmentId: assigned?.assignmentId ?? assignmentId,
-      ...(assigned ? { leaseId: assigned.leaseId, number: assigned.number } : {}),
+      ...(assigned?.leaseId ? { leaseId: assigned.leaseId, number: assigned.number } : {}),
     },
   )
   current(key)
   if (result.photoId !== photoId || !isNameId(result.code) ||
-      (assigned && assigned.code !== result.code))
+      (assigned && assigned.code !== result.code) ||
+      (isNameId(expected) && result.code !== expected))
     throw new Error('photo_names.conflict')
   if (!assigned && navigator.locks) {
     await mutate(key, value => {
