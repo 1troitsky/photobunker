@@ -332,7 +332,16 @@ async function writeDirect(handle: string, call = false) {
   tab.value = 'chats'
   await perform(async () => {
     const version = actionGeneration
-    await startMessaging()
+    // A stalled Identity/Matrix request must not own the pending chat
+    // indefinitely. The bootstrap can finish in background; Retry and local
+    // encrypted text entry remain available even after this UI deadline.
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        startMessaging(),
+        new Promise<void>(resolve => { timeout = setTimeout(resolve, 12000) }),
+      ])
+    } finally { clearTimeout(timeout) }
     if (version !== actionGeneration) return
     if (!readyToWrite(peer)) return
     const roomId = await createChat([peer], '')
