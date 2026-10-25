@@ -46,7 +46,7 @@ import { deliver as workspaceDeliver } from './workspace/photos'
 import { w } from './workspace/text'
 import { startStudio } from './studio/store'
 import { startActivity } from './identity/activity'
-import { selected as selectedConversation } from './messages/store'
+import { selected as selectedConversation, pendingConversationUi } from './messages/store'
 import { purgeAccountFromDevice } from './identity/storage'
 
 const route = useRoute(),
@@ -308,7 +308,7 @@ watch(
           'editor-shell': editor,
           'privacy-screen': hidden,
           'messenger-shell': route.matched.some(record => record.name === 'messages'),
-          'messenger-thread-open': (route.name === 'messages' && !!selectedConversation) || route.name === 'conversation-profile',
+          'messenger-thread-open': (route.name === 'messages' && (!!selectedConversation || pendingConversationUi)) || route.name === 'conversation-profile',
         },
       ]"
     >
