@@ -1,0 +1,31 @@
+import type { Task, Team, Participant } from './model'
+
+export type TeamMember = Pick<Participant, 'id' | 'name' | 'role' | 'state'> | {
+  id: string
+  name: string
+  role: 'owner'
+}
+export function teamProfilePath(id: string) {
+  // IDs are opaque; never use Team names as identity or generate another Team.
+  return '/profile/teams/' + encodeURIComponent(id)
+}
+export function teamMembers(team?: Team): TeamMember[] {
+  if (!team) return []
+  const ownerId = team.ownerPublicId
+  const members: TeamMember[] = ownerId
+    ? [{ id: ownerId, name: ownerId, role: 'owner' }]
+    : []
+  const used = new Set(members.map(member => member.id.toLowerCase()))
+  for (const member of team.participants) {
+    const key = member.id.toLowerCase()
+    if (used.has(key)) continue
+    used.add(key)
+    members.push({ id: member.id, name: member.name, role: member.role, state: member.state })
+  }
+  return members
+}
+export function visibleTeamTasks(tasks: Task[], id: string) {
+  // Workspace already limits records to this viewer; never look up other
+  // owners' assignments by team name, and never infer access from membership.
+  return tasks.filter(task => task.teamId === id)
+}
