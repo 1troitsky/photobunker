@@ -700,6 +700,10 @@ onBeforeUnmount(() => {
           >
         </div>
         <dl class="native-facts">
+          <div v-if="photo.shortId || photo.needsName">
+            <dt>NAME-ID</dt>
+            <dd>{{ photo.shortId || nameText('pending') }}</dd>
+          </div>
           <div v-if="photo.category">
             <dt>{{ s('category') }}</dt>
             <dd>{{ photo.category }}</dd>
