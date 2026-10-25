@@ -204,7 +204,7 @@ onMounted(() => {
           </div>
           <div v-if="task.teamId">
             <dt>{{ s('team') }}</dt>
-            <dd>{{ task.teamName || s('team') }}</dd>
+            <dd><RouterLink :to="\'/profile/teams/\' + encodeURIComponent(task.teamId)">{{ task.teamName || s(\'team\') }}</RouterLink></dd>
           </div>
           <div>
             <dt>{{ s('requiredCount') }}</dt>
