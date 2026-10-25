@@ -15,7 +15,8 @@ import { canCapture } from '../collaboration/access'
 import { c } from '../collaboration/text'
 import { pendingCount as accountPending } from '../workspace/state'
 import { w } from '../workspace/text'
-import { account, identityReady, offlineCaptureIdentity, publicCaptureUnknown } from '../identity/store'
+import { account, deviceId, identityReady, offlineCaptureIdentity, publicCaptureUnknown } from '../identity/store'
+import { appLockReady, appLocked } from '../app/lock'
 import { checkCapture } from '../crypto/protocol'
 import * as encryptedPhotos from '../crypto/photos'
 import { protectionEnabled, protectionReady, photoReadAllowed, cachedContext, planReview, untrustedKeys } from '../crypto/store'
@@ -64,7 +65,8 @@ import {
   type PhotoMetadata,
 } from '../profiles/model'
 import { applyProfile, ResolutionError } from '../profiles/image'
-import { locationTracker } from '../profiles/location'
+import { locationAt, locationState, locationEnabled, requestLocation, subscribeLocation } from '../profiles/location'
+import { locationText } from '../profiles/location-text'
 import {
   cameraController,
   captureDemo,
@@ -144,6 +146,7 @@ const sizeError = ref<ResolutionError>()
 const category = ref(studioSession.value?.category ?? selectedCategory.value)
 const shot = ref('')
 const locationStatus = ref<'pending' | 'unavailable'>()
+const savedWithoutGps = ref(false)
 const lastPhoto = ref<Photo>()
 const sourceRatio = ref(4 / 3)
 const rules = computed(() => activeProfile.value?.rules ?? defaultRules())
@@ -274,6 +277,7 @@ const waiting = new Map<
   string,
   {
     timer: ReturnType<typeof setTimeout>
+    owner?: string
     busy: boolean
     next?: { location?: Location }
   }
@@ -281,6 +285,12 @@ const waiting = new Map<
 async function finishLocation(id: string, location?: Location) {
   const job = waiting.get(id)
   if (!job) return
+  // Never apply a late GPS update from one account into another scope.
+  if (job.owner !== account.value?.id) {
+    clearTimeout(job.timer)
+    waiting.delete(id)
+    return
+  }
   if (job.busy) {
     job.next = { location }
     return
@@ -288,6 +298,7 @@ async function finishLocation(id: string, location?: Location) {
   job.busy = true
   try {
     const current = account.value && protectionEnabled.value ? encryptedPhotos.recentCapture(id) : await readMetadata(id)
+    if (job.owner !== account.value?.id || !waiting.has(id)) return
     if (!current || current.deleteRequested) return
     if (
       current.metadata?.locationEditedAt ||
@@ -301,19 +312,25 @@ async function finishLocation(id: string, location?: Location) {
     const score = (value: Location) =>
       value.accuracy +
       (Math.abs(value.measuredAt - current.createdAt) / 1000) * 3
+    const eligible = location && location.accuracy <= current.profile!.rules.accuracy
+      ? location : undefined
+    const prior = previous && previous.accuracy <= current.profile!.rules.accuracy
+      ? previous : undefined
     const use =
-      location &&
-      Math.abs(location.measuredAt - current.createdAt) <=
+      eligible &&
+      Math.abs(eligible.measuredAt - current.createdAt) <=
         current.profile!.rules.locationWindow * 1000 &&
-      (!previous || score(location) < score(previous))
-        ? location
-        : previous
+      (!prior || score(eligible) < score(prior))
+        ? eligible
+        : prior
     const complete =
       !location || (!!use && use.accuracy <= current.profile!.rules.accuracy)
     const metadata: PhotoMetadata = {
       ...current.metadata,
       location: use,
-      locationStatus: complete ? (use ? undefined : 'unavailable') : 'pending',
+      locationStatus: complete
+        ? (use && use.accuracy <= current.profile!.rules.accuracy ? undefined : 'unavailable')
+        : 'pending',
     }
     if (account.value && protectionEnabled.value) {
       if (complete) await encryptedPhotos.recordGps(id, metadata)
@@ -331,6 +348,11 @@ async function finishLocation(id: string, location?: Location) {
       current,
     )
     }
+    if (lastPhoto.value?.id === id) {
+      lastPhoto.value = { ...lastPhoto.value, metadata }
+      if (use && use.accuracy <= current.profile!.rules.accuracy)
+        savedWithoutGps.value = false
+    }
     if (complete) {
       clearTimeout(job.timer)
       waiting.delete(id)
@@ -347,28 +369,34 @@ async function finishLocation(id: string, location?: Location) {
     }
   }
 }
-const geo = locationTracker((location, permanent) => {
-  locationStatus.value = location
-    ? undefined
-    : permanent
-      ? 'unavailable'
-      : 'pending'
+// App owns the single watchPosition; Camera observes the same cached fix and
+// remains free to capture before it arrives. Never start a second GPS watch.
+let unsubscribeLocation: (() => void) | undefined
+function locationChanged(location?: Location, permanent?: boolean) {
+  if (rules.value.location !== 'off' && locationEnabled.value) {
+    const accurate = locationAt(Date.now(), rules.value.locationWindow, rules.value.accuracy)
+    locationStatus.value = accurate
+      ? undefined
+      : (permanent || ['denied', 'unavailable', 'permission'].includes(locationState.value))
+        ? 'unavailable' : 'pending'
+  } else locationStatus.value = undefined
   if (location || permanent)
     for (const id of waiting.keys()) void finishLocation(id, location)
-})
+}
+function enableCameraLocation() {
+  if (!account.value || !deviceId.value || !appLockReady.value || appLocked.value ||
+      !locationEnabled.value) return
+  requestLocation(account.value.id + ':' + deviceId.value)
+}
 function stop() {
   controller?.stop()
-  geo.stop()
   for (const id of waiting.keys()) void finishLocation(id)
   mode.value = 'off'
   ready.value = false
   hardware.value = undefined
 }
 function startLocation() {
-  if (rules.value.location !== 'off') {
-    locationStatus.value = 'pending'
-    geo.start()
-  } else locationStatus.value = undefined
+  locationChanged()
 }
 function releasePending() {
   pending.value = rawPending.value = undefined
@@ -444,6 +472,7 @@ async function persist() {
     const photo = await savePhoto(pending.value, details)
     captureDescription.value=''
     lastPhoto.value = !account.value || photoReadAllowed() ? photo : undefined
+    savedWithoutGps.value = !!(photo.profile && photo.profile.rules.location !== 'off' && !photo.metadata?.location)
     if (
       photo.profile &&
       photo.profile.rules.location !== 'off' &&
@@ -458,8 +487,9 @@ async function persist() {
       const timer = setTimeout(() => {
         void finishLocation(photo.id)
       }, remaining)
-      waiting.set(photo.id, { timer, busy: false })
-      const location = geo.at(photo.createdAt)
+      waiting.set(photo.id, { timer, owner: account.value?.id, busy: false })
+      const location = locationAt(photo.createdAt, photo.profile.rules.locationWindow,
+        photo.profile.rules.accuracy)
       if (location) void finishLocation(photo.id, location)
     }
     if (details?.replacesId) selectAssignment(details.assignmentId ?? '')
@@ -552,7 +582,8 @@ async function capture() {
     : undefined
   const settings = profile?.rules ?? defaultRules()
   const createdAt = Date.now()
-  const candidate = settings.location === 'off' ? undefined : geo.at(createdAt)
+  const candidate = settings.location === 'off'
+    ? undefined : locationAt(createdAt, settings.locationWindow, settings.accuracy)
   const location =
     candidate &&
     Math.abs(candidate.measuredAt - createdAt) <= settings.locationWindow * 1000
@@ -580,7 +611,7 @@ async function capture() {
     metadata.locationStatus =
       location && location.accuracy <= settings.accuracy
         ? undefined
-        : locationStatus.value === 'unavailable'
+        : !locationEnabled.value || locationStatus.value === 'unavailable'
           ? 'unavailable'
           : 'pending'
   }
@@ -682,6 +713,7 @@ function beforeUnload(event: BeforeUnloadEvent) {
   }
 }
 onMounted(async () => {
+  unsubscribeLocation = subscribeLocation(locationChanged)
   controller = cameraController(video.value!)
   window.addEventListener('online', connectionChanged)
   window.addEventListener('offline', connectionChanged)
@@ -716,6 +748,11 @@ watch(
 watch(category, (value) => {
   updateSessionCategory(value)
 })
+// An opt-out applies to in-flight late fixes too, not just future captures.
+watch(locationEnabled, enabled => {
+  if (!enabled) for (const id of waiting.keys()) void finishLocation(id)
+  locationChanged()
+})
 watch(mode, () => {
   void nextTick(measure)
 })
@@ -735,6 +772,8 @@ onBeforeRouteLeave(() => {
 })
 onBeforeUnmount(() => {
   alive = false
+  unsubscribeLocation?.()
+  unsubscribeLocation = undefined
   stop()
   releasePending()
   waiting.forEach((job) => clearTimeout(job.timer))
@@ -807,13 +846,18 @@ onBeforeUnmount(() => {
       >
         {{ studioSession?.taskName || activeAssignment?.name }}</button
       ><span
-        v-if="mode !== 'off' && rules.location !== 'off'"
+        v-if="mode !== 'off' && rules.location !== 'off' && locationEnabled"
         class="camera-gps-state"
         >{{
           locationStatus
             ? s(locationStatus === 'pending' ? 'gpsPending' : 'gpsUnavailable')
             : 'GPS'
         }}</span
+      ><button
+        v-if="mode !== 'off' && rules.location !== 'off' && locationEnabled &&
+          locationState === 'permission' && !!account"
+        type="button" class="quiet-button" @click="enableCameraLocation"
+        >{{ locationText('enable') }}</button
       >
     </div>
     <div ref="stage" class="camera-preview-stage">
@@ -948,6 +992,8 @@ onBeforeUnmount(() => {
         {{ t(status)
         }}<span v-if="status === 'saved' && lastPhoto">
           · {{ lastPhoto.shortId }}</span
+        ><span v-if="status === 'saved' && savedWithoutGps">
+          · {{ locationText('photoWithoutGps') }}</span
         >
       </p>
       <p v-else class="capture-note">
