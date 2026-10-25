@@ -129,6 +129,7 @@
   padding: 32px 24px; font-size: 14px; color: #566377; text-align: center;
 }
 .welcome-resuming img { width: 88px; height: 88px; object-fit: contain; }
+.welcome-resume-title { font-size: 22px; letter-spacing: -.7px; color: #1c2532; }
 @media (max-width: 390px) {
   .welcome-topbar { min-height: 58px; padding-inline: 18px; }
   .welcome-content { padding: 4px 16px 24px; gap: 20px; }
