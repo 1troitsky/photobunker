@@ -266,7 +266,11 @@ export async function saveTeam(value: Team): Promise<Team> {
     throw new Error('workspace.invalid_team')
   const owner = scope()
   const item = { ...clone(value), name: value.name.trim(),
-    description: (value.description || '').trim() }
+    description: (value.description || '').trim(),
+    ...((account.value && value.revision === 0) ? {
+      accountId: account.value.id, ownerPublicId: account.value.publicId,
+      role: 'owner' as const, canManage: true,
+    } : {}) }
   if (account.value) {
     if (value.revision > 0 && value.canManage !== true)
       throw new Error('workspace.access_denied')
