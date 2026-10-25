@@ -87,6 +87,7 @@ export type Job = {
   assignmentId?: string
   needsName?: boolean
   nameAssignmentId?: string | null
+  nameCode?: string
   expiresAt: number
   submission: Submission
   signature: string
@@ -303,6 +304,7 @@ export async function save(
     assignmentId: photo.workspaceAssignmentId,
     needsName: photo.needsName,
     nameAssignmentId: photo.nameAssignmentId ?? null,
+    nameCode: photo.shortId,
     expiresAt,
     submission,
     signature,
@@ -403,7 +405,7 @@ export async function index() {
         })
       ).text(),
     ) as Photo
-    const name = pending.needsName ? await localName(pending.id) : undefined
+    const name = pending.needsName ? await localName(pending.id).catch(() => undefined) : undefined
     photos.push({
       ...photo,
       ...(name ? { shortId: name, title: photo.title || name } : {}),
@@ -760,7 +762,7 @@ export async function read(id: string) {
       pending.objects[full ? 'original' : 'thumbnail']!,
       { asset_id: id, kind: full ? 'original' : 'thumbnail' },
     )
-    const name = pending.needsName ? await localName(id) : undefined
+    const name = pending.needsName ? await localName(id).catch(() => undefined) : undefined
     guard(owner, generation)
     return {
       photo: {
@@ -841,7 +843,7 @@ async function send(id: string) {
   if (!value.submission.retentionSeconds) return
   // This mapping is server-authorized and separate from immutable encrypted
   // photo metadata. The signed submission and ciphertext never change.
-  if (value.needsName) await ensureName(id, value.nameAssignmentId ?? null)
+  if (value.needsName) await ensureName(id, value.nameAssignmentId ?? null, value.nameCode)
   const form = new FormData()
   form.set('submission', canonical(value.submission))
   form.set('signature', value.signature)
