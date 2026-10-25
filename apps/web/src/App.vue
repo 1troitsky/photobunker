@@ -118,12 +118,15 @@ let stopStudio: (() => void) | undefined
 let stopActivity: (() => void) | undefined
 const hidden = ref(false)
 const locationVisible = ref(!document.hidden)
+const locationResumeEpoch = ref(0)
 function locationVisibilityChanged() { locationVisible.value = !document.hidden }
+function locationPageShow() { locationResumeEpoch.value++ }
 // R1-01: before Camera mounts, share one GPS watch with all private views.
 // Do not start on public Welcome/share or before session + PIN proof.
 watch(
   [() => account.value?.id, deviceId, sessionState, offlineCaptureIdentity,
-    appLockReady, appLocked, locationEnabled, locationVisible, hidden, () => route.name],
+    appLockReady, appLocked, locationEnabled, locationVisible, locationResumeEpoch,
+    hidden, () => route.name],
   () => {
     const privatePage = !['welcome', 'shared-photo', 'account-auth'].includes(String(route.name))
     const scopedIdentity = hasConfirmedIdentity() ||
@@ -257,6 +260,8 @@ onMounted(() => {
   document.addEventListener('visibilitychange', backgroundLock)
   document.addEventListener('visibilitychange', locationVisibilityChanged)
   window.addEventListener('pagehide', lockApp)
+  window.addEventListener('pagehide', stopLocation)
+  window.addEventListener('pageshow', locationPageShow)
   stopProtection = startProtection()
   stopLibrary = startLibrary()
   stopDelivery = startDelivery()
@@ -276,6 +281,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', locationVisibilityChanged)
   stopLocation()
   window.removeEventListener('pagehide', lockApp)
+  window.removeEventListener('pagehide', stopLocation)
+  window.removeEventListener('pageshow', locationPageShow)
   stopProtection?.()
   stopLibrary?.()
   stopDelivery?.()
