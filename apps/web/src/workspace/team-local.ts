@@ -5,7 +5,8 @@ import type { Team } from '../studio/model'
 // Pending writes retain their original Workspace revision/Team UUID.
 const DATABASE = 'photobunker-team-cache-v1'
 type Entry = { key: CryptoKey; iv: Uint8Array; ciphertext: ArrayBuffer }
-export type TeamCache = { snapshot: Team[]; pending: Team[] }
+export type TeamTaskSummary = { id: string; name: string; teamId: string; completed: boolean }
+export type TeamCache = { snapshot: Team[]; pending: Team[]; tasks?: TeamTaskSummary[] }
 const empty = (): TeamCache => ({ snapshot: [], pending: [] })
 const enc = new TextEncoder()
 const dec = new TextDecoder()
