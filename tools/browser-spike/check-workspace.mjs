@@ -2,7 +2,7 @@
 import {chromium,webkit,expect} from '@playwright/test'
 import {createHash} from 'node:crypto'
 import assert from 'node:assert/strict'
-import {origin,headers,button,label,accountFixture,cleanupFixtures,monitorRuntime} from './account-qa.mjs'
+import {origin,headers,button,label,accountFixture,cleanupFixtures,monitorRuntime,labelQaDevice} from './account-qa.mjs'
 const base=`${origin}/api/v1/identity/workspace`
 async function contact(one,two){for(const [owner,person] of [[one,two],[two,one]])assert.equal((await owner.context.request.post(`${origin}/api/v1/identity/contacts`,{headers,data:{publicId:person.me.account.publicId}})).status(),200)}
 async function protect(fixture){const page=fixture.page;await page.goto(`${origin}/messages`);await expect(page.locator('.messages-screen')).toHaveAttribute('data-crypto-stage','ready',{timeout:90000});await expect(page.locator('.messages-screen')).toHaveAttribute('data-history-backup','true')}
@@ -95,7 +95,7 @@ for(const engine of (process.env.WORKSPACE_BROWSERS??'chromium,webkit').split(',
   await expect.poll(async()=>{const response=await viewer.context.request.get(`${base}/photos`,{headers});return (await response.json()).photos?.filter(item=>!item.workspaceAssignmentId).length??0},{timeout:60000}).toBe(1)
   const personal=(await(await viewer.context.request.get(`${base}/photos`,{headers})).json()).photos.find(item=>!item.workspaceAssignmentId)
   await viewer.page.goto(`${origin}/gallery/${personal.id}`);await expect(viewer.page.locator('.photo-view-stage img')).toBeVisible()
-  const switchPage=await viewer.context.newPage();await switchPage.goto(`${origin}/profile/account?mode=recover`);await label(switchPage,'Название устройства').fill(`QA ${engine} workspace switched`);await label(switchPage,'Ключ аккаунта').fill(owner.kit);await button(switchPage,'Готово').click();await expect(switchPage).toHaveURL(`${origin}/profile`);await expect(viewer.page.locator('.photo-view-stage img')).toHaveCount(0,{timeout:15000});await switchPage.close()
+  const switchPage=await viewer.context.newPage();await switchPage.goto(`${origin}/profile/account?mode=recover`);await label(switchPage,'Ключ аккаунта').fill(owner.kit);await button(switchPage,'Готово').click();await expect(switchPage).toHaveURL(`${origin}/profile`);await labelQaDevice(switchPage,`QA ${engine} workspace switched`);await expect(viewer.page.locator('.photo-view-stage img')).toHaveCount(0,{timeout:15000});await switchPage.close()
   console.log(`${engine}: live full-to-thumbnail downgrade and cross-tab account/photo isolation passed`)
   assert.deepEqual(errors,[]);assert.deepEqual(media,[])
   if(diagnostics.nativePhotoPoll)console.log(`${engine}: ${diagnostics.nativePhotoPoll} native cancelled photo-poll diagnostics; zero window errors/unhandled rejections`)
