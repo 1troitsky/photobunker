@@ -195,7 +195,7 @@ export async function ensureName(photoId: string, assignmentId: string | null): 
   if (result.photoId !== photoId || !isNameId(result.code) ||
       (assigned && assigned.code !== result.code))
     throw new Error('photo_names.conflict')
-  if (!assigned) {
+  if (!assigned && navigator.locks) {
     await mutate(key, value => {
       if (!value.photos.some(row => row.photoId === photoId))
         value.photos.push({ photoId, code: result.code, leaseId: '', number: 0, assignmentId })
