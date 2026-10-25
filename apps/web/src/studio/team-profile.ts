@@ -1,4 +1,5 @@
-import type { Task, Team, Participant } from './model'
+import type { Team, Participant } from './model'
+import type { TeamTaskSummary } from '../workspace/team-local'
 
 export type TeamMember = {
   id: string
@@ -25,7 +26,7 @@ export function teamMembers(team?: Team): TeamMember[] {
   }
   return members
 }
-export function visibleTeamTasks(tasks: Task[], id: string) {
+export function visibleTeamTasks(tasks: TeamTaskSummary[], id: string) {
   // Workspace already limits records to this viewer; never look up other
   // owners' assignments by team name, and never infer access from membership.
   return tasks.filter(task => task.teamId === id)
