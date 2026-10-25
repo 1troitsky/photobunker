@@ -56,7 +56,9 @@ const openRoute = computed(() =>
   ['shared-photo', 'profile', 'account-auth', 'person-profile'].includes(String(route.name)),
 )
 const offlineLocalRoute = computed(() =>
-  ['camera', 'gallery', 'photo', 'photo-editor', 'profiles', 'profile-edit'].includes(String(route.name)),
+  // A known non-extractable device may display its own encrypted outbox, but
+  // this offline scope NEVER grants an API/Matrix session or bypasses PIN.
+  ['camera', 'gallery', 'photo', 'photo-editor', 'profiles', 'profile-edit', 'messages'].includes(String(route.name)),
 )
 const privatePending = computed(() =>
   !openRoute.value && !hasConfirmedIdentity() &&
@@ -326,7 +328,7 @@ watch(
         :aria-label="t('navigation')"
       >
         <RouterLink
-          v-for="item in navigation.filter(item => sessionState !== 'offline' || ['camera', 'gallery', 'profile'].includes(item.name))"
+          v-for="item in navigation.filter(item => sessionState !== 'offline' || ['camera', 'gallery', 'messages', 'profile'].includes(item.name))"
           :key="item.name"
           :to="item.to"
           :class="[
