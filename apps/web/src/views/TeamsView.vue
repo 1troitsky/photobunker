@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { teamProfilePath } from '../studio/team-profile'
 import ScreenHeader from '../components/ScreenHeader.vue'
 import AppIcon from '../components/AppIcon.vue'
 import AppSheet from '../components/AppSheet.vue'
@@ -13,6 +15,7 @@ import { respond } from '../workspace/api'
 import { w } from '../workspace/text'
 import { workspaceError } from '../workspace/errors'
 import { s } from '../studio/text'
+const router = useRouter()
 const draft = ref<Team>(),
   busy = ref(false),
   error = ref('')
@@ -42,8 +45,9 @@ async function save() {
   if (!draft.value || busy.value) return
   busy.value = true
   try {
-    await saveTeam(draft.value)
+    const saved = await saveTeam(draft.value)
     draft.value = undefined
+    await router.push(teamProfilePath(saved.id))
   } catch (failure) {
     error.value = account.value
       ? workspaceError(failure)
@@ -101,7 +105,7 @@ onMounted(loadStudio)
       <p v-if="account" class="field-hint">{{ w('teamHint') }}</p>
       <p v-if="error && !draft" class="form-error" role="alert">{{ error }}</p>
       <article v-for="team in teams" :key="team.id" class="preset-tile">
-        <button class="preset-tile-main" @click="edit(team)">
+        <button class="preset-tile-main" @click="router.push(teamProfilePath(team.id))">
           <span class="person-avatar"><AppIcon name="users" /></span
           ><span
             ><strong>{{ team.name }}</strong
@@ -114,7 +118,7 @@ onMounted(loadStudio)
           v-if="team.canManage !== false"
           class="app-icon-button"
           :aria-label="`${s('editTeam')}: ${team.name}`"
-          @click="edit(team)"
+          @click="router.push(teamProfilePath(team.id))"
         >
           <AppIcon name="edit" /></button
         ><button
@@ -148,7 +152,8 @@ onMounted(loadStudio)
             :disabled="draft.canManage === false"
             required
             maxlength="80" /></label
-        ><ParticipantsEditor
+        ><label>{{ s('description') }}<textarea v-model="draft.description" maxlength="1000" rows="3" /></label>
+        <ParticipantsEditor
           v-model="draft.participants"
           :read-only="draft.canManage === false"
           :owner-public-id="draft.ownerPublicId"
