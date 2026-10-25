@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, afterEach, describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
 import { nextTick } from 'vue'
 import WelcomeView from '../src/views/WelcomeView.vue'
@@ -48,9 +48,14 @@ describe('R1-10 / guest Welcome', () => {
     expect(view.get('.welcome-create').attributes('href')).toContain('mode=create')
     expect(view.get('.welcome-recover').attributes('href')).toContain('mode=recover')
     await view.get('.welcome-create').trigger('click')
-    await router.isReady()
+    await flushPromises()
     expect(router.currentRoute.value.path).toBe('/profile/account')
     expect(router.currentRoute.value.query.mode).toBe('create')
+    await router.push('/welcome')
+    await view.get('.welcome-recover').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/profile/account')
+    expect(router.currentRoute.value.query.mode).toBe('recover')
     view.unmount()
   })
 
