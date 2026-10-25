@@ -32,7 +32,7 @@ import {
 import { t as callText } from '../calls/text'
 import AppIcon from '../components/AppIcon.vue'
 import AppSheet from '../components/AppSheet.vue'
-import { account, deviceId as identityDeviceId } from '../identity/store'
+import { account, deviceId as identityDeviceId, hasConfirmedIdentity, sessionState, offlineCaptureIdentity } from '../identity/store'
 import { IdentityError } from '../identity/api'
 import { a } from '../identity/text'
 import { u } from '../app/text'
@@ -102,6 +102,8 @@ import {
   incomingError,
   queueTextMessage,
   pendingDirectTexts,
+  pendingConversationUi,
+  restorePendingDirectOutbox,
   queueDirectText,
   bindDirectOutbox,
   retryMessage,
@@ -493,8 +495,20 @@ watch(
 )
 const pendingEntryPeer = computed(() => {
   const routePeer = typeof route.query.peer === 'string' ? route.query.peer.trim() : ''
-  return routePeer || pendingPeer.value || pendingDirectTexts.value[0]?.peerId || ''
+  // Restored outbox entries belong in the inbox; Back must not reopen a
+  // previously dismissed conversation simply because a queued row exists.
+  return routePeer || pendingPeer.value || ''
 })
+watch(pendingEntryPeer, value => { pendingConversationUi.value = !!value }, { immediate: true })
+watch(
+  [() => account.value?.id, () => identityDeviceId.value, sessionState, appLocked],
+  () => {
+    if (!appLocked.value && (hasConfirmedIdentity() ||
+        (offlineCaptureIdentity.value && ['offline', 'checking'].includes(sessionState.value))))
+      void restorePendingDirectOutbox()
+  },
+  { immediate: true },
+)
 let pendingOpenAttempt = ''
 const pendingAttemptKey = (peer: string) => `${account.value?.id || ''}:${peer}`
 function retryPendingConversation() {
@@ -537,6 +551,7 @@ function visibility() {
   if (!hidden.value && !profileOpen.value && atBottom.value) void markRead()
 }
 onMounted(() => {
+  void restorePendingDirectOutbox()
   void startMessaging()
   updateViewport()
   window.visualViewport?.addEventListener('resize', updateViewport)
@@ -558,11 +573,12 @@ onBeforeUnmount(() => {
   document.documentElement.style.removeProperty('--messenger-viewport')
   stopMessaging()
 })
-onBeforeRouteLeave(async () => {
-  if (connection.value === 'connecting' || (connection.value === 'ready' && diagnostic.value !== 'ready')) await startMessaging()
-  if (recoveryBusy.value || (callPhase.value !== 'idle' && !confirm(callText('leave'))) || (dirty.value && !confirm(s('leave')))) return false
-  try { await preserveMessageKeys() }
-  catch { actionError.value = m('backupBeforeLeaving'); return false }
+onBeforeRouteLeave(() => {
+  // Navigating away is local UI, never a network/Matrix bootstrap or backup
+  // barrier. Durable text is already committed before its composer is cleared.
+  if (recoveryBusy.value || (callPhase.value !== 'idle' && !confirm(callText('leave'))) ||
+      (dirty.value && !confirm(s('leave')))) return false
+  void preserveMessageKeys().catch(() => { messageBackupWarning.value = true })
   return true
 })
 
@@ -957,8 +973,17 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
               <button v-if="archiveCount || tab === 'archive'" :aria-pressed="tab === 'archive'" @click="tab = 'archive'">{{ ui('archive') }}<span v-if="archiveCount">{{ archiveCount }}</span></button>
             </div>
             <div class="messenger-chat-list">
-              <div v-if="connection === 'connecting' && !listed.length" class="chat-skeletons" aria-hidden="true"><div v-for="i in 4" :key="i"><i /><span><b /><b /></span></div></div>
+              <div v-if="connection === 'connecting' && !listed.length && !pendingDirectTexts.length" class="chat-skeletons" aria-hidden="true"><div v-for="i in 4" :key="i"><i /><span><b /><b /></span></div></div>
               <template v-else>
+                <button v-for="item in pendingDirectTexts.filter(value => !rooms.some(room => room.direct && room.id === selected))"
+                  :key="item.id" type="button" class="chat-row chatify-conversation-item"
+                  @click="writeDirect(item.peerId)">
+                  <span :class="['chat-avatar', avatarColor(item.peerId)]">{{ initials(item.peerId) }}</span>
+                  <span class="chat-summary">
+                    <span class="chat-summary-title"><strong>{{ item.peerId }}</strong></span>
+                    <span class="chat-summary-preview"><span>{{ item.body }}</span><small>{{ m('queued') }}</small></span>
+                  </span>
+                </button>
                 <div v-for="room in listed" :key="room.id" class="chat-swipe-row" @touchstart="event => { swipeX = event.touches[0]?.clientX ?? 0; swipeY = event.touches[0]?.clientY ?? 0 }" @touchend="endSwipe($event, room.id)" @contextmenu.prevent="chatMenu = room.id">
                   <div v-if="swiped === room.id" class="chat-swipe-actions"><button :aria-label="ui(room.archived ? 'unarchive' : 'archiveAction')" @click="perform(() => archiveConversation(room.id, !room.archived)); swiped = ''"><AppIcon name="archive" /></button><button :aria-label="ui('deleteChat')" @click="askDelete(room.id)"><AppIcon name="trash" /></button></div>
                   <ConversationListItem
@@ -970,7 +995,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                   <button v-if="swiped !== room.id" class="app-icon-button chat-row-menu" :aria-label="ui('chatActions')" @click="chatMenu = room.id"><AppIcon name="more" /></button>
                 </div>
                 <button v-for="hit in searchResults" :key="hit.id" class="search-result" @click="openSearchResult(hit.roomId, hit.id)"><span class="search-result-label">{{ hit.roomName }}</span><span>{{ hit.body }}</span><AppIcon name="search" /></button>
-                <div v-if="!listed.length && !searchResults.length" class="native-empty messenger-empty"><AppIcon :name="listQuery ? 'search' : tab === 'archive' ? 'archive' : 'messages'" /><h2>{{ listQuery ? ui('noMatches') : tab === 'archive' ? ui('archive') : m('empty') }}</h2><p>{{ tab.startsWith('folder:') ? ui('folderEmpty') : listQuery ? ui('noMatchesHint') : ui('emptyHint') }}</p><button v-if="!listQuery && tab === 'chats'" class="primary-button" @click="newOpen = true">{{ ui('newMessage') }}</button></div>
+                <div v-if="!listed.length && !pendingDirectTexts.length && !searchResults.length" class="native-empty messenger-empty"><AppIcon :name="listQuery ? 'search' : tab === 'archive' ? 'archive' : 'messages'" /><h2>{{ listQuery ? ui('noMatches') : tab === 'archive' ? ui('archive') : m('empty') }}</h2><p>{{ tab.startsWith('folder:') ? ui('folderEmpty') : listQuery ? ui('noMatchesHint') : ui('emptyHint') }}</p><button v-if="!listQuery && tab === 'chats'" class="primary-button" @click="newOpen = true">{{ ui('newMessage') }}</button></div>
               </template>
             </div>
           </template>
@@ -1125,13 +1150,14 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
             </div>
             <p v-if="linkedError" class="form-error message-error" role="alert">{{ linkedError }}<button class="quiet-button" @click="enterDiscussion">{{ w('retry') }}</button></p>
             <p v-if="actionError" class="form-error message-error" role="alert">{{ actionError }}</p>
-          <p v-if="messageBackupWarning" class="form-error message-error" role="alert">{{ m('backupBeforeLeaving') }}</p>
+          <!-- Old history backup health is visible in Security, not as a
+               repeating error banner beneath every fresh conversation. -->
           <p v-if="outboxError" class="form-error message-error" role="alert">{{ m('outboxUnavailable') }}</p>
           </template>
           <template v-else-if="pendingEntryPeer">
             <ThreadHeader
               :name="foundPerson?.fields.name || foundPerson?.fields.username || pendingEntryPeer"
-              :subtitle="personText('opening')"
+              :subtitle="connection === 'ready' ? personText('opening') : m('queued')"
               :avatar-class="avatarColor(pendingEntryPeer)"
               :initials="initials(foundPerson?.fields.name || foundPerson?.fields.username || pendingEntryPeer)"
               :group="false"
@@ -1144,7 +1170,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
             <div v-if="actionError" class="messenger-connection-error" role="alert"><p>{{ actionError }}</p><button class="quiet-button" :disabled="actionBusy" @click="retryPendingConversation">{{ personText('retry') }}</button></div>
             <div class="conversation">
               <div class="message-log" role="log" aria-live="polite" :aria-label="u('messages')">
-                <div class="thread-start"><span>{{ personText('opening') }}</span></div>
+                <div v-if="!pendingDirectTexts.some(value => value.peerId === pendingEntryPeer)" class="thread-start"><span>{{ ui('firstMessage') }}</span></div>
                 <MessageBubble
                   v-for="item in pendingDirectTexts.filter(value => value.peerId === pendingEntryPeer)"
                   :id="item.id"
@@ -1206,7 +1232,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
         <p v-if="!listedPeers.length && !foundPerson && !lookupBusy && !lookupError" class="new-message-empty">{{ directHandle ? ui('noMatches') : m('noContacts') }}</p>
         <template v-for="peer in listedPeers.filter(peer => peer.publicId !== foundPerson?.publicId)" :key="peer.publicId">
           <label v-if="group" class="messenger-person"><span :class="['chat-avatar', avatarColor(peer.publicId)]">{{ initials(peer.fields.name || peer.username || peer.publicId) }}</span><span><strong>{{ peer.fields.name || (peer.username ? '@' + peer.username : peer.fields.username || peer.publicId) }}</strong><small>{{ peer.username ? '@' + peer.username : peer.publicId }}</small></span><input v-model="chosen" type="checkbox" :aria-label="peer.publicId" :value="peer.publicId" /></label>
-          <button v-else type="button" class="messenger-person picker-row" :disabled="actionBusy" @click="directHandle = peer.publicId"><span :class="['chat-avatar', avatarColor(peer.publicId)]">{{ initials(peer.fields.name || peer.username || peer.publicId) }}</span><span><strong>{{ peer.fields.name || (peer.username ? '@' + peer.username : peer.fields.username || peer.publicId) }}</strong><small>{{ peer.username ? '@' + peer.username : peer.publicId }}</small></span><AppIcon name="chevron" /></button>
+          <button v-else type="button" class="messenger-person picker-row" :disabled="actionBusy" @click="writeDirect(peer.publicId)"><span :class="['chat-avatar', avatarColor(peer.publicId)]">{{ initials(peer.fields.name || peer.username || peer.publicId) }}</span><span><strong>{{ peer.fields.name || (peer.username ? '@' + peer.username : peer.fields.username || peer.publicId) }}</strong><small>{{ peer.username ? '@' + peer.username : peer.publicId }}</small></span><AppIcon name="chevron" /></button>
         </template>
         <button v-if="group" class="primary-button" :disabled="actionBusy || !chosen.length || !chatName.trim()">{{ m('create') }}<span v-if="chosen.length" aria-hidden="true"> · {{ chosen.length }}</span></button>
         <p v-if="actionError" class="form-error" role="alert">{{ actionError }}</p>
