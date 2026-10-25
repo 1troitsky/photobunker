@@ -423,6 +423,8 @@ export async function logout() {
         cleanup.push(db.remove(`trusted:${previousAccount}:${previousDevice}`).catch(() => {}))
         cleanup.push(import('../messages/durable-outbox')
           .then(outbox => outbox.eraseDurableOutbox(previousAccount, previousDevice)))
+        cleanup.push(import('../workspace/team-local')
+          .then(local => local.eraseTeamCache(previousAccount, previousDevice)).catch(() => {}))
       }
       await Promise.all(cleanup)
     } finally {
