@@ -102,6 +102,7 @@ export const pendingDirectTexts = ref<PendingDirectText[]>([])
 export const outboxError = ref(false)
 let outboxRestoredScope = ''
 let directOutboxRestoredScope = ''
+let visibleDirectScope = ''
 let directOutboxRestoring: Promise<void> | undefined
 let outboxRestoring: Promise<void> | undefined
 let outboxDraining = false
@@ -676,7 +677,13 @@ export async function restorePendingDirectOutbox(): Promise<void> {
     (offlineCaptureIdentity.value && ['offline', 'checking'].includes(sessionState.value))
   if (!locallyAllowed || !appLockReady.value || appLocked.value) return
   const scope = account.value?.id && deviceId.value ? `${account.value.id}:${deviceId.value}` : ''
-  if (!scope || directOutboxRestoredScope === scope) return
+  if (!scope) return
+  if (visibleDirectScope !== scope) {
+    pendingDirectTexts.value = []
+    visibleDirectScope = scope
+    directOutboxRestoredScope = ''
+  }
+  if (directOutboxRestoredScope === scope) return
   if (directOutboxRestoring) {
     await directOutboxRestoring
     if (directOutboxRestoredScope !== scope) return restorePendingDirectOutbox()
@@ -705,6 +712,9 @@ export async function queueDirectText(peerId: string, body: string): Promise<str
   const locallyAllowed = hasConfirmedIdentity() ||
     (offlineCaptureIdentity.value && ['offline', 'checking'].includes(sessionState.value))
   if (!locallyAllowed || !appLockReady.value || appLocked.value) throw new Error('outbox.locked')
+  const scope = `${account.value?.id || ''}:${deviceId.value}`
+  if (visibleDirectScope && visibleDirectScope !== scope) throw new Error('outbox.cancelled')
+  visibleDirectScope = scope
   const text = body.trim()
   if (!text || text.length > 10000) throw new Error('not_ready')
   const txnId = 'pb-' + crypto.randomUUID()
@@ -813,6 +823,7 @@ export function stopMessaging(clearRequest = true) {
   pendingDirectTexts.value = []
   outboxRestoredScope = ''
   directOutboxRestoredScope = ''
+  visibleDirectScope = ''
   directOutboxRestoring = undefined
   outboxRestoring = undefined
   outboxDraining = false
@@ -875,7 +886,8 @@ export function stopMessaging(clearRequest = true) {
 watch(
   () => `${account.value?.id || ''}:${deviceId.value}`,
   (value) => {
-    if (owner && value !== owner) stopMessaging()
+    if ((owner && value !== owner) || (visibleDirectScope && value !== visibleDirectScope))
+      stopMessaging()
   },
 )
 // A temporary /me failure must not permanently strand an encrypted outbox.
