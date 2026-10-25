@@ -196,8 +196,9 @@ final class WorkspaceTest extends TestCase
         $this->actor($member)->getJson($url)->assertOk()->assertJsonPath('description', 'A private description');
         $this->putJson($url, [...$team, 'description' => 'Not allowed'])->assertNotFound();
 
-        $updated = $this->actor($owner)->putJson($url, [
-            ...$team, 'description' => 'Updated description',
+        $current = $this->actor($owner)->getJson($url)->assertOk()->json();
+        $updated = $this->putJson($url, [
+            ...$current, 'description' => 'Updated description',
         ])->assertOk()->assertJsonPath('revision', 3)
           ->assertJsonPath('description', 'Updated description')->json();
         $this->getJson($url)->assertOk()->assertJsonPath('description', 'Updated description');
