@@ -1,5 +1,5 @@
 import { account, deviceId, hasConfirmedIdentity, sessionState } from '../identity/store'
-import { appLocked } from '../app/lock'
+import { appLockReady, appLocked } from '../app/lock'
 import { identityRequest } from '../identity/api'
 
 export type ReservedName = {
@@ -38,7 +38,7 @@ export function formatNameId(prefix: string, number: number): string {
 const subject = (assignmentId: string | null) => assignmentId ? 'assignment:' + assignmentId : 'personal'
 
 function scope() {
-  if (!account.value?.id || !deviceId.value || appLocked.value ||
+  if (!account.value?.id || !deviceId.value || !appLockReady.value || appLocked.value ||
       sessionState.value === 'signed-out' || sessionState.value === 'revoked') return ''
   return 'photo-names:' + account.value.id + ':' + deviceId.value
 }
