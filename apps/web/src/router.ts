@@ -26,6 +26,7 @@ import { launchPath } from './app/preferences'
 import { profileReturnTo } from './identity/person'
 import AssignmentEditView from './views/AssignmentEditView.vue'
 import TeamsView from './views/TeamsView.vue'
+import TeamProfileView from './views/TeamProfileView.vue'
 import PhotoEditView from './views/PhotoEditView.vue'
 
 export function createAppRouter(history: RouterHistory = createWebHistory()) {
@@ -59,6 +60,7 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
       },
       { path: '/profile', name: 'profile', component: UserProfileView },
       { path: '/profile/teams', name: 'teams', component: TeamsView },
+      { path: '/profile/teams/:id', name: 'team-profile', component: TeamProfileView },
       { path: '/messages', name: 'messages', component: MessagesView, children: [
         { path: 'profile/:handle', name: 'conversation-profile', component: PersonProfileView },
       ] },
