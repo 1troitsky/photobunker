@@ -902,7 +902,8 @@ watch(sessionState, state => {
       const current = client
       // A prior /me outage can set the UI offline while Matrix's sync
       // transport stayed alive. Require its actual sync state before resuming.
-      if (current.getSyncState() === 'SYNCING' || current.getSyncState() === 'PREPARED')
+      if (current.getSyncState() === sdk.SyncState.Syncing ||
+          current.getSyncState() === sdk.SyncState.Prepared)
         connection.value = 'ready'
       if (connection.value === 'ready') void restoreDurableOutbox(current)
     }
