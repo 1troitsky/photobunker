@@ -15,7 +15,8 @@ import { canCapture } from '../collaboration/access'
 import { c } from '../collaboration/text'
 import { pendingCount as accountPending } from '../workspace/state'
 import { w } from '../workspace/text'
-import { account, identityReady, offlineCaptureIdentity, publicCaptureUnknown } from '../identity/store'
+import { account, deviceId, identityReady, offlineCaptureIdentity, publicCaptureUnknown } from '../identity/store'
+import { appLockReady, appLocked } from '../app/lock'
 import { checkCapture } from '../crypto/protocol'
 import * as encryptedPhotos from '../crypto/photos'
 import { protectionEnabled, protectionReady, photoReadAllowed, cachedContext, planReview, untrustedKeys } from '../crypto/store'
@@ -64,7 +65,8 @@ import {
   type PhotoMetadata,
 } from '../profiles/model'
 import { applyProfile, ResolutionError } from '../profiles/image'
-import { locationTracker } from '../profiles/location'
+import { locationAt, locationState, locationEnabled, requestLocation, subscribeLocation } from '../profiles/location'
+import { locationText } from '../profiles/location-text'
 import {
   cameraController,
   captureDemo,
@@ -144,6 +146,7 @@ const sizeError = ref<ResolutionError>()
 const category = ref(studioSession.value?.category ?? selectedCategory.value)
 const shot = ref('')
 const locationStatus = ref<'pending' | 'unavailable'>()
+const savedWithoutGps = ref(false)
 const lastPhoto = ref<Photo>()
 const sourceRatio = ref(4 / 3)
 const rules = computed(() => activeProfile.value?.rules ?? defaultRules())
@@ -331,6 +334,10 @@ async function finishLocation(id: string, location?: Location) {
       current,
     )
     }
+    if (use && lastPhoto.value?.id === id) {
+      lastPhoto.value = { ...lastPhoto.value, metadata }
+      savedWithoutGps.value = false
+    }
     if (complete) {
       clearTimeout(job.timer)
       waiting.delete(id)
@@ -347,28 +354,32 @@ async function finishLocation(id: string, location?: Location) {
     }
   }
 }
-const geo = locationTracker((location, permanent) => {
-  locationStatus.value = location
-    ? undefined
-    : permanent
-      ? 'unavailable'
-      : 'pending'
+// App owns the single watchPosition; Camera observes the same cached fix and
+// remains free to capture before it arrives. Never start a second GPS watch.
+let unsubscribeLocation: (() => void) | undefined
+function locationChanged(location?: Location, permanent?: boolean) {
+  if (rules.value.location !== 'off' && locationEnabled.value) {
+    const accurate = locationAt(Date.now(), rules.value.locationWindow, rules.value.accuracy)
+    locationStatus.value = accurate ? undefined : permanent ||
+      ['denied', 'unavailable', 'permission'].includes(locationState.value) ? 'unavailable' : 'pending'
+  } else locationStatus.value = undefined
   if (location || permanent)
     for (const id of waiting.keys()) void finishLocation(id, location)
-})
+}
+function enableCameraLocation() {
+  if (!account.value || !deviceId.value || !appLockReady.value || appLocked.value ||
+      !locationEnabled.value) return
+  requestLocation(account.value.id + ':' + deviceId.value)
+}
 function stop() {
   controller?.stop()
-  geo.stop()
   for (const id of waiting.keys()) void finishLocation(id)
   mode.value = 'off'
   ready.value = false
   hardware.value = undefined
 }
 function startLocation() {
-  if (rules.value.location !== 'off') {
-    locationStatus.value = 'pending'
-    geo.start()
-  } else locationStatus.value = undefined
+  locationChanged()
 }
 function releasePending() {
   pending.value = rawPending.value = undefined
@@ -444,6 +455,7 @@ async function persist() {
     const photo = await savePhoto(pending.value, details)
     captureDescription.value=''
     lastPhoto.value = !account.value || photoReadAllowed() ? photo : undefined
+    savedWithoutGps.value = !!(photo.profile && photo.profile.rules.location !== 'off' && !photo.metadata?.location)
     if (
       photo.profile &&
       photo.profile.rules.location !== 'off' &&
@@ -459,7 +471,7 @@ async function persist() {
         void finishLocation(photo.id)
       }, remaining)
       waiting.set(photo.id, { timer, busy: false })
-      const location = geo.at(photo.createdAt)
+      const location = locationAt(photo.createdAt, photo.profile.rules.locationWindow)
       if (location) void finishLocation(photo.id, location)
     }
     if (details?.replacesId) selectAssignment(details.assignmentId ?? '')
@@ -552,7 +564,8 @@ async function capture() {
     : undefined
   const settings = profile?.rules ?? defaultRules()
   const createdAt = Date.now()
-  const candidate = settings.location === 'off' ? undefined : geo.at(createdAt)
+  const candidate = settings.location === 'off'
+    ? undefined : locationAt(createdAt, settings.locationWindow)
   const location =
     candidate &&
     Math.abs(candidate.measuredAt - createdAt) <= settings.locationWindow * 1000
@@ -682,6 +695,7 @@ function beforeUnload(event: BeforeUnloadEvent) {
   }
 }
 onMounted(async () => {
+  unsubscribeLocation = subscribeLocation(locationChanged)
   controller = cameraController(video.value!)
   window.addEventListener('online', connectionChanged)
   window.addEventListener('offline', connectionChanged)
@@ -735,6 +749,8 @@ onBeforeRouteLeave(() => {
 })
 onBeforeUnmount(() => {
   alive = false
+  unsubscribeLocation?.()
+  unsubscribeLocation = undefined
   stop()
   releasePending()
   waiting.forEach((job) => clearTimeout(job.timer))
@@ -807,13 +823,18 @@ onBeforeUnmount(() => {
       >
         {{ studioSession?.taskName || activeAssignment?.name }}</button
       ><span
-        v-if="mode !== 'off' && rules.location !== 'off'"
+        v-if="mode !== 'off' && rules.location !== 'off' && locationEnabled"
         class="camera-gps-state"
         >{{
           locationStatus
             ? s(locationStatus === 'pending' ? 'gpsPending' : 'gpsUnavailable')
             : 'GPS'
         }}</span
+      ><button
+        v-if="mode !== 'off' && rules.location !== 'off' && locationEnabled &&
+          locationState === 'permission' && !!account"
+        type="button" class="quiet-button" @click="enableCameraLocation"
+        >{{ locationText('enable') }}</button
       >
     </div>
     <div ref="stage" class="camera-preview-stage">
@@ -948,6 +969,8 @@ onBeforeUnmount(() => {
         {{ t(status)
         }}<span v-if="status === 'saved' && lastPhoto">
           · {{ lastPhoto.shortId }}</span
+        ><span v-if="status === 'saved' && savedWithoutGps">
+          · {{ locationText('photoWithoutGps') }}</span
         >
       </p>
       <p v-else class="capture-note">
