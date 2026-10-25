@@ -124,7 +124,7 @@ onBeforeUnmount(() => { sequence++; kit.value = ''; root = undefined })
 </script>
 <template>
   <section class="native-screen native-editor">
-    <ScreenHeader :title="connecting ? q('Подключить ключ аккаунта') : a(recovering ? 'signInKey' : 'create')" back="/profile" />
+    <ScreenHeader :title="connecting ? q('Подключить ключ аккаунта') : a(recovering ? 'signInKey' : 'create')" :back="route.query.from === 'welcome' && !account ? '/welcome' : '/profile'" />
     <form class="native-form editor-body" @submit.prevent="submit">
       <p class="field-hint">{{ recovering ? q('Введите единственный ключ аккаунта или выберите сохранённый файл. Приложение само подключит фотографии и переписку.') : q('Создайте аккаунт и сохраните один ключ. Он подключает фотографии и переписку на ваших устройствах.') }}</p>
       <template v-if="recovering">
