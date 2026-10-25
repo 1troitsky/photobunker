@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouterHistory } from 'vue-router'
 import SharedPhotoView from './views/SharedPhotoView.vue'
+import WelcomeView from './views/WelcomeView.vue'
 import AccountAuthView from './views/AccountAuthView.vue'
 import AccountEditView from './views/AccountEditView.vue'
 import ContactsView from './views/ContactsView.vue'
@@ -20,9 +21,7 @@ import AssignmentsView from './views/AssignmentsView.vue'
 import AssignmentView from './views/AssignmentView.vue'
 import UserProfileView from './views/UserProfileView.vue'
 import MessagesView from './views/MessagesView.vue'
-import {
-  sessionState,
-} from './identity/store'
+import { account, sessionState, offlineCaptureIdentity, hasConfirmedIdentity } from './identity/store'
 import { launchPath } from './app/preferences'
 import { profileReturnTo } from './identity/person'
 import AssignmentEditView from './views/AssignmentEditView.vue'
@@ -34,7 +33,9 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
     history,
     routes: [
       { path: '/s/:id', name: 'shared-photo', component: SharedPhotoView },
-      { path: '/', redirect: () => launchPath() },
+      { path: '/', redirect: () => hasConfirmedIdentity() ||
+        (offlineCaptureIdentity.value && !!account.value) ? launchPath() : '/welcome' },
+      { path: '/welcome', name: 'welcome', component: WelcomeView },
       {
         path: '/profile/account',
         name: 'account-auth',
@@ -113,6 +114,15 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
   // Guard decisions are synchronous. App.vue keeps private views unmounted
   // while the background server/device proof is still unresolved.
   router.beforeEach((to) => {
+    if (to.name === 'welcome') {
+      // A recognized account never sees the guest landing as its home.
+      // Local scoped capture cannot authorize a server API call here.
+      if (hasConfirmedIdentity() ||
+          (offlineCaptureIdentity.value && !!account.value &&
+            ['checking', 'offline'].includes(sessionState.value)))
+        return { path: launchPath(), replace: true }
+      return
+    }
     if (['shared-photo', 'profile', 'account-auth', 'person-profile'].includes(String(to.name))) return
     if (sessionState.value === 'signed-out' || sessionState.value === 'revoked') {
       const intended = profileReturnTo(to.path)
