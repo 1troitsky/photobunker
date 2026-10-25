@@ -33,9 +33,9 @@ describe('R1-04 / stable Team identity without merging legacy Space', () => {
   })
   it('lists only existing accessible tasks with the exact team ID', () => {
     const tasks = [
-      { id: 'work-a', teamId: team.id, name: 'Inside' },
-      { id: 'work-b', teamId: 'different', teamName: team.name, name: 'Same name' },
-      { id: 'work-c', teamId: team.id, name: 'Also inside' },
+      { id: 'work-a', teamId: team.id, name: 'Inside', completed: false },
+      { id: 'work-b', teamId: 'different', name: 'Same name', completed: false },
+      { id: 'work-c', teamId: team.id, name: 'Also inside', completed: true },
     ]
     expect(visibleTeamTasks(tasks, team.id).map(task => task.id)).toEqual(['work-a', 'work-c'])
   })
