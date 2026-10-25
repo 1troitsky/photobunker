@@ -115,6 +115,7 @@ onMounted(async () => {
       person.notify = false
     })
   }
+  item.rules.useAssignmentPhotoId ??= true // Old assignments default to shared numbering.
   draft.value = item
   shots.value = item.shots.join('\n')
   categories.value = item.rules.categories.join('\n')
