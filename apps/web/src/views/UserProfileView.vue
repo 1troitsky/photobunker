@@ -6,6 +6,7 @@ import {
   deviceId,
   loadIdentity,
   sessionState,
+  offlineCaptureIdentity,
   identityUnavailable,
   logout,
   profileSaved,
@@ -104,7 +105,7 @@ const sections = [
           <div class="inline-actions">
             <button class="quiet-button" @click="copyId">
               {{ a(copied ? 'copied' : 'copy') }}</button
-            ><button class="quiet-button" @click="router.push('/profile/edit')">
+            ><button v-if="!offlineCaptureIdentity" class="quiet-button" @click="router.push('/profile/edit')">
               {{ a('editProfile') }}
             </button>
           </div>
@@ -114,7 +115,11 @@ const sections = [
           <p>{{ a('accountHint') }}</p>
         </div>
       </section>
-      <div v-if="account && onboarding.scope === `${account.id}:${deviceId}` &&
+      <div v-if="account && offlineCaptureIdentity" class="form-notice" role="status">
+        <p>{{ a('sessionLocalOnly') }}</p>
+        <RouterLink to="/profile/account?mode=recover" class="quiet-button">{{ a('signInKey') }}</RouterLink>
+      </div>
+      <div v-if="account && !offlineCaptureIdentity && onboarding.scope === `${account.id}:${deviceId}` &&
         (onboarding.key === 'missing' || onboarding.key === 'error' ||
           onboarding.photos === 'error' || onboarding.messaging === 'error')" class="form-notice" role="status">
         <p v-if="onboarding.key === 'missing'">{{ a('authKeyMissing') }}</p>
@@ -133,7 +138,7 @@ const sections = [
       <p v-if="sessionNotice && !account" class="form-error" role="alert">
         {{ a('sessionExpired') }}
       </p>
-      <dl v-if="account" class="native-facts account-fields">
+      <dl v-if="account && !offlineCaptureIdentity" class="native-facts account-fields">
         <template
           v-for="field in [
             'username',
@@ -169,7 +174,7 @@ const sections = [
       <p v-if="!account && deletionNotice" class="field-hint" role="status">{{ q('Аккаунт закрыт. Очистка данных на сервере выполняется автоматически.') }}</p>
       <div v-if="!account && cleanupPending" class="form-error" role="alert"><p>{{ q('Закройте другие окна приложения, чтобы завершить удаление локальных данных.') }}</p><button class="secondary-button" :disabled="authBusy" @click="retryCleanup">{{ q('Завершить очистку устройства') }}</button></div>
       <p v-if="authError" class="form-error" role="alert">{{ authError }}</p>
-      <template v-if="account">
+      <template v-if="account && !offlineCaptureIdentity">
       <div class="account-stats">
         <div>
           <strong>{{ photos.length }}</strong

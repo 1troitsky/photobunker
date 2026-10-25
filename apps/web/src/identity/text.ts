@@ -96,6 +96,7 @@ const copy = {
   sessionRevoked: ['Доступ устройства отозван или аккаунт недоступен. Войдите с действующим ключом.', 'Device access was revoked or the account is unavailable. Sign in with a valid key.'],
   sessionSignedOut: ['Войдите, чтобы открыть этот раздел.', 'Sign in to open this section.'],
   sessionRetry: ['Проверить снова', 'Check again'],
+  sessionLocalOnly: ['Доступно только локальное содержимое этого устройства. Серверный вход ещё не подтверждён; права и другие устройства не проверены.', 'Only this device’s local content is available. Server sign-in has not been confirmed; permissions and other devices are not verified.'],
   sessionPinStorage: ['Не удалось проверить PIN из защищённого хранилища. Доступ остаётся закрытым. Повторите.', 'Could not verify the app PIN from secure storage. Access remains locked. Retry.'],
   denied: [
     'Доступ не подтверждён. Устройство может быть отозвано; используйте ключ восстановления.',

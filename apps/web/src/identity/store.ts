@@ -181,11 +181,10 @@ async function permanentFailure(epoch: number, expired: boolean) {
 function handleBroadcast(event: MessageEvent<unknown>) {
   const message = event.data
   if (!message || typeof message !== 'object') return
-  const { kind, accountId } = message as { kind?: unknown; accountId?: unknown }
+  const { kind } = message as { kind?: unknown }
   if (kind !== 'logout' && kind !== 'session') return
   // The cookie belongs to the browser origin, not an individual tab.
   // Another tab's logout also invalidates this tab's prior session.
-  void accountId
   cancelRetry()
   clear()
   identityReady.value = false
