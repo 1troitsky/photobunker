@@ -13,7 +13,11 @@ import {
   deviceId,
   connectMatrix,
   loadIdentity,
+  hasConfirmedIdentity,
+  sessionState,
+  offlineCaptureIdentity,
 } from '../identity/store'
+import { appLockReady, appLocked } from '../app/lock'
 import { identityRequest } from '../identity/api'
 import { storageKey, markCryptoReady } from './keys'
 import { accountKey, readAccountSecrets, saveAccountSecrets, roomKeysSavedLocally } from '../identity/vault'
@@ -82,6 +86,8 @@ export const connection = ref<
   selected = ref(''),
   messages = ref<Message[]>([]),
   busy = ref(false)
+// UI-only indicator for an uncreated direct conversation in the phone shell.
+export const pendingConversationUi = ref(false)
 // UI-only decrypted projections; the durable outbox stores AES-GCM ciphertext
 // (never browser plaintext storage). Matrix server events remain authoritative.
 const optimisticText = new Map<string, PendingText>()
@@ -96,6 +102,10 @@ export const pendingDirectTexts = ref<PendingDirectText[]>([])
 export const outboxError = ref(false)
 let outboxRestoredScope = ''
 let directOutboxRestoredScope = ''
+let visibleDirectScope = ''
+// A read started before a peer row is bound may resolve with that old row.
+// Keep it out of the visible pending inbox once its durable target is a room.
+const boundDirectIds = new Set<string>()
 let directOutboxRestoring: Promise<void> | undefined
 let outboxRestoring: Promise<void> | undefined
 let outboxDraining = false
@@ -664,15 +674,37 @@ async function restoreDurableOutbox(current: MatrixClient): Promise<void> {
     void drainDurableOutbox(current)
 }
 export async function restorePendingDirectOutbox(): Promise<void> {
+  // A locally remembered device is not server authorization. Only decrypt
+  // this device's encrypted outbox after its PIN gate has opened.
+  const locallyAllowed = hasConfirmedIdentity() ||
+    (offlineCaptureIdentity.value && ['offline', 'checking'].includes(sessionState.value))
+  if (!locallyAllowed || !appLockReady.value || appLocked.value) return
   const scope = account.value?.id && deviceId.value ? `${account.value.id}:${deviceId.value}` : ''
-  if (!scope || directOutboxRestoredScope === scope) return
-  if (directOutboxRestoring) { await directOutboxRestoring; return }
+  if (!scope) return
+  if (visibleDirectScope !== scope) {
+    pendingDirectTexts.value = []
+    boundDirectIds.clear()
+    visibleDirectScope = scope
+    directOutboxRestoredScope = ''
+  }
+  if (directOutboxRestoredScope === scope) return
+  if (directOutboxRestoring) {
+    await directOutboxRestoring
+    if (directOutboxRestoredScope !== scope) return restorePendingDirectOutbox()
+    return
+  }
   directOutboxRestoring = (async () => {
     const saved = await readDurableText()
     if (`${account.value?.id || ''}:${deviceId.value}` !== scope) return
-    pendingDirectTexts.value = saved
-      .filter((row): row is DurableText & { peerId: string } => typeof row.peerId === 'string')
-      .map(({ id, txnId, peerId, body, time }) => ({ id, txnId, peerId, body, time }))
+    // Do not overwrite a freshly inserted optimistic local intent if it was
+    // created while IndexedDB was being read in this restore pass.
+    const items = new Map(pendingDirectTexts.value.map(item => [item.id, item]))
+    for (const row of saved) {
+      if (typeof row.peerId === 'string' && !boundDirectIds.has(row.id))
+        items.set(row.id, { id: row.id, txnId: row.txnId,
+          peerId: row.peerId, body: row.body, time: row.time })
+    }
+    pendingDirectTexts.value = [...items.values()].sort((a, b) => a.time - b.time)
     directOutboxRestoredScope = scope
     outboxError.value = false
   })()
@@ -681,6 +713,12 @@ export async function restorePendingDirectOutbox(): Promise<void> {
   finally { directOutboxRestoring = undefined }
 }
 export async function queueDirectText(peerId: string, body: string): Promise<string> {
+  const locallyAllowed = hasConfirmedIdentity() ||
+    (offlineCaptureIdentity.value && ['offline', 'checking'].includes(sessionState.value))
+  if (!locallyAllowed || !appLockReady.value || appLocked.value) throw new Error('outbox.locked')
+  const scope = `${account.value?.id || ''}:${deviceId.value}`
+  if (visibleDirectScope && visibleDirectScope !== scope) throw new Error('outbox.cancelled')
+  visibleDirectScope = scope
   const text = body.trim()
   if (!text || text.length > 10000) throw new Error('not_ready')
   const txnId = 'pb-' + crypto.randomUUID()
@@ -708,6 +746,7 @@ export async function bindDirectOutbox(peerId: string, roomId: string): Promise<
   if (!current || !room || !roomChat(room).encrypted || roomChat(room).blocked)
     throw new Error('not_ready')
   for (const item of pendingDirectTexts.value.filter(value => value.peerId === peerId)) {
+    requireClient(current)
     await saveDurableText({
       id: item.id,
       txnId: item.txnId,
@@ -715,6 +754,8 @@ export async function bindDirectOutbox(peerId: string, roomId: string): Promise<
       body: item.body,
       time: item.time,
     })
+    boundDirectIds.add(item.id)
+    requireClient(current)
     optimisticText.set(item.id, {
       id: item.id,
       txnId: item.txnId,
@@ -756,7 +797,8 @@ function scheduleTextRetry(current: MatrixClient, entry: PendingText) {
   armRetryWake(current)
 }
 async function drainDurableOutbox(current: MatrixClient) {
-  if (outboxDraining || client !== current || connection.value !== 'ready' ||
+  if (!hasConfirmedIdentity() || appLocked.value ||
+      outboxDraining || client !== current || connection.value !== 'ready' ||
       diagnostic.value !== 'ready' || outboxRestoredScope !== owner) return
   outboxDraining = true
   try {
@@ -786,6 +828,8 @@ export function stopMessaging(clearRequest = true) {
   pendingDirectTexts.value = []
   outboxRestoredScope = ''
   directOutboxRestoredScope = ''
+  visibleDirectScope = ''
+  boundDirectIds.clear()
   directOutboxRestoring = undefined
   outboxRestoring = undefined
   outboxDraining = false
@@ -831,6 +875,7 @@ export function stopMessaging(clearRequest = true) {
   rooms.value = []
   messages.value = []
   selected.value = ''
+  pendingConversationUi.value = false
   peers.value = []
   blocked.clear()
   security.value = {
@@ -847,12 +892,33 @@ export function stopMessaging(clearRequest = true) {
 watch(
   () => `${account.value?.id || ''}:${deviceId.value}`,
   (value) => {
-    if (owner && value !== owner) stopMessaging()
+    if ((owner && value !== owner) || (visibleDirectScope && value !== visibleDirectScope))
+      stopMessaging()
   },
 )
+// A temporary /me failure must not permanently strand an encrypted outbox.
+// Retry Matrix bootstrap after R0-02 actually confirms the same session,
+// not merely when the browser's navigator.onLine flips back to true.
+watch(sessionState, state => {
+  if (state === 'revoked' || state === 'signed-out') stopMessaging()
+  else if (state === 'offline' && client) connection.value = 'offline'
+  else if (state === 'authenticated' && requested && !appLocked.value) {
+    if (!client && !startup) void startMessaging()
+    else if (client) {
+      const current = client
+      // A prior /me outage can set the UI offline while Matrix's sync
+      // transport stayed alive. Require its actual sync state before resuming.
+      if (current.getSyncState() === sdk.SyncState.Syncing ||
+          current.getSyncState() === sdk.SyncState.Prepared)
+        connection.value = 'ready'
+      if (connection.value === 'ready') void restoreDurableOutbox(current)
+    }
+  }
+})
 window.addEventListener('pagehide', () => stopMessaging())
 export function startMessaging(): Promise<void> {
   requested = true
+  if (appLocked.value) return Promise.resolve()
   if (startup) return startup
   if (client) return Promise.resolve()
   if (!navigator.locks) {
@@ -865,12 +931,16 @@ export function startMessaging(): Promise<void> {
   startup = (async () => {
     await loadIdentity(true)
     if (current !== generation) return
-    if (!account.value) {
-      connection.value = 'idle'
+    // R0-02's trusted local capture descriptor does not authenticate an API
+    // or Matrix session. Queue locally; connect only after /me is confirmed.
+    if (!hasConfirmedIdentity()) {
+      connection.value = sessionState.value === 'offline' ? 'offline' : 'idle'
       startup = undefined
       return
     }
-    owner = `${account.value.id}:${deviceId.value}`
+    const confirmedAccount = account.value
+    if (!confirmedAccount) return
+    owner = `${confirmedAccount.id}:${deviceId.value}`
     await restorePendingDirectOutbox()
     if (current !== generation) return
     let initialized!: () => void
@@ -1216,7 +1286,8 @@ export async function markRead() {
   if (event) await client.sendReadReceipt(event).catch(() => {})
 }
 export async function createChat(ids: string[], title: string) {
-  if (!client || diagnostic.value !== 'ready') throw new Error('not_ready')
+  if (!client || diagnostic.value !== 'ready' || !hasConfirmedIdentity() ||
+      appLocked.value) throw new Error('not_ready')
   const current = client
   const { peers: contacts } = await identityRequest<{ peers: Peer[] }>('/matrix/conversations/prepare', 'POST', { peers: ids })
   requireClient(current)
@@ -1341,7 +1412,8 @@ function prepareText(body: string, reply?: string, photoId?: string) {
     reply,
     photoId,
     time: Date.now(),
-    status: connection.value === 'ready' && room.getMyMembership() === 'join' ? 'sending' : 'queued',
+    // A local intent is never "sending" before encryption/persistence.
+    status: 'queued',
     inFlight: false,
   }
   optimisticText.set(entry.id, entry)
@@ -1352,7 +1424,7 @@ function prepareText(body: string, reply?: string, photoId?: string) {
 function isMessagingOffline() { return connection.value === 'offline' }
 async function dispatchText(entry: PendingText, current: MatrixClient) {
   if (entry.inFlight || optimisticText.get(entry.id) !== entry) return
-  if (connection.value !== 'ready') {
+  if (!hasConfirmedIdentity() || appLocked.value || connection.value !== 'ready') {
     entry.status = 'queued'
     refreshMessages()
     return
@@ -1640,7 +1712,8 @@ export async function retryMessage(id: string) {
       || optimistic.inFlight || !['notSent', 'queued'].includes(optimistic.status)) return
     const sdkEcho = room.getPendingEvents().find(event => event.getTxnId() === optimistic.txnId)
     if (!sdkEcho) {
-      if (connection.value === 'ready') await dispatchText(optimistic, current)
+      if (connection.value === 'ready' && hasConfirmedIdentity() && !appLocked.value)
+        await dispatchText(optimistic, current)
       return
     }
     if (sdkEcho.status !== 'not_sent') return
@@ -1737,13 +1810,17 @@ async function ensureMessagingRecovery(current: MatrixClient) {
     requireClient(current)
     await crypto.checkKeyBackupAndEnable()
     if (saved.matrixSecrets.backup) {
-      const restored = await crypto.restoreKeyBackup()
-      restoredKeys.value = restored.imported
+      // Old history is optional to fresh messaging. Never hold the synced
+      // composer hostage to a slow/missing backup or invent replacement keys.
+      void crypto.restoreKeyBackup()
+        .then(result => { if (client === current) { restoredKeys.value = result.imported; refresh() } })
+        .catch(() => { if (client === current) messageBackupWarning.value = true })
     }
   }
   if (saved?.roomKeys?.length) {
-    await crypto.importRoomKeys(saved.roomKeys)
-    requireClient(current)
+    void crypto.importRoomKeys(saved.roomKeys)
+      .then(() => { if (client === current) refresh() })
+      .catch(() => { if (client === current) messageBackupWarning.value = true })
   }
   await securityStatus()
   requireClient(current)
@@ -1753,16 +1830,25 @@ async function ensureMessagingRecovery(current: MatrixClient) {
   }
   await securityStatus()
   if (!security.value.verified) return // Legacy identity: never reset its keys.
-  if (!security.value.storage) {
-    await prepareRecovery()
-    await enableRecovery()
-    if (recoveryError.value) throw new Error('recovery.setup_failed')
-  } else {
-    await crypto.checkKeyBackupAndEnable()
-    const secrets = await crypto.exportSecretsBundle!()
+  // Backup maintenance can involve several server roundtrips. Keep it
+  // asynchronous once the device's cryptographic identity is established.
+  // History/recovery errors remain visible in Security and never authorize
+  // plaintext transport or an untrusted device.
+  void (async () => {
+    if (!security.value.storage) {
+      await prepareRecovery()
+      await enableRecovery()
+      if (recoveryError.value) throw new Error('recovery.setup_failed')
+    } else {
+      await crypto.checkKeyBackupAndEnable()
+      requireClient(current)
+      const secrets = await crypto.exportSecretsBundle!()
+      requireClient(current)
+      await saveAccountSecrets({ matrixSecrets: secrets })
+    }
     requireClient(current)
-    await saveAccountSecrets({ matrixSecrets: secrets })
-  }
+    await securityStatus()
+  })().catch(() => { if (client === current) messageBackupWarning.value = true })
   requireClient(current)
   for (const room of current.getRooms())
     for (const event of room.getLiveTimeline().getEvents())

@@ -46,7 +46,7 @@ import { deliver as workspaceDeliver } from './workspace/photos'
 import { w } from './workspace/text'
 import { startStudio } from './studio/store'
 import { startActivity } from './identity/activity'
-import { selected as selectedConversation } from './messages/store'
+import { selected as selectedConversation, pendingConversationUi } from './messages/store'
 import { purgeAccountFromDevice } from './identity/storage'
 
 const route = useRoute(),
@@ -56,7 +56,9 @@ const openRoute = computed(() =>
   ['shared-photo', 'profile', 'account-auth', 'person-profile'].includes(String(route.name)),
 )
 const offlineLocalRoute = computed(() =>
-  ['camera', 'gallery', 'photo', 'photo-editor', 'profiles', 'profile-edit'].includes(String(route.name)),
+  // A known non-extractable device may display its own encrypted outbox, but
+  // this offline scope NEVER grants an API/Matrix session or bypasses PIN.
+  ['camera', 'gallery', 'photo', 'photo-editor', 'profiles', 'profile-edit', 'messages'].includes(String(route.name)),
 )
 const privatePending = computed(() =>
   !openRoute.value && !hasConfirmedIdentity() &&
@@ -306,7 +308,7 @@ watch(
           'editor-shell': editor,
           'privacy-screen': hidden,
           'messenger-shell': route.matched.some(record => record.name === 'messages'),
-          'messenger-thread-open': (route.name === 'messages' && !!selectedConversation) || route.name === 'conversation-profile',
+          'messenger-thread-open': (route.name === 'messages' && (!!selectedConversation || pendingConversationUi)) || route.name === 'conversation-profile',
         },
       ]"
     >
@@ -326,7 +328,7 @@ watch(
         :aria-label="t('navigation')"
       >
         <RouterLink
-          v-for="item in navigation.filter(item => sessionState !== 'offline' || ['camera', 'gallery', 'profile'].includes(item.name))"
+          v-for="item in navigation.filter(item => sessionState !== 'offline' || ['camera', 'gallery', 'messages', 'profile'].includes(item.name))"
           :key="item.name"
           :to="item.to"
           :class="[

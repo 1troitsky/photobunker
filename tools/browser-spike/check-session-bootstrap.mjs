@@ -98,8 +98,16 @@ try {
   await expect.poll(async () => (await state(f.page)).state).toBe('offline')
   await expect(f.page.locator('.native-camera')).toBeVisible()
   assert.equal((await state(f.page)).id, f.me.account.id)
+  stage = 'offline-encrypted-messenger-scope'
+  await f.page.goto(origin + '/messages')
+  await expect(f.page.locator('.messages-screen')).toBeVisible()
+  assert.equal((await state(f.page)).confirmed, false)
+  await expect(f.page.locator('.messages-screen')).toHaveAttribute('data-connection', 'offline', { timeout: 30000 })
+  // A remembered local capture identity must not silently start a fresh
+  // Matrix session while /me is unavailable. Real E2EE sends need /me first.
   mode = 'real'
   await f.page.evaluate(async () => { await (await import('/src/identity/store.ts')).loadIdentity(true) })
+  await expect.poll(async () => (await state(f.page)).confirmed).toBe(true)
   assert.equal((await state(f.page)).confirmed, true)
   console.log('PASS: local camera opens before /me; 503 preserves its scoped context without claiming server authentication, then reconnect confirms it.')
 
