@@ -370,8 +370,10 @@ let unsubscribeLocation: (() => void) | undefined
 function locationChanged(location?: Location, permanent?: boolean) {
   if (rules.value.location !== 'off' && locationEnabled.value) {
     const accurate = locationAt(Date.now(), rules.value.locationWindow, rules.value.accuracy)
-    locationStatus.value = accurate ? undefined : permanent ||
-      ['denied', 'unavailable', 'permission'].includes(locationState.value) ? 'unavailable' : 'pending'
+    locationStatus.value = accurate
+      ? undefined
+      : (permanent || ['denied', 'unavailable', 'permission'].includes(locationState.value))
+        ? 'unavailable' : 'pending'
   } else locationStatus.value = undefined
   if (location || permanent)
     for (const id of waiting.keys()) void finishLocation(id, location)
