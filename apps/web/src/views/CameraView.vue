@@ -323,7 +323,9 @@ async function finishLocation(id: string, location?: Location) {
     const metadata: PhotoMetadata = {
       ...current.metadata,
       location: use,
-      locationStatus: complete ? (use ? undefined : 'unavailable') : 'pending',
+      locationStatus: complete
+        ? (use && use.accuracy <= current.profile!.rules.accuracy ? undefined : 'unavailable')
+        : 'pending',
     }
     if (account.value && protectionEnabled.value) {
       if (complete) await encryptedPhotos.recordGps(id, metadata)
@@ -341,9 +343,10 @@ async function finishLocation(id: string, location?: Location) {
       current,
     )
     }
-    if (use && lastPhoto.value?.id === id) {
+    if (lastPhoto.value?.id === id) {
       lastPhoto.value = { ...lastPhoto.value, metadata }
-      savedWithoutGps.value = false
+      if (use && use.accuracy <= current.profile!.rules.accuracy)
+        savedWithoutGps.value = false
     }
     if (complete) {
       clearTimeout(job.timer)
@@ -478,7 +481,8 @@ async function persist() {
         void finishLocation(photo.id)
       }, remaining)
       waiting.set(photo.id, { timer, owner: account.value?.id, busy: false })
-      const location = locationAt(photo.createdAt, photo.profile.rules.locationWindow)
+      const location = locationAt(photo.createdAt, photo.profile.rules.locationWindow,
+        photo.profile.rules.accuracy)
       if (location) void finishLocation(photo.id, location)
     }
     if (details?.replacesId) selectAssignment(details.assignmentId ?? '')
@@ -572,7 +576,7 @@ async function capture() {
   const settings = profile?.rules ?? defaultRules()
   const createdAt = Date.now()
   const candidate = settings.location === 'off'
-    ? undefined : locationAt(createdAt, settings.locationWindow)
+    ? undefined : locationAt(createdAt, settings.locationWindow, settings.accuracy)
   const location =
     candidate &&
     Math.abs(candidate.measuredAt - createdAt) <= settings.locationWindow * 1000
