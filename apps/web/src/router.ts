@@ -21,11 +21,10 @@ import AssignmentView from './views/AssignmentView.vue'
 import UserProfileView from './views/UserProfileView.vue'
 import MessagesView from './views/MessagesView.vue'
 import {
-  account,
-  loadIdentity,
-  restorePublicCaptureIdentity,
+  sessionState,
 } from './identity/store'
 import { launchPath } from './app/preferences'
+import { profileReturnTo } from './identity/person'
 import AssignmentEditView from './views/AssignmentEditView.vue'
 import TeamsView from './views/TeamsView.vue'
 import PhotoEditView from './views/PhotoEditView.vue'
@@ -111,15 +110,14 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
       { path: '/:pathMatch(.*)*', redirect: '/' },
     ],
   })
-  router.beforeEach(async (to) => {
-    if (to.name === 'shared-photo') return
-    await loadIdentity()
-    await restorePublicCaptureIdentity().catch(() => {})
-    if (
-      !account.value &&
-      !['profile', 'account-auth', 'person-profile'].includes(String(to.name))
-    )
-      return { path: '/profile', replace: true }
+  // Guard decisions are synchronous. App.vue keeps private views unmounted
+  // while the background server/device proof is still unresolved.
+  router.beforeEach((to) => {
+    if (['shared-photo', 'profile', 'account-auth', 'person-profile'].includes(String(to.name))) return
+    if (sessionState.value === 'signed-out' || sessionState.value === 'revoked') {
+      const intended = profileReturnTo(to.path)
+      return { path: '/profile', query: intended === '/profile' ? {} : { returnTo: intended }, replace: true }
+    }
   })
   return router
 }

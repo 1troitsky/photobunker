@@ -56,7 +56,7 @@ export async function identityRequest<T>(
   const timer = setTimeout(() => {
     timedOut = true
     controller.abort()
-  }, path === '/profile' ? 15000 : 45000)
+  }, path === '/profile' ? 15000 : path === '/me' ? 12000 : 45000)
   const binding = accountBinding ?? expectedAccount
   const privateRead =
     (method === 'GET' &&
@@ -94,7 +94,7 @@ export async function identityRequest<T>(
         response.status === 401 &&
         binding === expectedAccount &&
         expectedAccount &&
-        !['/challenges', '/sessions'].includes(path)
+        !['/challenges', '/sessions', '/me'].includes(path)
       )
         window.dispatchEvent(new Event('photobunker-identity-expired'))
       const payload = await response.json().catch(() => ({}))
@@ -108,6 +108,8 @@ export async function identityRequest<T>(
     const result = (
       format === 'blob' ? await response.blob() : await response.json()
     ) as T
+    if (binding && binding !== expectedAccount && !['/me', '/challenges', '/sessions', '/session'].includes(path))
+      throw new DOMException('Account changed', 'AbortError')
     if (privateRead && readVersion !== readGeneration)
       throw new DOMException('Photo read cancelled', 'AbortError')
     return result

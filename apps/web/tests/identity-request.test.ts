@@ -64,6 +64,18 @@ it('keeps current-account requests alive and removes completed listeners', async
   expect(signal!.aborted).toBe(false)
 })
 
+it('rejects an old account JSON response if its body completes after switching accounts', async () => {
+  let complete!: (value: unknown) => void
+  bindIdentity('old-account')
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: () => new Promise(resolve => { complete = resolve }) })))
+  const request = identityRequest('/workspace')
+  const rejected = expect(request).rejects.toMatchObject({ name: 'AbortError' })
+  await Promise.resolve()
+  bindIdentity('new-account')
+  complete({ private: 'synthetic-old-state' })
+  await rejected
+})
+
 it('prevents an old async continuation from starting a request after pagehide', async () => {
   vi.stubGlobal(
     'fetch',

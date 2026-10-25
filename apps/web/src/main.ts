@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import App from './App.vue'
+import { startIdentityBootstrap } from './identity/store'
 import { createAppRouter } from './router'
 import { initializeLocale } from './i18n'
 import { initializePreferences } from './app/preferences'
@@ -10,6 +11,9 @@ import './profiles.css'
 initializeLocale()
 initializePreferences()
 createApp(App).use(createAppRouter()).mount('#app')
+// Never await network Identity/Matrix before rendering. Shared photo links
+// have an independent public entry point.
+if (!location.pathname.startsWith('/s/')) startIdentityBootstrap()
 
 // The development server deliberately does not install an offline worker.
 // A production build served over HTTPS (or localhost) precaches public shell files.
