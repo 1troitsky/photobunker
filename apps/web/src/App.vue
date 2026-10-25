@@ -122,14 +122,15 @@ function locationVisibilityChanged() { locationVisible.value = !document.hidden 
 // R1-01: before Camera mounts, share one GPS watch with all private views.
 // Do not start on public Welcome/share or before session + PIN proof.
 watch(
-  [() => account.value?.id, deviceId, sessionState, appLockReady, appLocked,
-    locationEnabled, locationVisible, () => route.name],
+  [() => account.value?.id, deviceId, sessionState, offlineCaptureIdentity,
+    appLockReady, appLocked, locationEnabled, locationVisible, hidden, () => route.name],
   () => {
     const privatePage = !['welcome', 'shared-photo', 'account-auth'].includes(String(route.name))
     const scopedIdentity = hasConfirmedIdentity() ||
       (offlineCaptureIdentity.value && ['checking', 'offline'].includes(sessionState.value))
     if (privatePage && scopedIdentity && account.value?.id && deviceId.value &&
-        appLockReady.value && !appLocked.value && locationVisible.value && locationEnabled.value)
+        appLockReady.value && !appLocked.value && locationVisible.value &&
+        !hidden.value && locationEnabled.value)
       startGrantedLocation(account.value.id + ':' + deviceId.value)
     else stopLocation()
   },
