@@ -45,47 +45,56 @@ export async function loadAppLock() {
   appLockReady.value = true
 }
 export async function setAppPin(pin: string) {
-  const scope = key()
+  const scope = key(), epoch = loadEpoch
   if (!/^\d{4}$|^\d{6}$|^\d{8}$/.test(pin))
     throw new Error('PIN: 4, 6 или 8 цифр')
   const salt = crypto.randomUUID()
-  current = { salt, digest: await digest(pin, salt), failures: 0, until: 0 }
-  await db.put(scope, current)
-  if (scope !== key()) throw new Error('Аккаунт изменился')
+  const value = { salt, digest: await digest(pin, salt), failures: 0, until: 0 }
+  if (scope !== key() || epoch !== loadEpoch) throw new Error('Аккаунт изменился')
+  await db.put(scope, value)
+  if (scope !== key() || epoch !== loadEpoch) throw new Error('Аккаунт изменился')
+  current = value
   appPinEnabled.value = true
+  appLockFailure.value = false
 }
 export async function removeAppPin() {
-  const scope = key()
+  const scope = key(), epoch = loadEpoch
   await db.remove(scope)
-  if (scope !== key()) throw new Error('Аккаунт изменился')
+  if (scope !== key() || epoch !== loadEpoch) throw new Error('Аккаунт изменился')
   current = undefined
   appPinEnabled.value = false
   appLocked.value = false
+  appLockFailure.value = false
 }
 export function lockApp() {
   if (appPinEnabled.value) appLocked.value = true
 }
 export async function unlockApp(pin: string) {
   const scope = key(),
-    value = current
+    value = current, epoch = loadEpoch
+  const check = () => {
+    if (scope !== key() || epoch !== loadEpoch || current !== value) throw new Error('Аккаунт изменился')
+  }
   if (appLockFailure.value) throw new Error('Не удалось проверить PIN')
   if (!value) return
   if (value.until > Date.now())
     throw new Error('Слишком много попыток. Подождите 30 секунд.')
-  if ((await digest(pin, value.salt)) !== value.digest) {
+  const entered = await digest(pin, value.salt)
+  check()
+  if (entered !== value.digest) {
     value.failures++
     if (value.failures >= 5) {
       value.until = Date.now() + 30000
       value.failures = 0
     }
     await db.put(scope, value)
-    if (scope !== key()) throw new Error('Аккаунт изменился')
+    check()
     throw new Error('Неверный PIN')
   }
-  if (scope !== key()) throw new Error('Аккаунт изменился')
+  check()
   value.failures = 0
   value.until = 0
   await db.put(scope, value)
-  if (scope !== key()) throw new Error('Аккаунт изменился')
+  check()
   appLocked.value = false
 }

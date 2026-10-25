@@ -108,6 +108,8 @@ export async function identityRequest<T>(
     const result = (
       format === 'blob' ? await response.blob() : await response.json()
     ) as T
+    if (binding && binding !== expectedAccount && !['/me', '/challenges', '/sessions', '/session'].includes(path))
+      throw new DOMException('Account changed', 'AbortError')
     if (privateRead && readVersion !== readGeneration)
       throw new DOMException('Photo read cancelled', 'AbortError')
     return result

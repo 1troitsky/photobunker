@@ -59,6 +59,7 @@ export const account = ref<Account>(),
 
 let loading: Promise<void> | undefined
 let generation = 0, refreshRequested = false, retryCount = 0
+let bootstrapStarted = false
 let retryTimer: ReturnType<typeof setTimeout> | undefined
 const MAX_AUTOMATIC_RETRIES = 2
 const channel =
@@ -124,10 +125,13 @@ async function forgetLocalAccountAccess() {
   return forgetting
 }
 async function knownDevice(): Promise<DeviceCredential | undefined> {
+  const epoch = generation
   const devices = await credentials()
-  localDevices.value = devices
+  if (epoch !== generation) return
   const active = localStorage.getItem('pb-active-device') ??
     (await (await import('../crypto/database')).get<{ deviceId: string }>('capture-current'))?.deviceId
+  if (epoch !== generation) return
+  localDevices.value = devices
   return devices.find(d => d.id === active && !!d.publicId && !d.privateKey.extractable)
 }
 function scheduleRetry() {
@@ -147,7 +151,7 @@ async function markTemporaryFailure(epoch: number) {
   try {
     const device = await knownDevice()
     if (epoch !== generation) return
-    if (device && account.value?.id && deviceId.value === device.id) {
+    if (device && account.value?.id && deviceId.value === device.id && account.value.publicId === device.publicId) {
       offlineCaptureIdentity.value = true
       sessionState.value = 'offline'
     } else if (device && !account.value) {
@@ -202,7 +206,8 @@ if (typeof window !== 'undefined') {
 
 /** The app shell must not await network/bootstrap. */
 export function startIdentityBootstrap() {
-  if (sessionState.value !== 'initial') return
+  if (bootstrapStarted) return
+  bootstrapStarted = true
   // Speculative local context can permit capture but never authenticates API.
   void restorePublicCaptureIdentity(true).catch(() => {})
   void loadIdentity()
@@ -222,13 +227,16 @@ export function loadIdentity(force = false): Promise<void> {
     return forgetLocalAccountAccess()
   }
   if (loading) {
-    if (force) refreshRequested = true
+    // Concurrent callers share this check. Only a real cross-tab session
+    // invalidation queues another epoch; ordinary force callers must not loop.
     return loading
   }
   if (identityReady.value && !force) return Promise.resolve()
   const epoch = generation
-  identityReady.value = false
-  sessionState.value = 'checking'
+  if (!hasConfirmedIdentity() && sessionState.value !== 'offline') {
+    identityReady.value = false
+    sessionState.value = 'checking'
+  }
   const job = (async () => {
     try {
       const result = await identityRequest<Session>('/me')
@@ -301,8 +309,9 @@ export async function register(
   root: { privateKey: CryptoKey; publicKey: string },
   name = automaticDeviceName(),
 ) {
+  if (forgetting) await forgetting
   const epoch = generation
-  if (account.value?.rootKey === root.publicKey && deviceId.value) {
+  if (hasConfirmedIdentity() && account.value?.rootKey === root.publicKey && deviceId.value) {
     assertLoginEpoch(epoch)
     return
   }
@@ -324,9 +333,10 @@ export async function register(
   authenticated(result)
 }
 export async function recover(kit: string, name = automaticDeviceName()) {
+  if (forgetting) await forgetting
   const epoch = generation
   const root = await parseKit(kit)
-  if (account.value?.rootKey === root.publicKey && deviceId.value) {
+  if (hasConfirmedIdentity() && account.value?.rootKey === root.publicKey && deviceId.value) {
     assertLoginEpoch(epoch)
     return
   }
@@ -470,7 +480,10 @@ export async function restorePublicCaptureIdentity(warm = false) {
   }
   deviceId.value = saved.deviceId
   offlineCaptureIdentity.value = true
-  // Local-only capture never binds an authenticated server account.
+  // This is an expected-account header, not authentication. Keep the local
+  // scope on every background request so another tab's cookie cannot load a
+  // different account's workspace into this local account before /me resolves.
+  bindIdentity(saved.accountId)
   changed()
 }
 if (typeof window !== 'undefined')
