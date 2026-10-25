@@ -25,11 +25,14 @@ let permission: PermissionStatus | undefined
 let permissionListener: (() => void) | undefined
 let generation = 0
 let watchEpoch = 0
+let freshnessTimer: ReturnType<typeof setTimeout> | undefined
 
 function notify(location?: Location, permanent = false) {
   for (const listener of listeners) listener(location, permanent)
 }
 function clearWatcher() {
+  if (freshnessTimer) clearTimeout(freshnessTimer)
+  freshnessTimer = undefined
   // Late browser callbacks from a revoked or stopped observer are ignored.
   watchEpoch++
   if (watchId !== undefined) navigator.geolocation?.clearWatch(watchId)
@@ -78,6 +81,17 @@ function acceptPosition(scope: string, token: number, sampleEpoch: number, posit
   latestLocation.value = { source: 'gps', latitude, longitude, accuracy, measuredAt }
   locationState.value = 'ready'
   notify(latestLocation.value)
+  // A location chip must not say "GPS ready" forever after iOS suspends
+  // updates. No background polling: only an in-memory freshness deadline.
+  if (freshnessTimer) clearTimeout(freshnessTimer)
+  const latestAt = measuredAt
+  freshnessTimer = setTimeout(() => {
+    freshnessTimer = undefined
+    if (token !== generation || sampleEpoch !== watchEpoch ||
+        latestLocation.value?.measuredAt !== latestAt) return
+    locationState.value = 'pending'
+    notify()
+  }, Math.max(0, 15_001 - (Date.now() - measuredAt)))
 }
 function beginWatch(scope: string) {
   if (scope !== activeScope || !locationEnabled.value || watchId !== undefined) return
