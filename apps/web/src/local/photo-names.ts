@@ -130,7 +130,7 @@ export async function takeName(photoId: string, assignmentId: string | null): Pr
   const key = scope()
   if (!key) return
   try {
-    return await mutate(key, value => {
+    const claimed = await mutate(key, value => {
       const prior = value.photos.find(row => row.photoId === photoId)
       if (prior) return prior.code
       const lease = value.leases.find(row =>
@@ -142,6 +142,8 @@ export async function takeName(photoId: string, assignmentId: string | null): Pr
       // Replenishment never blocks the caller; the next shot remains offline.
       return code
     })
+    if (claimed && hasConfirmedIdentity()) void warmNames(assignmentId).catch(() => {})
+    return claimed
   } catch {
     // A photo is always saved with its UUID; never allocate an unsafe code.
     return undefined
