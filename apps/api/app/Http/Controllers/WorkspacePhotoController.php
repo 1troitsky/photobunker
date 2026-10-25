@@ -119,8 +119,9 @@ final class WorkspacePhotoController extends Controller
         $metadata = $this->metadata($data['metadata'] ?? []);
         $owner = DB::table('identity_accounts')->find($actor);
         $profile = $capture['preset'] ?? (isset($data['profile']) ? Validator::make($data['profile'], ['id' => 'required|string|max:120', 'name' => 'required|string|max:80', 'version' => 'required|integer|min:0', 'description' => 'sometimes|nullable|string|max:1000', 'rules' => 'required|array'])->validate() : null);
-        $nameId = app(\\App\\Workspace\\PhotoNames::class)->forPhoto($data['id']);
+        $nameId = app(\App\Workspace\PhotoNames::class)->forPhoto($data['id']);
         abort_if(($data['needsName'] ?? false) && ! $nameId, 409, 'photo_names.unassigned');
+        abort_if(! $nameId && preg_match('/^[A-Z]{4}[0-9]{4}$/D', $data['shortId'] ?? ''), 422);
         $manifest = ['id' => $data['id'], 'createdAt' => $data['createdAt'], 'width' => $data['width'], 'height' => $data['height'], 'bytes' => $original->getSize(), 'mime' => $data['mime'], 'method' => $data['method'],
             'title' => trim($data['title'] ?? '') ?: ($nameId ?? ''), 'note' => trim($data['note'] ?? ''), 'favorite' => $data['favorite'], 'category' => $data['category'] ?? '', 'shot' => $data['shot'] ?? '', 'tags' => $data['tags'] ?? [], 'metadata' => $metadata,
             'creatorPublicId' => $owner->public_id, 'shortId' => $nameId ?? (($data['shortId'] ?? '') ?: strtoupper(substr(str_replace('-', '', $data['id']), 0, 10))), 'retentionSeconds' => $duration, 'retentionAnchor' => $data['retentionAnchor'],
