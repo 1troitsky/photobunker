@@ -92,6 +92,19 @@ describe('R1-10 / guest Welcome', () => {
     expect(router.currentRoute.value.path).toBe('/camera')
   })
 
+  it('does not show guest Welcome to a trusted offline R0-02 account', async () => {
+    sessionState.value = 'offline'
+    offlineCaptureIdentity.value = true
+    account.value = { ...identity, fields: { ...identity.fields },
+      visibility: { ...identity.visibility }, matrix: { ...identity.matrix } }
+    const router = createAppRouter(createMemoryHistory())
+    await router.push('/')
+    await router.isReady()
+    expect(router.currentRoute.value.path).toBe('/camera')
+    await router.push('/welcome')
+    expect(router.currentRoute.value.path).toBe('/camera')
+  })
+
   it('preserves protected deep links rather than redirecting them to guest Welcome', async () => {
     const router = createAppRouter(createMemoryHistory())
     await router.push('/gallery/private-photo')
