@@ -1,9 +1,10 @@
 import type { Task, Team, Participant } from './model'
 
-export type TeamMember = Pick<Participant, 'id' | 'name' | 'role' | 'state'> | {
+export type TeamMember = {
   id: string
   name: string
-  role: 'owner'
+  role: Participant['role'] | 'owner'
+  state?: Participant['state']
 }
 export function teamProfilePath(id: string) {
   // IDs are opaque; never use Team names as identity or generate another Team.
