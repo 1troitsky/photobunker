@@ -89,11 +89,18 @@ final class PhotoNames
     public function claim(string $actor, string $device, string $photo, ?string $assignment, ?string $leaseId, ?int $number): string
     {
         return DB::transaction(function () use ($actor, $device, $photo, $assignment, $leaseId, $number) {
-            $prior = DB::table('photo_name_codes')->where('photo_id', $photo)->first();
+            // Serialize concurrent claims (including lost ACK replay) before
+            // testing UUID and code uniqueness.
+            DB::table('photo_name_allocator')->where('id', 1)->lockForUpdate()->first();
+                        $prior = DB::table('photo_name_codes')->where('photo_id', $photo)->first();
             if ($prior) {
                 abort_unless($prior->creator_id === $actor, 404);
                 return $prior->code;
             }
+            // Older uploaded photos have published shortIds in their
+            // original manifests; never assign them a new public name.
+            abort_if(DB::table('workspace_photos')->where('id', $photo)->exists() ||
+                DB::table('encrypted_photos')->where('id', $photo)->exists(), 409, 'photo_names.published');
             $this->subject($actor, $assignment);
             if ($leaseId) {
                 $lease = DB::table('photo_name_leases')->where('id', $leaseId)->first();
@@ -109,7 +116,8 @@ final class PhotoNames
                 $leaseId = $reserved['id'];
                 $code = $reserved['prefix'].sprintf('%04d', $reserved['first']);
             }
-            // Unique(photo_id) AND unique(code) enforce one-to-one mapping.
+            abort_if(DB::table('photo_name_codes')->where('code', $code)->exists(), 409, 'photo_names.used');
+                        // Unique(photo_id) AND unique(code) enforce one-to-one mapping.
             DB::table('photo_name_codes')->insert([
                 'photo_id' => $photo, 'code' => $code,
                 'creator_id' => $actor, 'device_id' => $device, 'lease_id' => $leaseId,
