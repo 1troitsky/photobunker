@@ -305,12 +305,26 @@ function assertLoginEpoch(epoch: number) {
   if (epoch !== generation || signingOut.value)
     throw new DOMException('Account changed during sign-in', 'AbortError')
 }
+async function withSignIn(action: (epoch: number) => Promise<void>) {
+  if (forgetting) await forgetting
+  // An explicit sign-in supersedes older /me checks, including a late guest
+  // 401 that must not invalidate the device proof currently being submitted.
+  const epoch = ++generation
+  cancelRetry()
+  try { await action(epoch) }
+  catch (error) {
+    if (epoch === generation && !hasConfirmedIdentity()) {
+      sessionState.value = account.value && offlineCaptureIdentity.value ? 'offline' : 'signed-out'
+      identityReady.value = true
+    }
+    throw error
+  }
+}
 export async function register(
   root: { privateKey: CryptoKey; publicKey: string },
   name = automaticDeviceName(),
 ) {
-  if (forgetting) await forgetting
-  const epoch = generation
+  return withSignIn(async epoch => {
   if (hasConfirmedIdentity() && account.value?.rootKey === root.publicKey && deviceId.value) {
     assertLoginEpoch(epoch)
     return
@@ -331,10 +345,10 @@ export async function register(
   await completeOnboardingDevice(root.publicKey, device, result.account.publicId)
   assertLoginEpoch(epoch)
   authenticated(result)
+  })
 }
 export async function recover(kit: string, name = automaticDeviceName()) {
-  if (forgetting) await forgetting
-  const epoch = generation
+  return withSignIn(async epoch => {
   const root = await parseKit(kit)
   if (hasConfirmedIdentity() && account.value?.rootKey === root.publicKey && deviceId.value) {
     assertLoginEpoch(epoch)
@@ -356,9 +370,10 @@ export async function recover(kit: string, name = automaticDeviceName()) {
   await completeOnboardingDevice(root.publicKey, device, result.account.publicId)
   assertLoginEpoch(epoch)
   authenticated(result)
+  })
 }
 export async function login(device: DeviceCredential) {
-  const epoch = generation
+  return withSignIn(async epoch => {
   const result = await prove<Session>(
     {
       purpose: 'login',
@@ -370,6 +385,7 @@ export async function login(device: DeviceCredential) {
   )
   assertLoginEpoch(epoch)
   authenticated(result)
+  })
 }
 export async function logout() {
   signingOut.value=true

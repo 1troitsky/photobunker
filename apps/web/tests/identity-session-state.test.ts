@@ -45,8 +45,9 @@ function device(id = 'a') {
 }
 function held<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>(done => { resolve = done })
-  return { promise, resolve }
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
 }
 beforeEach(async () => {
   vi.resetModules()
@@ -134,6 +135,23 @@ it('does not replace a newly recovered account with an old pending session respo
   await store.recover('synthetic-root-b')
   response.resolve(session('a'))
   await check
+  expect(store.account.value?.id).toBe('b')
+  expect(store.sessionState.value).toBe('authenticated')
+})
+
+it('does not let a late guest 401 cancel a new sign-in whose device proof is pending', async () => {
+  const initial = held<ReturnType<typeof session>>()
+  const proof = held<ReturnType<typeof session>>()
+  fake.request.mockReturnValue(initial.promise)
+  fake.reserve.mockResolvedValue(device('b'))
+  fake.proof.mockReturnValue(proof.promise)
+  const check = store.loadIdentity()
+  const recovery = store.recover('synthetic-root-b')
+  await vi.waitFor(() => expect(fake.proof).toHaveBeenCalledOnce())
+  initial.reject(new IdentityError(401))
+  await check
+  proof.resolve(session('b'))
+  await recovery
   expect(store.account.value?.id).toBe('b')
   expect(store.sessionState.value).toBe('authenticated')
 })
