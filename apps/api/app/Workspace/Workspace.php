@@ -74,6 +74,9 @@ final class Workspace
             'participants' => 'sometimes|array|max:100', 'participants.*.id' => 'required|string|max:120|distinct',
             'participants.*.name' => 'present|nullable|string|max:80', 'participants.*.role' => 'required|in:curator,contributor,viewer',
             'participants.*.photoScope' => 'sometimes|in:default,none,thumbnails,all', 'participants.*.notify' => 'sometimes|boolean'];
+        if ($kind === 'team') {
+            $rules['description'] = 'sometimes|nullable|string|max:1000';
+        }
         if ($kind === 'task') {
             $rules += ['instructions' => 'present|nullable|string|max:4000', 'startsAt' => 'present|nullable|integer|min:0', 'finishesAt' => 'present|nullable|integer|min:0',
                 'targetCount' => 'required|integer|min:1|max:999', 'shots' => 'present|array|max:100', 'shots.*' => 'required|string|max:80|distinct',

@@ -15,6 +15,7 @@ export const saveInactivity = (inactivityDays: number) => identityRequest<Pick<S
 
 export async function purgeAccountFromDevice(owner: string) {
   await (await import('../messages/durable-outbox')).eraseDurableOutbox(owner)
+  await (await import('../workspace/team-local')).eraseTeamCache(owner)
   for (const entry of await encrypted.entries<unknown>(''))
     if (entry.key.split(':').includes(owner)) await encrypted.remove(entry.key)
   await clearScope(`account:${owner}`)

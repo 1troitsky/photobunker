@@ -1,4 +1,7 @@
-import { account, loadIdentity } from '../identity/store'
+import { account, deviceId, sessionState, hasConfirmedIdentity, loadIdentity } from '../identity/store'
+import { appLockReady, appLocked } from '../app/lock'
+import { IdentityError, IdentityNetworkError, IdentityTimeoutError } from '../identity/api'
+import { mutateTeamCache, readTeamCache, type TeamCache, type TeamTaskSummary } from '../workspace/team-local'
 import * as workspace from '../workspace/api'
 import { invitations } from '../workspace/state'
 import { taskGrants } from '../workspace/access'
@@ -23,6 +26,9 @@ import { cleanupVersions } from './versions'
 export const localPresets = ref<Preset[]>([]),
   localTasks = ref<Task[]>([]),
   teams = ref<Team[]>([])
+export const cachedTeamTasks = ref<TeamTaskSummary[]>([])
+export const pendingTeamIds = ref<string[]>([])
+export const teamSyncErrors = ref<string[]>([])
 export const personalCategories = ref<string[]>([])
 let categoryRevision = 0
 export const selectedCategory = ref('')
@@ -34,6 +40,109 @@ const scope = () =>
     ? `account:${account.value.id}`
     : accessLibraryId.value || 'device'
 let generation = 0
+let sendingTeams: { scope: string; promise: Promise<void> } | undefined
+let teamRetryTimer: ReturnType<typeof setTimeout> | undefined
+let teamRetryAttempt = 0
+const teamCacheScope = () => account.value?.id && deviceId.value &&
+  appLockReady.value && !appLocked.value && sessionState.value !== 'signed-out' &&
+  sessionState.value !== 'revoked'
+    ? 'team:' + account.value.id + ':' + deviceId.value : ''
+function projectTeams(data: TeamCache) {
+  const list = new Map(data.snapshot.map(team => [team.id, team]))
+  for (const pending of data.pending) list.set(pending.id, pending)
+  teams.value = [...list.values()]
+  cachedTeamTasks.value = data.tasks ?? []
+  pendingTeamIds.value = data.pending.map(team => team.id)
+}
+async function restoreTeamsFromDevice(owner: string) {
+  const key = teamCacheScope()
+  if (!key || owner !== scope()) return
+  const data = await readTeamCache(key)
+  if (owner === scope() && key === teamCacheScope()) projectTeams(data)
+}
+function sameTeam(source: Team, candidate: Team) {
+  const participants = (team: Team) => team.participants.map(person => ({
+    id: person.id.toLowerCase(), role: person.role,
+    photoScope: person.photoScope || 'default',
+  })).sort((a, b) => a.id.localeCompare(b.id))
+  return source.name.trim() === candidate.name.trim() &&
+    (source.description || '') === (candidate.description || '') &&
+    JSON.stringify(participants(source)) === JSON.stringify(participants(candidate))
+}
+function retryTeamOnTransientFailure(key: string, failure: unknown) {
+  const transient = failure instanceof IdentityNetworkError ||
+    failure instanceof IdentityTimeoutError ||
+    (failure instanceof IdentityError && failure.status >= 500)
+  if (!transient || teamRetryTimer || !navigator.onLine) return
+  const delay = Math.min(30_000, 2000 * 2 ** teamRetryAttempt)
+  teamRetryAttempt = Math.min(teamRetryAttempt + 1, 4)
+  teamRetryTimer = setTimeout(() => {
+    teamRetryTimer = undefined
+    if (key === teamCacheScope() && hasConfirmedIdentity()) scheduleTeamFlush()
+  }, delay)
+}
+// Deliver only while server Identity is really confirmed, never from an
+// R0-02 offline capture descriptor. Existing Workspace revision checks and
+// UUIDs prevent extra Team records on lost ACK/retry.
+export function flushPendingTeams(): Promise<void> {
+  const key = teamCacheScope()
+  if (!key || !hasConfirmedIdentity()) return Promise.resolve()
+  if (sendingTeams?.scope === key) return sendingTeams.promise
+  const job = (async () => {
+  const owner = scope()
+  try {
+    for (const intent of (await readTeamCache(key)).pending) {
+      if (teamCacheScope() !== key || scope() !== owner || !hasConfirmedIdentity()) return
+      try {
+        let saved: Team | undefined
+        // Probe first to reconcile a lost success response before re-PUT.
+        try {
+          const remote = await workspace.request<Team>('/team/' + encodeURIComponent(intent.id))
+          if (sameTeam(remote, intent)) saved = remote
+          else if (remote.revision !== intent.revision) {
+            teamSyncErrors.value = [...new Set([...teamSyncErrors.value, intent.id])]
+            continue
+          }
+        } catch { /* New Team (404) or network loss: keep the same UUID. */ }
+        if (!saved) saved = await workspace.save('team', intent)
+        if (teamCacheScope() !== key || scope() !== owner) return
+        const accepted = saved
+        const next = await mutateTeamCache(key, data => ({
+          snapshot: [...data.snapshot.filter(item => item.id !== accepted.id), accepted],
+          pending: data.pending.filter(item => item.id !== intent.id ||
+            JSON.stringify(item) !== JSON.stringify(intent)),
+        }))
+        if (teamCacheScope() !== key || scope() !== owner) return
+        projectTeams(next)
+        teamSyncErrors.value = teamSyncErrors.value.filter(id => id !== intent.id)
+        if (!next.pending.length) {
+          if (teamRetryTimer) clearTimeout(teamRetryTimer)
+          teamRetryTimer = undefined
+          teamRetryAttempt = 0
+        }
+        changed()
+      } catch (failure) {
+        if (teamCacheScope() !== key || scope() !== owner) return
+        // Conflict / ACL remain pending and actionable. Never silently
+        // discard the local draft or imply the server accepted an invite.
+        teamSyncErrors.value = [...new Set([...teamSyncErrors.value, intent.id])]
+        retryTeamOnTransientFailure(key, failure)
+      }
+    }
+  } finally { /* The in-flight promise owns the cross-caller barrier. */ }
+  })()
+  const promise = job.finally(() => {
+    if (sendingTeams?.promise === promise) sendingTeams = undefined
+  })
+  sendingTeams = { scope: key, promise }
+  return promise
+}
+function scheduleTeamFlush() {
+  void flushPendingTeams().catch(() => {
+    // The durable local intent remains available for the next retry.
+    teamSyncErrors.value = [...new Set([...teamSyncErrors.value, ...pendingTeamIds.value])]
+  })
+}
 const changed = () => {
   window.dispatchEvent(new Event('photobunker-studio'))
   channel?.postMessage('changed')
@@ -41,8 +150,9 @@ const changed = () => {
 let channel: BroadcastChannel | undefined
 let loadingStudio: { owner: string; promise: Promise<void> } | undefined
 export async function loadStudio(): Promise<void> {
-  await loadIdentity()
   const owner = scope()
+  if (account.value) await restoreTeamsFromDevice(owner).catch(() => {})
+  await loadIdentity()
   if (loadingStudio?.owner === owner) return loadingStudio.promise
   const promise = loadStudioData()
   loadingStudio = { owner, promise }
@@ -56,11 +166,31 @@ async function loadStudioData() {
     owner = scope()
   try {
     if (account.value) {
+      if (teamCacheScope()) await restoreTeamsFromDevice(owner).catch(() => {})
       const data = await workspace.index()
       if (current !== generation || owner !== scope()) return
       localPresets.value = data.presets
       localTasks.value = data.tasks
-      teams.value = data.teams
+      const key = teamCacheScope()
+      if (key) {
+        try {
+          const next = await mutateTeamCache(key, local => {
+            const pending = local.pending.filter(item => {
+              const remote = data.teams.find(team => team.id === item.id)
+              return !remote || !sameTeam(remote, item)
+            })
+            return { ...local, snapshot: data.teams, pending, tasks: data.tasks.map(task => ({
+              id: task.id, name: task.name, teamId: task.teamId, completed: task.completed,
+            })) }
+          })
+          if (current !== generation || owner !== scope()) return
+          projectTeams(next)
+          scheduleTeamFlush()
+        } catch {
+          // Never replace a newer live optimistic list with a stale response.
+          teams.value = data.teams
+        }
+      } else teams.value = data.teams
       personalCategories.value = data.categories.names
       categoryRevision = data.categories.revision
       invitations.value = data.invitations
@@ -150,6 +280,16 @@ export async function savePreset(value: Preset): Promise<Preset> {
 }
 export async function saveTask(value: Task): Promise<Task> {
   if (validateTask(value)) throw new Error('workspace.invalid_task')
+  // The Workspace API requires the Team to exist before an Assignment can
+  // reference it. Keep the draft intact if its local Team is still pending.
+  if (account.value && value.teamId && pendingTeamIds.value.includes(value.teamId)) {
+    await flushPendingTeams()
+    // A flush already in flight may have captured the queue before this Team
+    // was committed locally. Give the new intent one delivery pass too.
+    if (pendingTeamIds.value.includes(value.teamId)) await flushPendingTeams()
+    if (pendingTeamIds.value.includes(value.teamId))
+      throw new Error('workspace.team_pending')
+  }
   const owner = scope(),
     saved = account.value
       ? await workspace.save('task', value)
@@ -170,24 +310,44 @@ export async function saveTask(value: Task): Promise<Task> {
   return saved
 }
 export async function saveTeam(value: Team): Promise<Team> {
-  if (
-    !value.name.trim() ||
-    value.name.length > 80 ||
-    !validateParticipants(value.participants)
-  )
+  if (!value.name.trim() || value.name.length > 80 ||
+      (value.description || '').length > 1000 ||
+      !validateParticipants(value.participants))
     throw new Error('workspace.invalid_team')
-  const owner = scope(),
-    saved = account.value
-      ? await workspace.save('team', value)
-      : await repository.save(
-          owner,
-          'teams',
-          { ...clone(value), name: value.name.trim() },
-          value.revision,
-        )
+  const owner = scope()
+  const item = { ...clone(value), name: value.name.trim(),
+    description: (value.description || '').trim(),
+    ...((account.value && value.revision === 0) ? {
+      accountId: account.value.id, ownerPublicId: account.value.publicId,
+      role: 'owner' as const, canManage: true,
+    } : {}) }
+  if (account.value) {
+    if (value.revision > 0 && value.canManage !== true)
+      throw new Error('workspace.access_denied')
+    const key = teamCacheScope()
+    if (!key) throw new Error('workspace.locked')
+    const stored = await mutateTeamCache(key, data => ({
+      ...data,
+      pending: [...data.pending.filter(row => row.id !== item.id), item],
+    }))
+    if (key !== teamCacheScope() || owner !== scope())
+      throw new Error('workspace.cancelled')
+    projectTeams(stored)
+    changed()
+    // Local durable commit is the UI acknowledgment. Network delivery is
+    // independent and can be slow/offline without holding the editor open.
+    const priorFlush = sendingTeams?.scope === key ? sendingTeams.promise : undefined
+    scheduleTeamFlush()
+    if (priorFlush) void priorFlush.then(() => {
+      if (key === teamCacheScope() && pendingTeamIds.value.includes(item.id))
+        scheduleTeamFlush()
+    }).catch(() => {})
+    return item
+  }
+  const saved = await repository.save(owner, 'teams', item, value.revision)
   if (owner === scope()) {
     generation++
-    teams.value = [...teams.value.filter((item) => item.id !== saved.id), saved]
+    teams.value = [...teams.value.filter(team => team.id !== saved.id), saved]
   }
   changed()
   return saved
@@ -309,13 +469,21 @@ export function startStudio() {
     void loadStudio()
   }
   window.addEventListener('focus', focus)
+  window.addEventListener('online', focus)
   void loadStudio()
   return () => {
     channel?.close()
     channel = undefined
     window.removeEventListener('focus', focus)
+    window.removeEventListener('online', focus)
   }
 }
+watch(sessionState, state => {
+  if (state === 'authenticated') void loadStudio()
+})
+watch(teamCacheScope, key => {
+  if (key) void loadStudio()
+})
 watch(accessLibraryId, () => {
   generation++
   localPresets.value = []
@@ -333,10 +501,16 @@ watch(profiles, () => {
 watch(
   () => account.value?.id,
   () => {
+    if (teamRetryTimer) clearTimeout(teamRetryTimer)
+    teamRetryTimer = undefined
+    teamRetryAttempt = 0
     generation++
     localPresets.value = []
     localTasks.value = []
     teams.value = []
+    cachedTeamTasks.value = []
+    pendingTeamIds.value = []
+    teamSyncErrors.value = []
     personalCategories.value = []
     invitations.value = []
     taskGrants.value = []

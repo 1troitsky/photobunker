@@ -33,6 +33,7 @@ export type Participant = {
 export type Team = {
   id: string
   name: string
+  description?: string
   participants: Participant[]
   revision: number
   accountId?: string

@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { teamProfilePath } from '../studio/team-profile'
 import { invitations } from '../workspace/state'
 import { respond } from '../workspace/api'
 import { workspaceError } from '../workspace/errors'
 import { loadStudio } from '../studio/store'
 import { w } from '../workspace/text'
 import { s } from '../studio/text'
+const router = useRouter()
 const props = defineProps<{ kind: 'team' | 'task' }>()
 const rows = computed(() =>
     invitations.value.filter((item) => item.kind === props.kind),
@@ -17,8 +20,10 @@ async function answer(id: string, accept: boolean) {
   busy.value = id
   error.value = ''
   try {
-    await respond(id, accept)
+    const result = await respond(id, accept)
     await loadStudio()
+    if (accept && props.kind === 'team' && result.recordId)
+      await router.push(teamProfilePath(result.recordId))
   } catch (failure) {
     error.value = workspaceError(failure)
   } finally {

@@ -343,3 +343,26 @@
 .messenger-contacts { min-width: 0; }
 .messenger-contacts .contact-search { margin-top: 0; }
 .messenger-contacts .native-empty { min-height: 160px; }
+
+/* R1-04: compact private Team profile, shared responsive native screen. */
+.team-profile-body { max-width: 780px; margin-inline: auto; width: 100%; padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
+.team-profile-body > .form-card { margin-block: 14px; min-width: 0; }
+.team-profile-body > .form-card > h2 { font-size: 15px; font-weight: 650; margin: 0 0 12px; }
+.team-profile-hero { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.team-profile-avatar { flex: none; display: grid; place-items: center; width: 56px; height: 56px; border-radius: 17px; }
+.team-profile-avatar svg { width: 30px; height: 30px; }
+.team-profile-intro { min-width: 0; flex: 1 1 210px; }
+.team-profile-intro h2 { font-size: clamp(21px, 4vw, 28px); overflow-wrap: anywhere; margin: 0 0 5px; }
+.team-profile-description { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; margin-top: 9px; }
+.team-profile-hero > .inline-actions { width: 100%; flex-wrap: wrap; }
+.team-profile-hero > .inline-actions button { min-height: 44px; }
+.team-profile-body .participant-row { min-width: 0; overflow-wrap: anywhere; }
+.team-profile-body .participant-row span:last-child { min-width: 0; flex: 1; }
+.team-profile-body .participant-row small { display: block; color: var(--secondary); margin-top: 4px; }
+.team-profile-tasks .account-link { display: flex; align-items: center; min-height: 48px; }
+.team-profile-tasks .account-link span { min-width: 0; flex: 1; }
+.team-profile-tasks .account-link strong { overflow-wrap: anywhere; }
+@media (max-width: 390px) {
+  .team-profile-body { padding-inline: 14px; }
+  .team-profile-hero > .inline-actions { display: grid; grid-template-columns: 1fr; }
+}

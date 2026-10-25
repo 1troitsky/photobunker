@@ -36,7 +36,7 @@ export const save = <T extends Task | Team | Preset>(kind: string, value: T) =>
 export const remove = (kind: string, value: { id: string; revision: number }) =>
   request(`/${kind}/${value.id}`, 'DELETE', { revision: value.revision })
 export const respond = (id: string, accept: boolean) =>
-  request(`/invitations/${id}`, 'PATCH', { accept })
+  request<{ recordId: string; accepted: boolean }>(`/invitations/${id}`, 'PATCH', { accept })
 export const photoIndex = () =>
   request<{
     photos: Photo[]
