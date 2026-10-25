@@ -54,6 +54,7 @@ export type ContributorRules = {
   thumbnailsOnly: boolean
   sharingAllowed: boolean
   participantsOnly: boolean
+  useAssignmentPhotoId?: boolean
 }
 export type Task = {
   id: string
@@ -105,6 +106,7 @@ export function contributorRules(): ContributorRules {
     thumbnailsOnly: false,
     sharingAllowed: true,
     participantsOnly: true,
+    useAssignmentPhotoId: true,
   }
 }
 export function newPreset(name: string, source?: Profile): Preset {
