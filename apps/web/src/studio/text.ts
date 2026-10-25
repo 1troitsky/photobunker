@@ -1,6 +1,8 @@
 import { locale } from '../i18n'
 
 const copy = {
+  useAssignmentPhotoId: ['Использовать ID задания для названий фотографий', 'Use assignment ID for photo names'],
+  useAssignmentPhotoIdHint: ['Общий последовательный диапазон для всех участников. При отключении используется личный префикс.', 'A shared sequential number range for team members. When off, personal naming is used.'],
   versionSavedLocal: [
     'Версия сохранена на устройстве. Отправка повторится при открытии снимка с доступной сетью.',
     'Version saved on this device. Opening the photo online retries the upload.',
