@@ -24,11 +24,14 @@ let watchId: number | undefined
 let permission: PermissionStatus | undefined
 let permissionListener: (() => void) | undefined
 let generation = 0
+let watchEpoch = 0
 
 function notify(location?: Location, permanent = false) {
   for (const listener of listeners) listener(location, permanent)
 }
 function clearWatcher() {
+  // Late browser callbacks from a revoked or stopped observer are ignored.
+  watchEpoch++
   if (watchId !== undefined) navigator.geolocation?.clearWatch(watchId)
   watchId = undefined
 }
@@ -59,8 +62,9 @@ export function setLocationEnabled(enabled: boolean): boolean {
   } catch { locationPreferenceSaved.value = false }
   return locationPreferenceSaved.value
 }
-function acceptPosition(scope: string, token: number, position: GeolocationPosition) {
-  if (token !== generation || scope !== activeScope || !locationEnabled.value) return
+function acceptPosition(scope: string, token: number, sampleEpoch: number, position: GeolocationPosition) {
+  if (token !== generation || sampleEpoch !== watchEpoch ||
+      scope !== activeScope || !locationEnabled.value) return
   const { latitude, longitude, accuracy } = position.coords
   const measuredAt = position.timestamp
   if (![latitude, longitude, accuracy, measuredAt].every(Number.isFinite) ||
@@ -78,14 +82,14 @@ function acceptPosition(scope: string, token: number, position: GeolocationPosit
 function beginWatch(scope: string) {
   if (scope !== activeScope || !locationEnabled.value || watchId !== undefined) return
   if (!navigator.geolocation) { locationState.value = 'unavailable'; notify(undefined, true); return }
-  const token = generation
+  const token = generation, sampleEpoch = watchEpoch
   locationState.value = 'pending'
   notify()
   try {
     watchId = navigator.geolocation.watchPosition(
-      value => acceptPosition(scope, token, value),
+      value => acceptPosition(scope, token, sampleEpoch, value),
       error => {
-        if (token !== generation || scope !== activeScope) return
+        if (token !== generation || sampleEpoch !== watchEpoch || scope !== activeScope) return
         if (error.code === 1) {
           // Browser / OS permission revoked: remove prior coordinates.
           clearWatcher()
