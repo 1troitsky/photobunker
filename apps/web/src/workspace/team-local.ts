@@ -12,7 +12,7 @@ const dec = new TextDecoder()
 let serial: Promise<unknown> = Promise.resolve()
 
 function database(): Promise<IDBDatabase> {
-  if (!indexedDB || !crypto?.subtle) throw new Error('workspace.storage_unavailable')
+  if (typeof indexedDB === 'undefined' || !globalThis.crypto?.subtle) throw new Error('workspace.storage_unavailable')
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DATABASE, 1)
     request.onupgradeneeded = () => request.result.createObjectStore('scopes')
