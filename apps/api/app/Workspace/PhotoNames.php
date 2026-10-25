@@ -113,7 +113,7 @@ final class PhotoNames
             // Serialize concurrent claims (including lost ACK replay) before
             // testing UUID and code uniqueness.
             DB::table('photo_name_allocator')->where('id', 1)->lockForUpdate()->first();
-                        $prior = DB::table('photo_name_codes')->where('photo_id', $photo)->first();
+            $prior = DB::table('photo_name_codes')->where('photo_id', $photo)->first();
             if ($prior) {
                 abort_unless($prior->creator_id === $actor, 404);
                 return $prior->code;
@@ -138,7 +138,7 @@ final class PhotoNames
                 $code = $reserved['prefix'].sprintf('%04d', $reserved['first']);
             }
             abort_if(DB::table('photo_name_codes')->where('code', $code)->exists(), 409, 'photo_names.used');
-                        // Unique(photo_id) AND unique(code) enforce one-to-one mapping.
+            // Unique(photo_id) AND unique(code) enforce one-to-one mapping.
             DB::table('photo_name_codes')->insert([
                 'photo_id' => $photo, 'code' => $code,
                 'creator_id' => $actor, 'device_id' => $device, 'lease_id' => $leaseId,
