@@ -48,6 +48,7 @@ import { startStudio } from './studio/store'
 import { startActivity } from './identity/activity'
 import { selected as selectedConversation, pendingConversationUi } from './messages/store'
 import { purgeAccountFromDevice } from './identity/storage'
+import { locationEnabled, startGrantedLocation, stopLocation } from './profiles/location'
 
 const route = useRoute(),
   router = useRouter()
@@ -116,6 +117,24 @@ let stopWorkspace: (() => void) | undefined
 let stopStudio: (() => void) | undefined
 let stopActivity: (() => void) | undefined
 const hidden = ref(false)
+const locationVisible = ref(!document.hidden)
+function locationVisibilityChanged() { locationVisible.value = !document.hidden }
+// R1-01: before Camera mounts, share one GPS watch with all private views.
+// Do not start on public Welcome/share or before session + PIN proof.
+watch(
+  [() => account.value?.id, deviceId, sessionState, appLockReady, appLocked,
+    locationEnabled, locationVisible, () => route.name],
+  () => {
+    const privatePage = !['welcome', 'shared-photo', 'account-auth'].includes(String(route.name))
+    const scopedIdentity = hasConfirmedIdentity() ||
+      (offlineCaptureIdentity.value && ['checking', 'offline'].includes(sessionState.value))
+    if (privatePage && scopedIdentity && account.value?.id && deviceId.value &&
+        appLockReady.value && !appLocked.value && locationVisible.value && locationEnabled.value)
+      startGrantedLocation(account.value.id + ':' + deviceId.value)
+    else stopLocation()
+  },
+  { immediate: true },
+)
 const native = computed(() =>
   [
     'welcome',
@@ -235,6 +254,7 @@ function isActive(name: string) {
 onMounted(() => {
   if (location.pathname.startsWith('/s/')) return
   document.addEventListener('visibilitychange', backgroundLock)
+  document.addEventListener('visibilitychange', locationVisibilityChanged)
   window.addEventListener('pagehide', lockApp)
   stopProtection = startProtection()
   stopLibrary = startLibrary()
@@ -252,6 +272,8 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', backgroundLock)
+  document.removeEventListener('visibilitychange', locationVisibilityChanged)
+  stopLocation()
   window.removeEventListener('pagehide', lockApp)
   stopProtection?.()
   stopLibrary?.()
