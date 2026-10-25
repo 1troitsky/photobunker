@@ -56,9 +56,28 @@ final class PhotoNames
         // by other accounts and assignment participants.
         $prefix = DB::table('photo_name_prefixes')->where('subject', $subject)->where('next_number', '<=', 9999)->orderByDesc('sequence')->lockForUpdate()->first();
         if (! $prefix) {
-            $letters = $this->letters((int) $allocator->next_prefix);
-            DB::table('photo_name_allocator')->where('id', 1)->update(['next_prefix' => $allocator->next_prefix + 1]);
-            DB::table('photo_name_prefixes')->insert(['prefix' => $letters, 'subject' => $subject, 'sequence' => $allocator->next_prefix, 'next_number' => 1]);
+            $preferred = null;
+            if ($assignment) {
+                $task = $this->workspace->record($actor, $assignment, 'task');
+                $preset = $this->workspace->payload($task)['preset'] ?? null;
+                $option = $preset['rules']['idPrefix'] ?? null;
+                if (is_string($option) && preg_match('/^[A-Z]{4}$/D', $option) &&
+                    ! DB::table('photo_name_prefixes')->where('prefix', $option)->exists())
+                    $preferred = $option;
+            }
+            // The global sequence never assigns a previously claimed preferred
+            // prefix to a different subject. Exhausted prefixes are permanent.
+            $next = (int) $allocator->next_prefix;
+            if ($preferred) {
+                $letters = $preferred;
+                $next++;
+            } else {
+                do {
+                    $letters = $this->letters($next++);
+                } while (DB::table('photo_name_prefixes')->where('prefix', $letters)->exists());
+            }
+            DB::table('photo_name_allocator')->where('id', 1)->update(['next_prefix' => $next]);
+            DB::table('photo_name_prefixes')->insert(['prefix' => $letters, 'subject' => $subject, 'sequence' => $next - 1, 'next_number' => 1]);
             $prefix = DB::table('photo_name_prefixes')->where('prefix', $letters)->first();
         }
         $first = (int) $prefix->next_number;
