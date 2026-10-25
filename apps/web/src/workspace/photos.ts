@@ -133,7 +133,7 @@ async function send(id: string) {
     await Promise.all([hash(original), hash(thumb), hash(preview)])
   if (owner !== account.value?.id) throw new Error('workspace.cancelled')
   if (saved.needsName) {
-    const code = await ensureName(id, saved.nameAssignmentId ?? null)
+    const code = await ensureName(id, saved.nameAssignmentId ?? null, saved.shortId)
     if (owner !== account.value?.id) throw new Error('workspace.cancelled')
     await local.patchPhoto(id, {
       shortId: code, title: saved.title || code,
