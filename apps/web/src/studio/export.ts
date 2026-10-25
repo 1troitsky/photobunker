@@ -29,6 +29,6 @@ export async function externalPhotoFile(photo: Photo, blob: Blob): Promise<File>
     const encoded = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('export.encode')), 'image/jpeg', .94))
     const clean = await stripEncodedMetadata(encoded)
     if (isExpired(photo) || photo.deleteRequested) throw new DOMException('Photo unavailable', 'NotFoundError')
-    return new File([clean], 'photobunker-photo.jpg', { type: 'image/jpeg' })
+    return new File([clean], photo.shortId && /^[A-Z]{4}[0-9]{4}$/.test(photo.shortId) ? photo.shortId + '.jpg' : 'photobunker-photo.jpg', { type: 'image/jpeg' })
   } finally { URL.revokeObjectURL(url); image.src = ''; canvas.width = canvas.height = 0 }
 }
