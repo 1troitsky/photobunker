@@ -277,6 +277,7 @@ const waiting = new Map<
   string,
   {
     timer: ReturnType<typeof setTimeout>
+    owner?: string
     busy: boolean
     next?: { location?: Location }
   }
@@ -284,6 +285,12 @@ const waiting = new Map<
 async function finishLocation(id: string, location?: Location) {
   const job = waiting.get(id)
   if (!job) return
+  // Never apply a late GPS update from one account into another scope.
+  if (job.owner !== account.value?.id) {
+    clearTimeout(job.timer)
+    waiting.delete(id)
+    return
+  }
   if (job.busy) {
     job.next = { location }
     return
@@ -470,7 +477,7 @@ async function persist() {
       const timer = setTimeout(() => {
         void finishLocation(photo.id)
       }, remaining)
-      waiting.set(photo.id, { timer, busy: false })
+      waiting.set(photo.id, { timer, owner: account.value?.id, busy: false })
       const location = locationAt(photo.createdAt, photo.profile.rules.locationWindow)
       if (location) void finishLocation(photo.id, location)
     }
@@ -593,7 +600,7 @@ async function capture() {
     metadata.locationStatus =
       location && location.accuracy <= settings.accuracy
         ? undefined
-        : locationStatus.value === 'unavailable'
+        : !locationEnabled.value || locationStatus.value === 'unavailable'
           ? 'unavailable'
           : 'pending'
   }
@@ -729,6 +736,11 @@ watch(
 )
 watch(category, (value) => {
   updateSessionCategory(value)
+})
+// An opt-out applies to in-flight late fixes too, not just future captures.
+watch(locationEnabled, enabled => {
+  if (!enabled) for (const id of waiting.keys()) void finishLocation(id)
+  locationChanged()
 })
 watch(mode, () => {
   void nextTick(measure)
