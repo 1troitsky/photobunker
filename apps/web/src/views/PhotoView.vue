@@ -53,6 +53,7 @@ import {
   externalPhotoData,
 } from '../studio/disclosure'
 import { downloadFile, externalPhotoFile, shareFile } from '../studio/export'
+import { nameText } from '../local/photo-name-text'
 import { listPhotoVersions, type PhotoVersion } from '../studio/versions'
 const infoOpen = ref(false),
   editDataOpen = ref(false),
@@ -537,7 +538,7 @@ onBeforeUnmount(() => {
     @keydown.right="sibling(1)"
   >
     <ScreenHeader
-      :title="photo?.title || photo?.shortId || s('photo')"
+      :title="photo?.title || photo?.shortId || (photo?.needsName ? nameText('pending') : s('photo'))"
       back="/gallery"
       ><button
         v-if="photo"
