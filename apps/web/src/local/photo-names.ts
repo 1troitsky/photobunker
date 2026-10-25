@@ -139,6 +139,7 @@ export async function takeName(photoId: string, assignmentId: string | null): Pr
       const number = lease.next++
       const code = lease.prefix + String(number).padStart(4, '0')
       value.photos.push({ photoId, code, number, leaseId: lease.id, assignmentId })
+      // Replenishment never blocks the caller; the next shot remains offline.
       return code
     })
   } catch {
