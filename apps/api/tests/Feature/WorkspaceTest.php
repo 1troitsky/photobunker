@@ -205,6 +205,39 @@ final class WorkspaceTest extends TestCase
         $this->assertDatabaseCount('photo_name_codes', 1);
     }
 
+    public function test_workspace_photo_upload_uses_reserved_name_and_keeps_legacy_short_id(): void
+    {
+        $owner = $this->fixture();
+        $id = (string) Str::uuid();
+        $this->upload($owner, null, $id, 'name-id-photo', [
+            'needsName' => true, 'shortId' => null,
+        ])->assertConflict();
+
+        $lease = $this->actor($owner)->postJson('/api/v1/identity/photo-names/reserve', [
+            'requestKey' => (string) Str::uuid(), 'assignmentId' => null,
+        ])->assertOk()->json();
+        $code = $this->postJson('/api/v1/identity/photo-names/claim', [
+            'photoId' => $id, 'assignmentId' => null,
+            'leaseId' => $lease['id'], 'number' => $lease['first'],
+        ])->assertOk()->json('code');
+
+        $this->upload($owner, null, $id, 'name-id-photo', [
+            'needsName' => true, 'shortId' => $code,
+        ])->assertOk()->assertJsonPath('photo.shortId', $code)
+          ->assertJsonPath('photo.title', $code);
+        $this->getJson('/api/v1/identity/workspace/photos/'.$id)
+            ->assertOk()->assertJsonPath('photo.shortId', $code);
+
+        $legacyId = (string) Str::uuid();
+        $legacy = $this->upload($owner, null, $legacyId)->assertOk()->json('photo.shortId');
+        $this->assertSame(10, strlen($legacy));
+        $this->postJson('/api/v1/identity/photo-names/claim', [
+            'photoId' => $legacyId, 'assignmentId' => null,
+        ])->assertConflict();
+        $this->getJson('/api/v1/identity/workspace/photos/'.$legacyId)
+            ->assertOk()->assertJsonPath('photo.shortId', $legacy);
+    }
+
     public function test_photo_name_prefix_rolls_over_after_9999_without_renaming_issued_codes(): void
     {
         $owner = $this->fixture();
