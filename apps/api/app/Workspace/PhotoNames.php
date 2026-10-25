@@ -44,6 +44,9 @@ final class PhotoNames
     private function lease(string $actor, string $device, ?string $assignment, string $requestKey, int $count): array
     {
         $subject = $this->subject($actor, $assignment);
+        // Even repeated reserve requests serialize before the idempotency
+        // lookup, including when the prior HTTP ACK was lost.
+        $allocator = DB::table('photo_name_allocator')->where('id', 1)->lockForUpdate()->first();
         $existing = DB::table('photo_name_leases')->where('account_id', $actor)->where('device_id', $device)->where('request_key', $requestKey)->first();
         if ($existing) {
             abort_unless($existing->subject === $subject && $existing->assignment_id === $assignment, 409);
@@ -51,7 +54,6 @@ final class PhotoNames
         }
         // A global lock serializes prefix rollover with parallel allocations
         // by other accounts and assignment participants.
-        $allocator = DB::table('photo_name_allocator')->where('id', 1)->lockForUpdate()->first();
         $prefix = DB::table('photo_name_prefixes')->where('subject', $subject)->where('next_number', '<=', 9999)->orderByDesc('sequence')->lockForUpdate()->first();
         if (! $prefix) {
             $letters = $this->letters((int) $allocator->next_prefix);
