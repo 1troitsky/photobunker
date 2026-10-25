@@ -24,6 +24,8 @@ import { cameraContext } from '../crypto/camera'
 import { pendingAccess } from '../workspace/access'
 import { sessionFor } from '../studio/model'
 import { captureRetention } from '../delivery/clock'
+import { warmNames } from '../local/photo-names'
+import { nameText } from '../local/photo-name-text'
 import { delivery, refreshClock, retryDelivery } from '../delivery/queue'
 import { d } from '../delivery/text'
 import { t } from '../i18n'
@@ -633,6 +635,9 @@ async function capture() {
     workspaceAssignmentId: account.value
       ? studioSession.value?.taskId || undefined
       : undefined,
+    nameAssignmentId: studioSession.value?.taskId &&
+      studioSession.value.rules.useAssignmentPhotoId !== false
+      ? studioSession.value.taskId : null,
     uploadOnly:
       account.value && studioSession.value?.taskId
         ? !pendingAccess({
@@ -713,6 +718,7 @@ function beforeUnload(event: BeforeUnloadEvent) {
   }
 }
 onMounted(async () => {
+  if (account.value) void warmNames(studioSession.value?.taskId && studioSession.value.rules.useAssignmentPhotoId !== false ? studioSession.value.taskId : null).catch(() => {})
   unsubscribeLocation = subscribeLocation(locationChanged)
   controller = cameraController(video.value!)
   window.addEventListener('online', connectionChanged)
@@ -991,7 +997,7 @@ onBeforeUnmount(() => {
       <p v-if="status" class="capture-feedback" role="status">
         {{ t(status)
         }}<span v-if="status === 'saved' && lastPhoto">
-          · {{ lastPhoto.shortId }}</span
+          · {{ lastPhoto.shortId || nameText('pending') }}</span
         ><span v-if="status === 'saved' && savedWithoutGps">
           · {{ locationText('photoWithoutGps') }}</span
         >
