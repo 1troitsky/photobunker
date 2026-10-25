@@ -113,8 +113,9 @@ const changed = () => {
 let channel: BroadcastChannel | undefined
 let loadingStudio: { owner: string; promise: Promise<void> } | undefined
 export async function loadStudio(): Promise<void> {
-  await loadIdentity()
   const owner = scope()
+  if (account.value) await restoreTeamsFromDevice(owner).catch(() => {})
+  await loadIdentity()
   if (loadingStudio?.owner === owner) return loadingStudio.promise
   const promise = loadStudioData()
   loadingStudio = { owner, promise }
