@@ -3,6 +3,7 @@ import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   account,
+  deviceId,
   loadIdentity,
   identityUnavailable,
   logout,
@@ -11,6 +12,7 @@ import {
   signingOut,
 } from '../identity/store'
 import { a } from '../identity/text'
+import { onboarding, startOnboarding } from '../identity/onboarding'
 import WorkspaceImport from '../components/WorkspaceImport.vue'
 import AppIcon from '../components/AppIcon.vue'
 import ScreenHeader from '../components/ScreenHeader.vue'
@@ -56,7 +58,7 @@ async function saveKey() {
   } catch { authError.value = a('failed') }
 }
 onMounted(() => {
-  void loadIdentity(true)
+  void loadIdentity(true).then(() => startOnboarding()).catch(() => {})
 })
 async function signOut() {
   authBusy.value = true
@@ -110,6 +112,18 @@ const sections = [
           <p>{{ a('accountHint') }}</p>
         </div>
       </section>
+      <div v-if="account && onboarding.scope === `${account.id}:${deviceId}` &&
+        (onboarding.key === 'missing' || onboarding.key === 'error' ||
+          onboarding.photos === 'error' || onboarding.messaging === 'error')" class="form-notice" role="status">
+        <p v-if="onboarding.key === 'missing'">{{ a('authKeyMissing') }}</p>
+        <p v-if="onboarding.key === 'error'">{{ a('authStorage') }}</p>
+        <template v-if="onboarding.key === 'ready'">
+          <p v-if="onboarding.photos === 'error'">{{ a('authPhotoDeferred') }}</p>
+          <p v-if="onboarding.messaging === 'error'">{{ a('authMessagesDeferred') }}</p>
+        </template>
+        <RouterLink v-if="onboarding.key === 'missing'" to="/profile/account?mode=connect" class="quiet-button">{{ a('signInKey') }}</RouterLink>
+        <button v-else type="button" class="quiet-button" @click="startOnboarding()">{{ a('authRetrySetup') }}</button>
+      </div>
       <p v-if="profileSaved && account" class="form-notice" role="status">
         {{ a('profileSaved') }}
       </p>

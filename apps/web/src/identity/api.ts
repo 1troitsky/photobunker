@@ -6,6 +6,12 @@ export class IdentityError extends Error {
     super('identity.request_failed')
   }
 }
+export class IdentityTimeoutError extends Error {
+  constructor() { super('identity.timeout') }
+}
+export class IdentityNetworkError extends Error {
+  constructor() { super('identity.network') }
+}
 let expectedAccount = ''
 let photoReadToken = ''
 let readGeneration = 0
@@ -45,11 +51,12 @@ export async function identityRequest<T>(
   format: 'json' | 'blob' = 'json',
 ): Promise<T> {
   if (!documentActive) throw new DOMException('Document inactive', 'AbortError')
-  const controller = new AbortController(),
-    timer = setTimeout(
-      () => controller.abort(),
-      path === '/profile' ? 15000 : 45000,
-    )
+  const controller = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, path === '/profile' ? 15000 : 45000)
   const binding = accountBinding ?? expectedAccount
   const privateRead =
     (method === 'GET' &&
@@ -104,6 +111,10 @@ export async function identityRequest<T>(
     if (privateRead && readVersion !== readGeneration)
       throw new DOMException('Photo read cancelled', 'AbortError')
     return result
+  } catch (error) {
+    if (timedOut) throw new IdentityTimeoutError()
+    if (error instanceof TypeError) throw new IdentityNetworkError()
+    throw error
   } finally {
     clearTimeout(timer)
     requests.delete(controller)

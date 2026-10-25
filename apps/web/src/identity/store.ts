@@ -3,7 +3,10 @@ import { identityRequest, IdentityError, bindIdentity } from './api'
 import {
   credentials,
   forgetCredentials,
-  newDevice,
+  automaticDeviceName,
+  onboardingDevice,
+  completeOnboardingDevice,
+  reconcileOnboardingDevice,
   parseKit,
   prove,
   saveCredential,
@@ -87,12 +90,8 @@ channel?.addEventListener('message', (event: MessageEvent<unknown>) => {
   identityReady.value = false
   if (used) void loadIdentity(true)
 })
-function provisionMatrix() {
-  void identityRequest('/matrix/provision', 'POST')
-    .then(() => loadIdentity(true))
-    .catch(() => {})
-}
 function accept(value: Session) {
+  if (account.value?.id !== value.account.id || deviceId.value !== value.deviceId) generation++
   localStorage.setItem('pb-active-device', value.deviceId)
   offlineCaptureIdentity.value = false
   void import('../crypto/database')
@@ -118,8 +117,8 @@ async function forgetLocalAccountAccess() {
     await forgetCredentials()
     ;(await import('../server/api')).forgetLegacyLibraryAccess()
     const db = await import('../crypto/database')
-    const keys = await db.entries('account-key:'), photos = await db.entries('trusted:')
-    await Promise.all([...keys, ...photos].map(row => db.remove(row.key)))
+    const keys = await db.entries('account-key:'), photos = await db.entries('trusted:'), imports = await db.entries('account-photo-import:')
+    await Promise.all([...keys, ...photos, ...imports].map(row => db.remove(row.key)))
     await (await import('../messages/keys')).forgetMessageStorage()
     localDevices.value = []
   })().finally(() => { forgetting = undefined })
@@ -137,7 +136,10 @@ export function loadIdentity(force = false) {
   loading = (async () => {
     try {
       const result = await identityRequest<Session>('/me')
-      if (current === generation) accept(result)
+      if (current === generation) {
+        await reconcileOnboardingDevice(result.deviceId, result.account.publicId)
+        if (current === generation) accept(result)
+      }
     } catch (error) {
       if (current === generation) {
         if (error instanceof IdentityError && error.status === 401) {
@@ -211,12 +213,17 @@ function authenticated(result: Session) {
   accept(result)
   channel?.postMessage({ kind: 'session', accountId: result.account.id })
 }
+function assertLoginEpoch(epoch: number) {
+  if (epoch !== generation || signingOut.value)
+    throw new DOMException('Account changed during sign-in', 'AbortError')
+}
 export async function register(
   root: { privateKey: CryptoKey; publicKey: string },
-  name: string,
+  name = automaticDeviceName(),
 ) {
-  const device = await newDevice(name)
-  await saveCredential(device)
+  const epoch = generation
+  const device = await onboardingDevice(root.publicKey, name)
+  assertLoginEpoch(epoch)
   const result = await prove<Session>(
     {
       purpose: 'register',
@@ -227,15 +234,17 @@ export async function register(
     },
     root.privateKey,
   )
-  device.publicId = result.account.publicId
-  await saveCredential(device)
+  assertLoginEpoch(epoch)
+  await completeOnboardingDevice(root.publicKey, device, result.account.publicId)
+  assertLoginEpoch(epoch)
   authenticated(result)
-  provisionMatrix()
 }
-export async function recover(kit: string, name: string) {
-  const root = await parseKit(kit),
-    device = await newDevice(name)
-  await saveCredential(device)
+export async function recover(kit: string, name = automaticDeviceName()) {
+  const epoch = generation
+  const root = await parseKit(kit)
+  if (account.value?.rootKey === root.publicKey && deviceId.value) return
+  const device = await onboardingDevice(root.publicKey, name)
+  assertLoginEpoch(epoch)
   const result = await prove<Session>(
     {
       purpose: 'recover',
@@ -246,10 +255,10 @@ export async function recover(kit: string, name: string) {
     },
     root.privateKey,
   )
-  device.publicId = result.account.publicId
-  await saveCredential(device)
+  assertLoginEpoch(epoch)
+  await completeOnboardingDevice(root.publicKey, device, result.account.publicId)
+  assertLoginEpoch(epoch)
   authenticated(result)
-  provisionMatrix()
 }
 export async function login(device: DeviceCredential) {
   authenticated(
