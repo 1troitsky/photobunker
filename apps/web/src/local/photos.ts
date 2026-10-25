@@ -551,7 +551,7 @@ export function acceptServerMetadata(
           reviewRevision: photo.reviewRevision,
           reviewComment: photo.reviewComment,
           responseComment: photo.responseComment,
-          title: current.title || photo.title,
+          title: photo.title,
           shortId: photo.shortId || current.shortId,
           note: photo.note,
           category: photo.category,
