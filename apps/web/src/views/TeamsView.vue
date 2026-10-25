@@ -7,7 +7,7 @@ import AppIcon from '../components/AppIcon.vue'
 import AppSheet from '../components/AppSheet.vue'
 import ParticipantsEditor from '../components/ParticipantsEditor.vue'
 import { clone, type Team } from '../studio/model'
-import { loadStudio, removeItem, saveTeam, teams } from '../studio/store'
+import { loadStudio, removeItem, saveTeam, teams, pendingTeamIds } from '../studio/store'
 import { WorkspaceConflict } from '../studio/repository'
 import { account } from '../identity/store'
 import WorkspaceInvitations from '../components/WorkspaceInvitations.vue'
@@ -20,8 +20,8 @@ const draft = ref<Team>(),
   busy = ref(false),
   error = ref('')
 let initial = ''
-async function edit(team?: Team) {
-  await loadStudio()
+function edit(team?: Team) {
+  // Opening the creation sheet must never wait for an unavailable API.
   if (team && team.accountId !== account.value?.id) return
   draft.value = team
     ? clone(team)
@@ -122,7 +122,7 @@ onMounted(loadStudio)
         >
           <AppIcon name="edit" /></button
         ><button
-          v-if="team.canManage !== false"
+          v-if="team.canManage !== false && !pendingTeamIds.includes(team.id)"
           class="app-icon-button subtle-danger"
           :aria-label="`${s('remove')}: ${team.name}`"
           @click="remove(team)"
