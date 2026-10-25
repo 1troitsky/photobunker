@@ -3,15 +3,33 @@ import { chromium, webkit, expect } from '@playwright/test'
 import { origin, headers, button, label, accountFixture, cleanupFixtures } from './account-qa.mjs'
 for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(',')) {
   const browser = await ({ chromium, webkit }[engine]).launch({ headless: true }), fixtures = []
-  let stage = 'accounts'
+  let stage = 'accounts', releasePrepare
   try {
     const a = await accountFixture(browser, `${engine} first message sender`, fixtures), b = await accountFixture(browser, `${engine} first message receiver`, fixtures)
-    stage = 'profile-write'
+    stage = 'profile-write-before-room'
+    // Hold the existing server preflight. The UI must show a usable composer
+    // and encrypted local intent before a Matrix room can exist.
+    const heldPrepare = new Promise(resolve => { releasePrepare = resolve })
+    await a.page.route('**/api/v1/identity/matrix/conversations/prepare', async route => {
+      await heldPrepare
+      await route.continue().catch(() => {})
+    })
     await a.page.goto(`${origin}/people/${encodeURIComponent(b.me.account.publicId)}`)
     await expect(button(a.page, 'Написать')).toBeVisible({ timeout: 30000 })
     await button(a.page, 'Написать').click()
+    await expect(a.page.locator('.message-composer')).toBeVisible({ timeout: 10000 })
+    await expect(a.page.locator('.messages-screen')).toHaveAttribute('data-room', '')
+    await label(a.page, 'Сообщение').fill('QA queued before room creation')
+    await button(a.page, 'Отправить').click()
+    const queued = a.page.locator('.message-bubble').filter({ hasText: 'QA queued before room creation' })
+    await expect(queued).toHaveCount(1)
+    await expect(queued.locator('.message-state-queued')).toBeVisible()
+    await expect(label(a.page, 'Сообщение')).toHaveValue('')
+    releasePrepare(); releasePrepare = undefined
+    await a.page.unroute('**/api/v1/identity/matrix/conversations/prepare')
+    await expect(a.page.locator('.messages-screen')).not.toHaveAttribute('data-room', '', { timeout: 60000 })
     await expect(a.page.locator('.messages-screen')).toHaveAttribute('data-crypto-stage', 'ready', { timeout: 90000 })
-    await expect(a.page.locator('.message-composer')).toBeVisible({ timeout: 45000 })
+    await expect(queued).toHaveCount(1)
     const firstRoom = await a.page.locator('.messages-screen').getAttribute('data-room')
     if (!firstRoom) throw new Error('profile_write_no_room')
     stage = 'new-chat-existing-room'
@@ -28,6 +46,7 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     stage = 'first-receive'
     await b.page.goto(`${origin}/messages`); await expect(b.page.locator('.messages-screen')).toHaveAttribute('data-crypto-stage', 'ready', { timeout: 90000 })
     await expect(b.page.locator('.chat-row')).toHaveCount(1, { timeout: 30000 }); await b.page.locator('.chat-row').click()
+    await expect(b.page.locator('.message-body').filter({ hasText: 'QA queued before room creation' })).toHaveCount(1, { timeout: 30000 })
     await expect(b.page.locator('.message-body').filter({ hasText: 'QA first message before receiver starts messaging' })).toBeVisible({ timeout: 30000 })
     await expect(a.page.locator('.message-state')).toHaveAttribute('aria-label', 'Прочитано', { timeout: 30000 })
     console.log(`${engine}: first encrypted message sent before receiver starts messaging is received automatically without invitation`)
@@ -44,5 +63,5 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
       console.error(JSON.stringify({ fixture: index, state, wire }))
     }
     console.error(`${engine}: first-message QA failed at ${stage} (${error.name}${/^account_fixture_[a-z-]+: (TimeoutError|Error|TypeError)$/.test(error.message || '') ? '; ' + error.message : ''})`); throw new Error('first_message_qa_failed')
-  } finally { await cleanupFixtures(fixtures); await browser.close() }
+  } finally { if (releasePrepare) releasePrepare(); await cleanupFixtures(fixtures); await browser.close() }
 }
