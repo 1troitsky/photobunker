@@ -9,6 +9,7 @@ use App\Http\Controllers\MessagingController;
 use App\Http\Controllers\PhotoDeviceLinkController;
 use App\Http\Controllers\PhotoKeyController;
 use App\Http\Controllers\PhotoMigrationController;
+use App\Http\Controllers\PhotoNameController;
 use App\Http\Controllers\PhotoShareController;
 use App\Http\Controllers\PhotoVersionController;
 use App\Http\Controllers\PrototypeAssignmentController;
@@ -100,6 +101,8 @@ Route::prefix('v1')->group(function (): void {
         Route::get('/secure/context', [$photoKeys, 'context']);
         Route::put('/secure/plan', [$photoKeys, 'plan']);
         Route::post('/secure/clock', [WorkspaceController::class, 'clock']);
+        Route::post('/photo-names/reserve', [PhotoNameController::class, 'reserve']);
+        Route::post('/photo-names/claim', [PhotoNameController::class, 'claim']);
         Route::get('/workspace', [WorkspaceController::class, 'index']);
         Route::put('/workspace/categories', [WorkspaceController::class, 'categories']);
         Route::post('/workspace/clock', [WorkspaceController::class, 'clock']);
