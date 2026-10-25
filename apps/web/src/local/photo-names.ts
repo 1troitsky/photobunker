@@ -30,6 +30,11 @@ const empty = (): State => ({ leases: [], photos: [], requests: {} })
 const namePattern = /^[A-Z]{4}[0-9]{4}$/
 export const isNameId = (value: unknown): value is string =>
   typeof value === 'string' && namePattern.test(value)
+export function formatNameId(prefix: string, number: number): string {
+  if (!/^[A-Z]{4}$/.test(prefix) || !Number.isInteger(number) ||
+      number < 1 || number > 9999) throw new Error('photo_names.invalid_lease')
+  return prefix + String(number).padStart(4, '0')
+}
 const subject = (assignmentId: string | null) => assignmentId ? 'assignment:' + assignmentId : 'personal'
 
 function scope() {
@@ -137,7 +142,7 @@ export async function takeName(photoId: string, assignmentId: string | null): Pr
         row.assignmentId === assignmentId && row.next <= row.last)
       if (!lease) return undefined
       const number = lease.next++
-      const code = lease.prefix + String(number).padStart(4, '0')
+      const code = formatNameId(lease.prefix, number)
       value.photos.push({ photoId, code, number, leaseId: lease.id, assignmentId })
       // Replenishment never blocks the caller; the next shot remains offline.
       return code
@@ -169,6 +174,11 @@ export function warmNames(assignmentId: string | null = null): Promise<void> {
       id: string; prefix: string; first: number; last: number; assignmentId: string | null
     }>('/photo-names/reserve', 'POST', { requestKey, assignmentId, count: 32 })
     current(key)
+    if (!/^[A-Z]{4}$/.test(response.prefix) ||
+        !Number.isInteger(response.first) || !Number.isInteger(response.last) ||
+        response.first < 1 || response.last > 9999 ||
+        response.first > response.last || response.assignmentId !== assignmentId)
+      throw new Error('photo_names.invalid_lease')
     await mutate(key, value => {
       if (value.requests[group] !== requestKey) return
       if (!value.leases.some(row => row.id === response.id))
