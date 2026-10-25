@@ -13,7 +13,11 @@ import {
   deviceId,
   connectMatrix,
   loadIdentity,
+  hasConfirmedIdentity,
+  sessionState,
+  offlineCaptureIdentity,
 } from '../identity/store'
+import { appLockReady, appLocked } from '../app/lock'
 import { identityRequest } from '../identity/api'
 import { storageKey, markCryptoReady } from './keys'
 import { accountKey, readAccountSecrets, saveAccountSecrets, roomKeysSavedLocally } from '../identity/vault'
@@ -82,6 +86,8 @@ export const connection = ref<
   selected = ref(''),
   messages = ref<Message[]>([]),
   busy = ref(false)
+// UI-only indicator for an uncreated direct conversation in the phone shell.
+export const pendingConversationUi = ref(false)
 // UI-only decrypted projections; the durable outbox stores AES-GCM ciphertext
 // (never browser plaintext storage). Matrix server events remain authoritative.
 const optimisticText = new Map<string, PendingText>()
@@ -664,6 +670,11 @@ async function restoreDurableOutbox(current: MatrixClient): Promise<void> {
     void drainDurableOutbox(current)
 }
 export async function restorePendingDirectOutbox(): Promise<void> {
+  // A locally remembered device is not server authorization. Only decrypt
+  // this device's encrypted outbox after its PIN gate has opened.
+  const locallyAllowed = hasConfirmedIdentity() ||
+    (offlineCaptureIdentity.value && ['offline', 'checking'].includes(sessionState.value))
+  if (!locallyAllowed || !appLockReady.value || appLocked.value) return
   const scope = account.value?.id && deviceId.value ? `${account.value.id}:${deviceId.value}` : ''
   if (!scope || directOutboxRestoredScope === scope) return
   if (directOutboxRestoring) { await directOutboxRestoring; return }
@@ -681,6 +692,9 @@ export async function restorePendingDirectOutbox(): Promise<void> {
   finally { directOutboxRestoring = undefined }
 }
 export async function queueDirectText(peerId: string, body: string): Promise<string> {
+  const locallyAllowed = hasConfirmedIdentity() ||
+    (offlineCaptureIdentity.value && ['offline', 'checking'].includes(sessionState.value))
+  if (!locallyAllowed || !appLockReady.value || appLocked.value) throw new Error('outbox.locked')
   const text = body.trim()
   if (!text || text.length > 10000) throw new Error('not_ready')
   const txnId = 'pb-' + crypto.randomUUID()
@@ -756,7 +770,8 @@ function scheduleTextRetry(current: MatrixClient, entry: PendingText) {
   armRetryWake(current)
 }
 async function drainDurableOutbox(current: MatrixClient) {
-  if (outboxDraining || client !== current || connection.value !== 'ready' ||
+  if (!hasConfirmedIdentity() || appLocked.value ||
+      outboxDraining || client !== current || connection.value !== 'ready' ||
       diagnostic.value !== 'ready' || outboxRestoredScope !== owner) return
   outboxDraining = true
   try {
@@ -831,6 +846,7 @@ export function stopMessaging(clearRequest = true) {
   rooms.value = []
   messages.value = []
   selected.value = ''
+  pendingConversationUi.value = false
   peers.value = []
   blocked.clear()
   security.value = {
@@ -865,8 +881,10 @@ export function startMessaging(): Promise<void> {
   startup = (async () => {
     await loadIdentity(true)
     if (current !== generation) return
-    if (!account.value) {
-      connection.value = 'idle'
+    // R0-02's trusted local capture descriptor does not authenticate an API
+    // or Matrix session. Queue locally; connect only after /me is confirmed.
+    if (!hasConfirmedIdentity()) {
+      connection.value = sessionState.value === 'offline' ? 'offline' : 'idle'
       startup = undefined
       return
     }
@@ -1216,7 +1234,8 @@ export async function markRead() {
   if (event) await client.sendReadReceipt(event).catch(() => {})
 }
 export async function createChat(ids: string[], title: string) {
-  if (!client || diagnostic.value !== 'ready') throw new Error('not_ready')
+  if (!client || diagnostic.value !== 'ready' || !hasConfirmedIdentity() ||
+      appLocked.value) throw new Error('not_ready')
   const current = client
   const { peers: contacts } = await identityRequest<{ peers: Peer[] }>('/matrix/conversations/prepare', 'POST', { peers: ids })
   requireClient(current)
@@ -1341,7 +1360,8 @@ function prepareText(body: string, reply?: string, photoId?: string) {
     reply,
     photoId,
     time: Date.now(),
-    status: connection.value === 'ready' && room.getMyMembership() === 'join' ? 'sending' : 'queued',
+    // A local intent is never "sending" before encryption/persistence.
+    status: 'queued',
     inFlight: false,
   }
   optimisticText.set(entry.id, entry)
@@ -1352,7 +1372,7 @@ function prepareText(body: string, reply?: string, photoId?: string) {
 function isMessagingOffline() { return connection.value === 'offline' }
 async function dispatchText(entry: PendingText, current: MatrixClient) {
   if (entry.inFlight || optimisticText.get(entry.id) !== entry) return
-  if (connection.value !== 'ready') {
+  if (!hasConfirmedIdentity() || appLocked.value || connection.value !== 'ready') {
     entry.status = 'queued'
     refreshMessages()
     return
@@ -1640,7 +1660,8 @@ export async function retryMessage(id: string) {
       || optimistic.inFlight || !['notSent', 'queued'].includes(optimistic.status)) return
     const sdkEcho = room.getPendingEvents().find(event => event.getTxnId() === optimistic.txnId)
     if (!sdkEcho) {
-      if (connection.value === 'ready') await dispatchText(optimistic, current)
+      if (connection.value === 'ready' && hasConfirmedIdentity() && !appLocked.value)
+        await dispatchText(optimistic, current)
       return
     }
     if (sdkEcho.status !== 'not_sent') return
