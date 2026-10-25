@@ -1,4 +1,13 @@
 export const profilePath = (handle: string) => `/people/${encodeURIComponent(handle)}`
-export function profileReturnTo(value: unknown) {
-  return typeof value === 'string' && /^\/people\/(?:pb_[a-z0-9]+|%40[a-z0-9_.-]+)$/i.test(value) ? value : '/profile'
+
+/**
+ * Intended navigation only: an internal path for an existing private route.
+ * Never carry arbitrary query strings, fragments, tokens or external origins.
+ */
+export function profileReturnTo(value: unknown): string {
+  if (typeof value !== 'string' || value.length > 512 ||
+      !value.startsWith('/') || value.startsWith('//') || /[\\?#\x00-\x1f]/.test(value))
+    return '/profile'
+  return /^\/(?:camera(?:\/presets(?:\/[A-Za-z0-9_-]+(?:\/team)?)?)?|gallery(?:\/[A-Za-z0-9_-]+(?:\/edit)?)?|assignments(?:\/(?:new|[A-Za-z0-9_-]+(?:\/edit)?))?|messages(?:\/profile\/[A-Za-z0-9_.%\-]+)?|profile\/(?:edit|contacts|photos-security|security|teams)|people\/[A-Za-z0-9_.%\-]+|settings(?:\/data)?|join|profiles(?:\/[A-Za-z0-9_-]+(?:\/team)?)?)$/.test(value)
+    ? value : '/profile'
 }

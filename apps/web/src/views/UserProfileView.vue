@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   account,
   deviceId,
   loadIdentity,
+  sessionState,
   identityUnavailable,
   logout,
   profileSaved,
@@ -12,6 +13,7 @@ import {
   signingOut,
 } from '../identity/store'
 import { a } from '../identity/text'
+import { profileReturnTo } from '../identity/person'
 import { onboarding, startOnboarding } from '../identity/onboarding'
 import WorkspaceImport from '../components/WorkspaceImport.vue'
 import AppIcon from '../components/AppIcon.vue'
@@ -35,7 +37,7 @@ import {
 } from '../app/preferences'
 import { u } from '../app/text'
 import { s } from '../studio/text'
-const router = useRouter(),
+const router = useRouter(), route = useRoute(),
   authBusy = ref(false),
   authError = ref(''),
   copied = ref(false)
@@ -57,9 +59,9 @@ async function saveKey() {
     downloadFile(new File([key], 'photobunker-account-key.txt', { type: 'text/plain' }))
   } catch { authError.value = a('failed') }
 }
-onMounted(() => {
-  void loadIdentity(true).then(() => startOnboarding()).catch(() => {})
-})
+watch(sessionState, (state) => {
+  if (state === 'authenticated') void startOnboarding()
+}, { immediate: true })
 async function signOut() {
   authBusy.value = true
   try {
@@ -154,12 +156,12 @@ const sections = [
         </button>
       </p>
       <div v-if="!account" class="identity-entry-actions">
-        <button class="primary-button" :disabled="signingOut" @click="router.push('/profile/account')">
+        <button class="primary-button" :disabled="signingOut" @click="router.push({ path: '/profile/account', query: { returnTo: profileReturnTo(route.query.returnTo) } })">
           {{ a('create') }}</button
         ><button
           class="secondary-button"
           :disabled="signingOut"
-          @click="router.push('/profile/account?mode=recover')"
+          @click="router.push({ path: '/profile/account', query: { mode: 'recover', returnTo: profileReturnTo(route.query.returnTo) } })"
         >
           {{ a('signInKey') }}</button>
 

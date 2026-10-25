@@ -8,6 +8,7 @@ import {
   account,
   identityReady,
   identityUnavailable,
+  sessionState,
 } from '../src/identity/store'
 let wrapper: ReturnType<typeof mount> | undefined
 beforeEach(() => {
@@ -15,6 +16,7 @@ beforeEach(() => {
   account.value = undefined
   identityReady.value = false
   identityUnavailable.value = false
+  sessionState.value = 'initial'
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => new Response('{}', { status: 401 })),
@@ -32,19 +34,18 @@ async function open(path: string) {
   await flushPromises()
   return router
 }
-it('requires an account before opening the camera and hides the application dock', async () => {
+it('renders a locked private gate while identity checks run in the background', async () => {
   const router = await open('/camera')
-  expect(router.currentRoute.value.path).toBe('/profile')
+  expect(router.currentRoute.value.path).toBe('/camera')
   expect(wrapper!.find('nav.navigation').exists()).toBe(false)
   expect(wrapper!.find('video').exists()).toBe(false)
-  expect(wrapper!.text()).toContain('Создать аккаунт')
+  expect(wrapper!.find('.main-content').text()).not.toContain('Задания ·')
 })
-it('protects direct links to messages and photos', async () => {
+it('does not mount private messages or photos before confirmed Identity', async () => {
   const router = await open('/messages')
-  expect(router.currentRoute.value.path).toBe('/profile')
-  await router.push('/gallery/private')
-  expect(router.currentRoute.value.path).toBe('/profile')
   expect(wrapper!.find('.message-composer').exists()).toBe(false)
+  await router.push('/gallery/private')
+  expect(wrapper!.find('.photo-editor').exists()).toBe(false)
 })
 it('shows a sign-in gate for a shared profile without revealing profile information', async () => {
   const router = await open('/people/pb_sample')

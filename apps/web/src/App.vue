@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import {
   appLockReady,
+  appLockFailure,
   appLocked,
   loadAppLock,
   lockApp,
   unlockApp,
 } from './app/lock'
 import { hardLock, resumeTrustedPhotos } from './crypto/store'
-import { deviceId } from './identity/store'
+import { deviceId, sessionState, offlineCaptureIdentity, hasConfirmedIdentity, loadIdentity } from './identity/store'
 import { q } from './crypto/text'
 import AccountPhotoAccess from './components/AccountPhotoAccess.vue'
 import {
@@ -19,7 +20,8 @@ import {
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { c } from './collaboration/text'
 import { startCollaboration } from './collaboration/store'
-import { account, identityReady, identityUnavailable } from './identity/store'
+import { account } from './identity/store'
+import { profileReturnTo } from './identity/person'
 import { useRoute, useRouter } from 'vue-router'
 import AppIcon from './components/AppIcon.vue'
 import { locale, t } from './i18n'
@@ -50,6 +52,29 @@ import { purgeAccountFromDevice } from './identity/storage'
 const route = useRoute(),
   router = useRouter()
 const privatePhotoRoute = computed(() => route.path.startsWith('/gallery'))
+const openRoute = computed(() =>
+  ['shared-photo', 'profile', 'account-auth', 'person-profile'].includes(String(route.name)),
+)
+const offlineLocalRoute = computed(() =>
+  ['camera', 'gallery', 'photo', 'photo-editor', 'profiles', 'profile-edit'].includes(String(route.name)),
+)
+const privatePending = computed(() =>
+  !openRoute.value && !hasConfirmedIdentity() &&
+  !((sessionState.value === 'offline' || sessionState.value === 'checking') && offlineCaptureIdentity.value && !!account.value && offlineLocalRoute.value),
+)
+const showScopedLocal = computed(() =>
+  hasConfirmedIdentity() ||
+  (offlineCaptureIdentity.value && !!account.value && offlineLocalRoute.value &&
+   (sessionState.value === 'offline' || sessionState.value === 'checking')),
+)
+const privateMessage = computed(() =>
+  sessionState.value === 'initial' || sessionState.value === 'checking' ? a('sessionChecking')
+    : sessionState.value === 'unavailable' ? a('sessionNetwork')
+    : sessionState.value === 'offline' ? a('sessionOffline')
+    : sessionState.value === 'revoked' ? a('sessionRevoked')
+    : a('sessionSignedOut'),
+)
+
 const appPin = ref(''),
   appPinError = ref('')
 async function openApp() {
@@ -78,6 +103,7 @@ watch([appLockReady, appLocked], ([ready, locked]) => {
 function backgroundLock() {
   if (document.hidden) lockApp()
 }
+function retrySession() { void loadIdentity(true) }
 const offline = ref(!navigator.onLine)
 const main = ref<HTMLElement>()
 let stopDelivery: (() => void) | undefined
@@ -236,19 +262,17 @@ onBeforeUnmount(() => {
   window.removeEventListener('photobunker-privacy-screen', privacy)
 })
 watch(
-  [() => account.value?.id, identityReady, identityUnavailable],
-  ([id, ready, unavailable]) => {
-    // A cross-tab account refresh temporarily clears the old identity.
-    // Keep the route while resolving the replacement; private views remount.
-    if (
-      route.name &&
-      !id &&
-      ready &&
-      !unavailable &&
-      !['profile', 'account-auth', 'shared-photo'].includes(String(route.name))
-    )
-      void router.replace('/profile')
+  [sessionState, () => route.path, () => route.query.returnTo],
+  ([state, path, intended]) => {
+    if ((state === 'signed-out' || state === 'revoked') && !openRoute.value) {
+      const safe = profileReturnTo(path)
+      void router.replace({ path: '/profile', query: safe === '/profile' ? {} : { returnTo: safe } })
+    } else if (state === 'authenticated' && path === '/profile' && typeof intended === 'string') {
+      const safe = profileReturnTo(intended)
+      if (safe !== '/profile') void router.replace(safe)
+    }
   },
+  { immediate: true },
 )
 watch(
   [title, locale],
@@ -297,12 +321,12 @@ watch(
       </header>
 
       <nav
-        v-if="account && appLockReady && !appLocked && !editor && !hidden"
+        v-if="account && (sessionState === 'authenticated' || sessionState === 'offline') && appLockReady && !appLocked && !editor && !hidden"
         class="navigation"
         :aria-label="t('navigation')"
       >
         <RouterLink
-          v-for="item in navigation"
+          v-for="item in navigation.filter(item => sessionState !== 'offline' || ['camera', 'gallery', 'profile'].includes(item.name))"
           :key="item.name"
           :to="item.to"
           :class="[
@@ -335,7 +359,7 @@ watch(
 
       <main id="main" ref="main" class="main-content" tabindex="-1">
         <p
-          v-if="account && !appLocked && localPrototype && accessCode && !accessSaved"
+          v-if="showScopedLocal && appLockReady && !appLocked && localPrototype && accessCode && !accessSaved"
           class="server-warning"
           role="status"
         >
@@ -344,7 +368,8 @@ watch(
         </p>
         <div
           v-if="
-            account &&
+            showScopedLocal &&
+            appLockReady &&
             !appLocked &&
             !immersive &&
             !hidden &&
@@ -370,7 +395,7 @@ watch(
           </button>
         </div>
         <div
-          v-if="account && !appLocked && !immersive && !hidden && workspacePending"
+          v-if="showScopedLocal && appLockReady && !appLocked && !immersive && !hidden && workspacePending"
           class="delivery-notice"
           role="status"
         >
@@ -407,8 +432,16 @@ watch(
             {{ q('Фотографии и резервная копия') }}
           </button>
         </div>
+        <section v-if="privatePending" class="native-screen" aria-live="polite">
+          <div class="screen-body">
+            <p role="status">{{ privateMessage }}</p>
+            <button v-if="sessionState === 'unavailable' || sessionState === 'offline'"
+              class="secondary-button" @click="retrySession">{{ a('sessionRetry') }}</button>
+            <RouterLink :to="{ path: '/profile/account', query: { mode: 'recover', returnTo: profileReturnTo(route.path) } }" class="quiet-button">{{ a('signInKey') }}</RouterLink>
+          </div>
+        </section>
         <section
-          v-if="
+          v-else-if="
             account &&
             (!appLockReady || appLocked) &&
             route.name !== 'account-auth'
@@ -423,7 +456,10 @@ watch(
                   : 'Открываем приложение…'
               }}
             </h1>
-            <template v-if="appLockReady"
+            <template v-if="appLockFailure"><p role="alert">{{ a('sessionPinStorage') }}</p>
+              <button type="button" class="secondary-button" @click="loadAppLock()">{{ a('sessionRetry') }}</button>
+            </template>
+            <template v-else-if="appLockReady"
               ><label
                 >PIN приложения<input
                   v-model="appPin"
