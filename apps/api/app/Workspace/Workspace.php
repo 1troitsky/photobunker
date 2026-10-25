@@ -87,6 +87,9 @@ final class Workspace
                 $rules['rules.'.$field] = 'required|boolean';
             }
         }
+        if ($kind === 'task') {
+            $rules['rules.useAssignmentPhotoId'] = 'sometimes|boolean';
+        }
         if ($kind === 'preset') {
             $rules += ['description' => 'present|nullable|string|max:1000', 'version' => 'required|integer|min:0', 'rules' => 'required|array', 'options' => 'required|array', 'archived' => 'sometimes|boolean', 'hidden' => 'sometimes|boolean'];
         }
