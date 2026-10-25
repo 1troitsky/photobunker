@@ -82,7 +82,7 @@ final class WorkspacePhotoController extends Controller
             'tags' => 'sometimes|array|max:20', 'tags.*' => 'required|string|max:40|distinct', 'metadata' => 'sometimes|array',
             'assignmentId' => 'sometimes|nullable|uuid', 'taskRevision' => 'sometimes|integer|min:1', 'profile' => 'sometimes|nullable|array', 'legacyImport' => 'sometimes|boolean',
             'retentionAnchor' => 'required|uuid', 'retentionSeconds' => 'required|integer|min:3600|max:1209600', 'expiresAt' => 'required|integer|min:0|max:9007199254740991',
-            'originalChecksum' => 'required|string|regex:/^[a-f0-9]{64}$/D', 'thumbnailChecksum' => 'required|string|regex:/^[a-f0-9]{64}$/D', 'previewChecksum' => 'required|string|regex:/^[a-f0-9]{64}$/D'])->validate();
+            'needsName' => 'sometimes|boolean', 'shortId' => 'sometimes|nullable|string|max:40', 'originalChecksum' => 'required|string|regex:/^[a-f0-9]{64}$/D', 'thumbnailChecksum' => 'required|string|regex:/^[a-f0-9]{64}$/D', 'previewChecksum' => 'required|string|regex:/^[a-f0-9]{64}$/D'])->validate();
         $existing = DB::table('workspace_photos')->find($data['id']);
         $committed = $existing && $existing->state === 'active' && $existing->creator_id === $actor && $existing->assignment_id === ($data['assignmentId'] ?? null);
         $task = ! empty($data['assignmentId']) ? $this->workspace->record($actor, $data['assignmentId'], 'task') : null;
@@ -119,9 +119,11 @@ final class WorkspacePhotoController extends Controller
         $metadata = $this->metadata($data['metadata'] ?? []);
         $owner = DB::table('identity_accounts')->find($actor);
         $profile = $capture['preset'] ?? (isset($data['profile']) ? Validator::make($data['profile'], ['id' => 'required|string|max:120', 'name' => 'required|string|max:80', 'version' => 'required|integer|min:0', 'description' => 'sometimes|nullable|string|max:1000', 'rules' => 'required|array'])->validate() : null);
+        $nameId = app(\\App\\Workspace\\PhotoNames::class)->forPhoto($data['id']);
+        abort_if(($data['needsName'] ?? false) && ! $nameId, 409, 'photo_names.unassigned');
         $manifest = ['id' => $data['id'], 'createdAt' => $data['createdAt'], 'width' => $data['width'], 'height' => $data['height'], 'bytes' => $original->getSize(), 'mime' => $data['mime'], 'method' => $data['method'],
-            'title' => trim($data['title'] ?? ''), 'note' => trim($data['note'] ?? ''), 'favorite' => $data['favorite'], 'category' => $data['category'] ?? '', 'shot' => $data['shot'] ?? '', 'tags' => $data['tags'] ?? [], 'metadata' => $metadata,
-            'creatorPublicId' => $owner->public_id, 'shortId' => strtoupper(substr(str_replace('-', '', $data['id']), 0, 10)), 'retentionSeconds' => $duration, 'retentionAnchor' => $data['retentionAnchor'],
+            'title' => trim($data['title'] ?? '') ?: ($nameId ?? ''), 'note' => trim($data['note'] ?? ''), 'favorite' => $data['favorite'], 'category' => $data['category'] ?? '', 'shot' => $data['shot'] ?? '', 'tags' => $data['tags'] ?? [], 'metadata' => $metadata,
+            'creatorPublicId' => $owner->public_id, 'shortId' => $nameId ?? ($data['shortId'] ?: strtoupper(substr(str_replace('-', '', $data['id']), 0, 10))), 'retentionSeconds' => $duration, 'retentionAnchor' => $data['retentionAnchor'],
             'profile' => $profile, 'uiRules' => $config ? ['descriptionRequired' => $config['rules']['descriptionRequired'], 'minLength' => $config['rules']['minLength'], 'particularCategory' => $config['rules']['particularCategory']] : null,
             'captureContext' => ['presetName' => $profile['name'] ?? 'Standard', 'presetVersion' => $profile['version'] ?? null, 'standard' => ! $profile || ($profile['id'] ?? '') === 'standard-local', 'teamId' => $task?->team_id,
                 'teamName' => $config['teamName'] ?? null, 'author' => ($data['legacyImport'] ?? false) ? ['kind' => 'device'] : ['kind' => 'account', 'publicId' => $owner->public_id]]];
