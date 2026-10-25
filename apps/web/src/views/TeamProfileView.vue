@@ -6,7 +6,7 @@ import AppIcon from '../components/AppIcon.vue'
 import AppSheet from '../components/AppSheet.vue'
 import ParticipantsEditor from '../components/ParticipantsEditor.vue'
 import { clone, type Team } from '../studio/model'
-import { loadStudio, localTasks, teams, saveTeam, pendingTeamIds, teamSyncErrors, flushPendingTeams } from '../studio/store'
+import { loadStudio, localTasks, cachedTeamTasks, teams, saveTeam, pendingTeamIds, teamSyncErrors, flushPendingTeams } from '../studio/store'
 import { account } from '../identity/store'
 import { respond } from '../workspace/api'
 import { workspaceError } from '../workspace/errors'
@@ -18,7 +18,11 @@ import { teamProfilePath, visibleTeamTasks, teamMembers } from '../studio/team-p
 const route = useRoute(), router = useRouter()
 const teamId = computed(() => typeof route.params.id === 'string' ? route.params.id : '')
 const team = computed(() => teams.value.find(value => value.id === teamId.value))
-const tasks = computed(() => visibleTeamTasks(localTasks.value, teamId.value))
+const tasks = computed(() => {
+  const available = new Map(cachedTeamTasks.value.map(task => [task.id, task]))
+  for (const task of localTasks.value) available.set(task.id, task)
+  return visibleTeamTasks([...available.values()], teamId.value)
+})
 const members = computed(() => teamMembers(team.value))
 const isOwner = computed(() => !!team.value && team.value.canManage === true &&
   team.value.ownerPublicId === account.value?.publicId)
