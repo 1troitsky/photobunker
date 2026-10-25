@@ -23,7 +23,7 @@ function changeLanguage(value: Locale) { languageSaved.value = setLocale(value) 
       </div>
       <div class="settings-panel">
         <div class="setting-row">
-          <span class="setting-icon"><AppIcon name="location" /></span>
+          <span class="setting-icon"><AppIcon name="globe" /></span>
           <div class="setting-description">
             <h2 id="gps-label">{{ locationText('enabled') }}</h2>
             <p>{{ locationText('description') }}</p>
