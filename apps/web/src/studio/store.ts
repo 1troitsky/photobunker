@@ -1,6 +1,6 @@
 import { account, deviceId, sessionState, hasConfirmedIdentity, loadIdentity } from '../identity/store'
 import { appLockReady, appLocked } from '../app/lock'
-import { mutateTeamCache, readTeamCache, type TeamCache } from '../workspace/team-local'
+import { mutateTeamCache, readTeamCache, type TeamCache, type TeamTaskSummary } from '../workspace/team-local'
 import * as workspace from '../workspace/api'
 import { invitations } from '../workspace/state'
 import { taskGrants } from '../workspace/access'
@@ -25,6 +25,7 @@ import { cleanupVersions } from './versions'
 export const localPresets = ref<Preset[]>([]),
   localTasks = ref<Task[]>([]),
   teams = ref<Team[]>([])
+export const cachedTeamTasks = ref<TeamTaskSummary[]>([])
 export const pendingTeamIds = ref<string[]>([])
 export const teamSyncErrors = ref<string[]>([])
 export const personalCategories = ref<string[]>([])
@@ -47,6 +48,7 @@ function projectTeams(data: TeamCache) {
   const list = new Map(data.snapshot.map(team => [team.id, team]))
   for (const pending of data.pending) list.set(pending.id, pending)
   teams.value = [...list.values()]
+  cachedTeamTasks.value = data.tasks ?? []
   pendingTeamIds.value = data.pending.map(team => team.id)
 }
 async function restoreTeamsFromDevice(owner: string) {
@@ -146,7 +148,9 @@ async function loadStudioData() {
               const remote = data.teams.find(team => team.id === item.id)
               return !remote || !sameTeam(remote, item)
             })
-            return { snapshot: data.teams, pending }
+            return { ...local, snapshot: data.teams, pending, tasks: data.tasks.map(task => ({
+              id: task.id, name: task.name, teamId: task.teamId, completed: task.completed,
+            })) }
           })
           if (current !== generation || owner !== scope()) return
           projectTeams(next)
@@ -453,6 +457,7 @@ watch(
     localPresets.value = []
     localTasks.value = []
     teams.value = []
+    cachedTeamTasks.value = []
     pendingTeamIds.value = []
     teamSyncErrors.value = []
     personalCategories.value = []
