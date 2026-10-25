@@ -325,6 +325,9 @@ async function writeDirect(handle: string, call = false) {
   // immediately instead of waiting for Matrix startup/network recovery.
   pendingPeer.value = peer
   pendingCall.value = call
+  // Move to the local DM surface before any Matrix room or network request.
+  // The existing selected room must not mask the optimistic conversation.
+  openRoom('')
   newOpen.value = false
   tab.value = 'chats'
   await perform(async () => {
@@ -849,6 +852,8 @@ function closePendingConversation() {
   pendingPeer.value = ''
   pendingCall.value = false
   actionError.value = ''
+  if (route.query.peer)
+    void router.replace({ query: { ...route.query, peer: undefined, call: undefined } })
 }
 function toggleMessage(id: string) {
   selectedMessages.value = selectedMessages.value.includes(id) ? selectedMessages.value.filter(value => value !== id) : [...selectedMessages.value, id]
@@ -975,7 +980,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
             <div class="messenger-chat-list">
               <div v-if="connection === 'connecting' && !listed.length && !pendingDirectTexts.length" class="chat-skeletons" aria-hidden="true"><div v-for="i in 4" :key="i"><i /><span><b /><b /></span></div></div>
               <template v-else>
-                <button v-for="item in pendingDirectTexts.filter(value => !rooms.some(room => room.direct && room.id === selected))"
+                <button v-for="item in pendingDirectTexts"
                   :key="item.id" type="button" class="chat-row chatify-conversation-item"
                   @click="writeDirect(item.peerId)">
                   <span :class="['chat-avatar', avatarColor(item.peerId)]">{{ initials(item.peerId) }}</span>
