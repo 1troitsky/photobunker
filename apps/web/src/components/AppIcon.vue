@@ -10,6 +10,7 @@ defineProps<{
     | 'gallery'
     | 'settings'
     | 'lock'
+    | 'key'
     | 'flip'
     | 'arrow'
     | 'offline'
@@ -158,6 +159,10 @@ defineProps<{
     <template v-else-if="name === 'lock'">
       <rect x="5" y="10" width="14" height="11" rx="3" />
       <path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2" />
+    </template>
+    <template v-else-if="name === 'key'">
+      <circle cx="8" cy="15" r="4" />
+      <path d="M11 12 20 3l2 2-3 3 2 2-3 3-2-2-5 5" />
     </template>
     <template v-else-if="name === 'flip'">
       <path d="M20 7h-5V2M4 17h5v5M20 7a8 8 0 0 0-14-2m-2 12a8 8 0 0 0 14 2" />

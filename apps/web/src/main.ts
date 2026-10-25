@@ -29,3 +29,5 @@ import './collaboration.css'
 import './app.css'
 import './native.css'
 import './messages.css'
+
+import './welcome.css'
