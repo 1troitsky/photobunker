@@ -68,6 +68,7 @@ function toggleLanguage() { setLocale(locale.value === 'ru' ? 'en' : 'ru') }
 
     <div v-if="checkingPreviousSession" class="welcome-resuming" role="status">
       <img src="/icons/brand-logo.png" width="88" height="88" alt="" />
+      <h1 id="welcome-heading" class="welcome-resume-title">PhotoBunker</h1>
       <span>{{ text.restoring }}</span>
     </div>
 
