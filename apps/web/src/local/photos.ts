@@ -16,7 +16,7 @@ export type Capture = {
 }
 import type { PhotoMetadata, Profile } from '../profiles/model'
 import { captureRetention, isExpired } from '../delivery/clock'
-import { photoCode } from '../profiles/model'
+import { takeName } from './photo-names'
 export type CaptureContext = {
   presetName: string
   presetVersion?: number
@@ -78,6 +78,8 @@ export type Photo = {
   uploadRequested?: boolean
   profile?: Profile
   shortId?: string
+  needsName?: boolean
+  nameAssignmentId?: string | null
   metadata?: PhotoMetadata
   category?: string
   shot?: string
@@ -199,6 +201,7 @@ export async function savePhoto(
   details?: {
     id?: string
     accountId?: string
+    nameAssignmentId?: string | null
     note?: string
     workspaceAssignmentId?: string
     uploadOnly?: boolean
@@ -231,15 +234,19 @@ export async function savePhoto(
     !capture.height
   )
     throw new DOMException('Invalid image size', 'DataError')
+  const id = details?.id ?? crypto.randomUUID()
+  // The UUID and reserved NAME-ID are persisted before image encryption.
+  // A consumed number is never recycled if a capture fails part-way.
+  const name = details?.accountId ? await takeName(id, details.nameAssignmentId ?? null) : undefined
   const photo: Photo = {
-    id: details?.id ?? crypto.randomUUID(),
+    id,
     createdAt: Date.now(),
     width: capture.width,
     height: capture.height,
     bytes: capture.blob.size,
     mime: capture.blob.type,
     method: capture.method,
-    title: '',
+    title: name ?? '',
     note: '',
     favorite: false,
   }
@@ -270,7 +277,9 @@ export async function savePhoto(
       createdAt: details.createdAt,
       ...details.retention,
       uploadRequested: !!details.accountId || !details.uiOnly,
-      shortId: photoCode(details.profile?.rules.idPrefix ?? ''),
+      shortId: name,
+      needsName: !!details.accountId,
+      nameAssignmentId: details.nameAssignmentId ?? null,
       remoteLibraryId: details.libraryId || undefined,
     })
   if (details?.accountId) {
@@ -543,6 +552,7 @@ export function acceptServerMetadata(
           reviewComment: photo.reviewComment,
           responseComment: photo.responseComment,
           title: photo.title,
+          shortId: current.shortId || photo.shortId,
           note: photo.note,
           category: photo.category,
           tags: photo.tags,
