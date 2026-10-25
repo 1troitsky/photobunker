@@ -285,8 +285,12 @@ export async function saveTeam(value: Team): Promise<Team> {
       throw new Error('workspace.cancelled')
     projectTeams(stored)
     changed()
-    if (hasConfirmedIdentity()) void flushPendingTeams()
-    return item
+    // Existing callers (TeamPicker → Assignment) depended on saveTeam()
+    // awaiting a successful online server commit. Preserve that contract
+    // whenever the session is confirmed, while retaining the durable intent
+    // on transient network errors for offline/reload.
+    if (hasConfirmedIdentity()) await flushPendingTeams()
+    return teams.value.find(team => team.id === item.id) ?? item
   }
   const saved = await repository.save(owner, 'teams', item, value.revision)
   if (owner === scope()) {
