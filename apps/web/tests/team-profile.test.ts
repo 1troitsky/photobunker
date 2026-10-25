@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { teamMembers, teamProfilePath, visibleTeamTasks } from '../src/studio/team-profile'
 import { profileReturnTo } from '../src/identity/person'
-import type { Team, Task } from '../src/studio/model'
+import type { Team } from '../src/studio/model'
 
 const team: Team = {
   id: '11111111-2222-4333-8444-555555555555',
@@ -36,7 +36,7 @@ describe('R1-04 / stable Team identity without merging legacy Space', () => {
       { id: 'work-a', teamId: team.id, name: 'Inside' },
       { id: 'work-b', teamId: 'different', teamName: team.name, name: 'Same name' },
       { id: 'work-c', teamId: team.id, name: 'Also inside' },
-    ] as Task[]
+    ]
     expect(visibleTeamTasks(tasks, team.id).map(task => task.id)).toEqual(['work-a', 'work-c'])
   })
 })
