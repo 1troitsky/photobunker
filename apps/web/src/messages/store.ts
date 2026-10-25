@@ -872,8 +872,17 @@ watch(
 watch(sessionState, state => {
   if (state === 'revoked' || state === 'signed-out') stopMessaging()
   else if (state === 'offline' && client) connection.value = 'offline'
-  else if (state === 'authenticated' && requested && !client && !startup &&
-      !appLocked.value) void startMessaging()
+  else if (state === 'authenticated' && requested && !appLocked.value) {
+    if (!client && !startup) void startMessaging()
+    else if (client) {
+      const current = client
+      // A prior /me outage can set the UI offline while Matrix's sync
+      // transport stayed alive. Require its actual sync state before resuming.
+      if (current.getSyncState() === 'SYNCING' || current.getSyncState() === 'PREPARED')
+        connection.value = 'ready'
+      if (connection.value === 'ready') void restoreDurableOutbox(current)
+    }
+  }
 })
 window.addEventListener('pagehide', () => stopMessaging())
 export function startMessaging(): Promise<void> {
