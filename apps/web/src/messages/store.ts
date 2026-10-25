@@ -866,9 +866,19 @@ watch(
     if (owner && value !== owner) stopMessaging()
   },
 )
+// A temporary /me failure must not permanently strand an encrypted outbox.
+// Retry Matrix bootstrap after R0-02 actually confirms the same session,
+// not merely when the browser's navigator.onLine flips back to true.
+watch(sessionState, state => {
+  if (state === 'revoked' || state === 'signed-out') stopMessaging()
+  else if (state === 'offline' && client) connection.value = 'offline'
+  else if (state === 'authenticated' && requested && !client && !startup &&
+      !appLocked.value) void startMessaging()
+})
 window.addEventListener('pagehide', () => stopMessaging())
 export function startMessaging(): Promise<void> {
   requested = true
+  if (appLocked.value) return Promise.resolve()
   if (startup) return startup
   if (client) return Promise.resolve()
   if (!navigator.locks) {
