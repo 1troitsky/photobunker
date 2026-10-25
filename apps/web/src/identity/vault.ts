@@ -28,6 +28,36 @@ export async function rememberAccountKey(value: string) {
     if (scope !== localScope()) { await db.remove(scope); throw new Error('recovery.cancelled') }
   } finally { clear.fill(0) }
 }
+// Imported legacy photo material is staged durably, without blocking login on
+// a photo API request. Only this account/device can decrypt the staging row.
+const photoImportScope = () => `account-photo-import:${localScope()}`
+export async function stageImportedPhotoKey(value: string) {
+  const ownerScope = localScope(), scope = photoImportScope()
+  assertScope(ownerScope)
+  const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const bytes = new TextEncoder().encode(value)
+  try {
+    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: new TextEncoder().encode(scope) }, key, bytes)
+    assertScope(ownerScope)
+    await db.put(scope, { key, iv, ciphertext } satisfies Wrapped)
+    if (scope !== photoImportScope()) { await db.remove(scope); throw new Error('recovery.cancelled') }
+  } finally { bytes.fill(0) }
+}
+export async function pendingImportedPhotoKey(): Promise<string | undefined> {
+  const ownerScope = localScope(), scope = photoImportScope()
+  const row = await db.get<Wrapped>(scope)
+  assertScope(ownerScope)
+  if (!row || row.key.extractable) return
+  const clear = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: row.iv, additionalData: new TextEncoder().encode(scope) }, row.key, row.ciphertext))
+  try { assertScope(ownerScope); return new TextDecoder().decode(clear) }
+  finally { clear.fill(0) }
+}
+export async function clearImportedPhotoKey() {
+  const scope = photoImportScope()
+  assertScope(localScope())
+  await db.remove(scope)
+}
 export async function accountKey(): Promise<string | undefined> {
   if (!account.value || appLocked.value || localStorage.getItem('pb-signed-out') === 'true') return
   const scope = localScope(), row = await db.get<Wrapped>(scope)

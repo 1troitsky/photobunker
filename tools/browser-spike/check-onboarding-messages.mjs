@@ -1,7 +1,7 @@
 // Synthetic accounts only. Never output backup contents or plaintext payloads.
 import { chromium, webkit, expect } from '@playwright/test'
 import assert from 'node:assert/strict'
-import { origin, headers, button, label, accountFixture, cleanupFixtures, monitorRuntime } from './account-qa.mjs'
+import { origin, headers, button, label, accountFixture, cleanupFixtures, monitorRuntime,labelQaDevice} from './account-qa.mjs'
 const ready = async page => expect(page.locator('.messages-screen')).toHaveAttribute('data-crypto-stage', 'ready', { timeout: 60000 })
 for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(',')) {
   const browser = await ({ chromium, webkit }[engine]).launch({ headless: true }), fixtures = [], extra = [], errors = [], diagnostics = { nativePhotoPoll: 0 }
@@ -50,9 +50,9 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     const context = await browser.newContext({ locale: 'ru-RU', viewport: { width: 390, height: 844 } }), page = await context.newPage(); extra.push(context); recoveryPage = page
     await monitorRuntime(page, engine, errors, diagnostics)
     await page.goto(`${origin}/profile/account?mode=recover`)
-    await label(page, 'Название устройства').fill(`QA ${engine} combined backup recovery`)
+
     await label(page, 'Ключ аккаунта').fill(first.kit)
-    await button(page, 'Готово').click(); await expect(page).toHaveURL(`${origin}/profile`, { timeout: 30000 })
+    await button(page, 'Готово').click(); await expect(page).toHaveURL(`${origin}/profile`, { timeout: 30000 });await labelQaDevice(page,`QA ${engine} combined backup recovery`);
     await page.goto(`${origin}/gallery`)
     await expect.poll(() => page.evaluate(async () => (await import('/src/crypto/store.ts')).photoReadAllowed())).toBe(true)
     await page.goto(`${origin}/messages`); await ready(page)

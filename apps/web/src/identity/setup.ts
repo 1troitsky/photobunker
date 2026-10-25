@@ -1,28 +1,44 @@
-import { account } from './store'
-import { accountKey, readAccountSecrets, saveAccountSecrets } from './vault'
+import { account, deviceId } from './store'
+import { accountKey, readAccountSecrets, saveAccountSecrets, pendingImportedPhotoKey, clearImportedPhotoKey } from './vault'
 import { rememberedKit } from '../crypto/trusted'
 import { loadProtection, protectionEnabled, cryptoError, strongUnlocked, beginSetup, candidateKit, confirmSetup, unlock, prepareContext } from '../crypto/store'
-let setup: Promise<void> | undefined
+let setup: { scope: string; promise: Promise<void> } | undefined
 export function ensureAccountPhotos(): Promise<void> {
-  if (setup) return setup
-  const owner = account.value?.id
-  setup = (async () => {
+  const owner = account.value?.id, device = deviceId.value
+  const scope = `${owner}:${device}`
+  if (setup?.scope === scope) return setup.promise
+  const check = () => { if (!owner || account.value?.id !== owner || deviceId.value !== device) throw new Error('recovery.cancelled') }
+  if (setup) return setup.promise.catch(() => {}).then(() => { check(); return ensureAccountPhotos() })
+  const promise = (async () => {
     const root = await accountKey()
     if (!root) throw new Error('recovery.key_required')
+    check()
     await loadProtection()
-    if (!owner || owner !== account.value?.id) throw new Error('recovery.cancelled')
+    check()
     if (cryptoError.value) throw new Error('recovery.unavailable')
     const saved = await readAccountSecrets()
+    check()
     if (protectionEnabled.value) {
-      const photoKey = await rememberedKit() || saved?.photoKey
+      const imported = await pendingImportedPhotoKey()
+      check()
+      const photoKey = imported || await rememberedKit() || saved?.photoKey
       if (!photoKey) throw new Error('recovery.legacy_photo_key')
-      if (!saved?.photoKey) await saveAccountSecrets({ photoKey })
-      if (!strongUnlocked.value) await unlock(photoKey)
+      // Validate an explicitly imported key before replacing a saved backup.
+      // Keep its staged copy until unlock and recovery publication both succeed.
+      if (imported || !strongUnlocked.value) await unlock(photoKey)
+      check()
+      if (saved?.photoKey !== photoKey) await saveAccountSecrets({ photoKey })
+      check()
+      if (imported) await clearImportedPhotoKey()
     } else {
       if (!candidateKit.value) await beginSetup(root)
+      check()
       await confirmSetup()
     }
+    check()
     await prepareContext()
-  })().finally(() => { setup = undefined })
-  return setup
+    check()
+  })().finally(() => { if (setup?.scope === scope) setup = undefined })
+  setup = { scope, promise }
+  return promise
 }

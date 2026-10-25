@@ -6,6 +6,21 @@ if(!['localhost','127.0.0.1','[::1]','photobunker.orb.local'].includes(new URL(o
 export const headers={'X-PhotoBunker':'identity-v1','Origin':origin}
 export const button=(page,name)=>page.getByRole('button',{name,exact:true})
 export const label=(page,name)=>page.getByLabel(name,{exact:true})
+// The product assigns a device name automatically. QA adds a label only after
+// the real UI flow succeeds, using this device's normal signed login proof.
+// This keeps synthetic cleanup and targeted revoke checks strictly scoped.
+export async function labelQaDevice(page,name) {
+ if(!name.startsWith('QA '))name='QA '+name
+ await page.evaluate(async name=>{
+  const store=await import('/src/identity/store.ts'),keys=await import('/src/identity/keys.ts')
+  await store.loadIdentity()
+  const device=(await keys.credentials()).find(device=>device.id===store.deviceId.value)
+  if(!device)throw new Error('qa.device_missing')
+  const labelled={...device,name}
+  await store.login(labelled)
+  await keys.saveCredential(labelled)
+ },name)
+}
 export async function accountFixture(browser,name,fixtures,{legacy=false}={}) {
  const context=await browser.newContext({locale:'ru-RU',viewport:{width:390,height:844}}),page=await context.newPage()
  let stage='open-profile'
@@ -18,9 +33,8 @@ export async function accountFixture(browser,name,fixtures,{legacy=false}={}) {
    // CI starts against a cold Vite server; first compilation of the onboarding
    // route can exceed the ordinary interaction budget. Do not retry account
    // creation or bypass the visible onboarding contract.
-   await label(page,'Название устройства').waitFor({ state: 'visible', timeout: 180000 })
-   stage='device-name'
-   await label(page,'Название устройства').fill(`QA ${name}`)
+   await button(page,'Создать аккаунт').waitFor({ state: 'visible', timeout: 180000 })
+   await expect(label(page,'Название устройства')).toHaveCount(0)
    stage='create-account'
    await button(page,'Создать аккаунт').click()
    stage='read-recovery-input'
@@ -38,12 +52,16 @@ export async function accountFixture(browser,name,fixtures,{legacy=false}={}) {
    }
    stage='onboarding-return'
    await expect(page).toHaveURL(`${origin}/profile`,{timeout:30000})
+   await labelQaDevice(page,`QA ${name}`)
    stage='load-public-account'
    const me=await(await context.request.get(`${origin}/api/v1/identity/me`,{headers})).json()
-   stage='load-private-photo-key'
-   const photoKit=legacy?undefined:await page.evaluate(async()=>{const v=await import('/src/identity/vault.ts');return(await v.readAccountSecrets())?.photoKey})
-   const fixture={context,page,kit,photoKit,me,fingerprint:createHash('sha256').update(kit.split('.')[1]).digest('hex')}
+   const fixture={context,page,kit,photoKit:undefined,me,fingerprint:createHash('sha256').update(kit.split('.')[1]).digest('hex')}
    fixtures.push(fixture)
+   stage='load-private-photo-key'
+   if(!legacy)await expect.poll(async()=>{
+    fixture.photoKit=await page.evaluate(async()=>{const v=await import('/src/identity/vault.ts');return(await v.readAccountSecrets())?.photoKey})
+    return !!fixture.photoKit
+   },{timeout:30000}).toBe(true)
    return fixture
  } catch(error) {
    await context.close().catch(()=>{})

@@ -1,7 +1,7 @@
 // Synthetic accounts only. Recovery material never enters reports or screenshots.
 import {chromium,webkit,expect} from '@playwright/test'
 import assert from 'node:assert/strict'
-import {origin,headers,button,label,accountFixture,cleanupFixtures,monitorRuntime} from './account-qa.mjs'
+import {origin,headers,button,label,accountFixture,cleanupFixtures,monitorRuntime,labelQaDevice} from './account-qa.mjs'
 import {capture,received} from './photo-qa.mjs'
 const ready = async page => {
  await expect(page.locator('.messages-screen')).toHaveAttribute('data-crypto-stage','ready',{timeout:90000})
@@ -9,7 +9,7 @@ const ready = async page => {
  await expect(page.locator('.messages-screen')).toHaveAttribute('data-history-backup','true')
 }
 async function send(page,text){await label(page,'Сообщение').fill(text);await button(page,'Отправить').click();await expect(page.locator('.message-body').filter({hasText:text})).toBeVisible({timeout:30000})}
-async function login(page,key,name){await page.goto(`${origin}/profile`);await button(page,'Войти с ключом аккаунта').click();await label(page,'Название устройства').fill(name);await label(page,'Ключ аккаунта').fill(key);await button(page,'Готово').click();await expect(page).toHaveURL(`${origin}/profile`,{timeout:30000})}
+async function login(page,key,name){await page.goto(`${origin}/profile`);await button(page,'Войти с ключом аккаунта').click();await label(page,'Ключ аккаунта').fill(key);await button(page,'Готово').click();await expect(page).toHaveURL(`${origin}/profile`,{timeout:30000});await labelQaDevice(page,name);}
 for(const engine of(process.env.APP_BROWSERS??'chromium,webkit').split(',')){
  const browser=await({chromium,webkit}[engine]).launch({headless:true}),fixtures=[],extra=[],errors=[],diagnostics={nativePhotoPoll:0};let stage='register',latest
  try{
