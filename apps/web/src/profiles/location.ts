@@ -27,6 +27,15 @@ let generation = 0
 let watchEpoch = 0
 let freshnessTimer: ReturnType<typeof setTimeout> | undefined
 
+// A privacy opt-out in another tab must stop this tab's watcher too.
+window.addEventListener('storage', event => {
+  if (event.key !== preferenceKey && event.key !== null) return
+  const enabled = savedPreference()
+  if (enabled === locationEnabled.value) return
+  locationEnabled.value = enabled
+  if (!enabled) discard()
+})
+
 function notify(location?: Location, permanent = false) {
   for (const listener of listeners) listener(location, permanent)
 }
@@ -112,7 +121,9 @@ function beginWatch(scope: string) {
           notify(undefined, true)
         } else {
           locationState.value = 'unavailable'
-          notify(undefined, true)
+          // Timeout/unavailable can recover on this same watch. Keep the
+          // bounded post-capture refinement alive until its own deadline.
+          notify()
         }
       },
       { enableHighAccuracy: true, maximumAge: 10_000, timeout: 15_000 },

@@ -298,6 +298,7 @@ async function finishLocation(id: string, location?: Location) {
   job.busy = true
   try {
     const current = account.value && protectionEnabled.value ? encryptedPhotos.recentCapture(id) : await readMetadata(id)
+    if (job.owner !== account.value?.id || !waiting.has(id)) return
     if (!current || current.deleteRequested) return
     if (
       current.metadata?.locationEditedAt ||
@@ -311,13 +312,17 @@ async function finishLocation(id: string, location?: Location) {
     const score = (value: Location) =>
       value.accuracy +
       (Math.abs(value.measuredAt - current.createdAt) / 1000) * 3
+    const eligible = location && location.accuracy <= current.profile!.rules.accuracy
+      ? location : undefined
+    const prior = previous && previous.accuracy <= current.profile!.rules.accuracy
+      ? previous : undefined
     const use =
-      location &&
-      Math.abs(location.measuredAt - current.createdAt) <=
+      eligible &&
+      Math.abs(eligible.measuredAt - current.createdAt) <=
         current.profile!.rules.locationWindow * 1000 &&
-      (!previous || score(location) < score(previous))
-        ? location
-        : previous
+      (!prior || score(eligible) < score(prior))
+        ? eligible
+        : prior
     const complete =
       !location || (!!use && use.accuracy <= current.profile!.rules.accuracy)
     const metadata: PhotoMetadata = {

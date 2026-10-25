@@ -30,7 +30,7 @@ function changeLanguage(value: Locale) { languageSaved.value = setLocale(value) 
             <p>{{ locationText('noBackground') }}</p>
           </div>
           <button type="button" class="secondary-button" :aria-pressed="locationEnabled"
-            aria-labelledby="gps-label" @click="setLocationEnabled(!locationEnabled)">
+            @click="setLocationEnabled(!locationEnabled)">
             {{ locationText(locationEnabled ? 'disable' : 'enable') }}
           </button>
         </div>

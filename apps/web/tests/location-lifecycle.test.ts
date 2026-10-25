@@ -141,6 +141,35 @@ describe('R1-01 / a single private foreground GPS lifecycle', () => {
     expect(gps.locationAt(Date.now())).toBeUndefined()
     errorCallback?.({ code: 1 } as GeolocationPositionError)
   })
+  it('keeps the same watch available after a transient position timeout', async () => {
+    permissionState = 'granted'
+    const gps = await getService()
+    const notices: boolean[] = []
+    const unsubscribe = gps.subscribeLocation((_position, permanent) => notices.push(!!permanent))
+    gps.startGrantedLocation('account-a:device-a')
+    await settled()
+    errorCallback?.({ code: 3 } as GeolocationPositionError)
+    expect(gps.locationState.value).toBe('unavailable')
+    expect(notices.at(-1)).toBe(false)
+    expect(clearWatch).not.toHaveBeenCalled()
+    callback?.(fix())
+    expect(gps.locationAt(Date.now())).toBeDefined()
+    unsubscribe()
+  })
+  it('stops this tab when another tab disables location', async () => {
+    permissionState = 'granted'
+    const gps = await getService()
+    gps.startGrantedLocation('account-a:device-a')
+    await settled()
+    callback?.(fix())
+    localStorage.setItem('photobunker.location.enabled.v1', 'false')
+    window.dispatchEvent(new StorageEvent('storage', {
+      key: 'photobunker.location.enabled.v1', newValue: 'false',
+    }))
+    expect(gps.locationEnabled.value).toBe(false)
+    expect(gps.locationAt(Date.now())).toBeUndefined()
+    expect(clearWatch).toHaveBeenCalledWith(14)
+  })
   it('does not trigger a permission prompt on browsers lacking Permissions API', async () => {
     Object.defineProperty(navigator, 'permissions', { configurable: true, value: undefined })
     const gps = await getService()
