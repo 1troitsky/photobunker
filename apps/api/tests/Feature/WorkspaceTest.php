@@ -175,6 +175,37 @@ final class WorkspaceTest extends TestCase
         $this->assertDatabaseHas('workspace_records', ['id' => $id, 'owner_id' => $owner['id']]);
     }
 
+    public function test_team_description_is_private_revisioned_and_does_not_create_a_matrix_room(): void
+    {
+        $owner = $this->fixture();
+        $member = $this->fixture();
+        $outsider = $this->fixture();
+        $this->contact($owner, $member);
+        $id = (string) Str::uuid();
+        $url = '/api/v1/identity/workspace/team/'.$id;
+
+        $team = $this->actor($owner)->putJson($url, [
+            'revision' => 0, 'name' => 'Private studio',
+            'description' => 'A private description',
+            'participants' => [$this->participant($member)],
+        ])->assertOk()->assertJsonPath('description', 'A private description')->json();
+
+        $this->actor($outsider)->getJson($url)->assertNotFound();
+        $this->actor($member)->getJson($url)->assertNotFound();
+        $this->accept($member, $team);
+        $this->actor($member)->getJson($url)->assertOk()->assertJsonPath('description', 'A private description');
+        $this->putJson($url, [...$team, 'description' => 'Not allowed'])->assertNotFound();
+
+        $updated = $this->actor($owner)->putJson($url, [
+            ...$team, 'description' => 'Updated description',
+        ])->assertOk()->assertJsonPath('revision', 3)
+          ->assertJsonPath('description', 'Updated description')->json();
+        $this->getJson($url)->assertOk()->assertJsonPath('description', 'Updated description');
+        $this->putJson($url, [...$updated, 'description' => str_repeat('x', 1001)])
+            ->assertUnprocessable();
+        $this->assertNull(DB::table('workspace_records')->where('id', $id)->value('room_id'));
+    }
+
     public function test_upload_only_and_thumbnail_grants_are_enforced_by_every_endpoint_and_revocation(): void
     {
         $owner = $this->fixture();
