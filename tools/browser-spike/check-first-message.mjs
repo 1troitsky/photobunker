@@ -42,14 +42,18 @@ for (const engine of (process.env.APP_BROWSERS ?? 'chromium,webkit').split(','))
     await expect(a.page.locator('.messages-screen')).toHaveAttribute('data-room', firstRoom)
     stage = 'first-send'
     await label(a.page, 'Сообщение').fill('QA first message before receiver starts messaging'); await button(a.page, 'Отправить').click()
-    await expect(a.page.locator('.message-state')).toHaveAttribute('aria-label', 'Принято сервером', { timeout: 30000 })
+    await expect(a.page.locator('.message-bubble').filter({ hasText: 'QA first message before receiver starts messaging' }).locator('.message-state')).toHaveAttribute('aria-label', 'Принято сервером', { timeout: 30000 })
     stage = 'first-receive'
     await b.page.goto(`${origin}/messages`); await expect(b.page.locator('.messages-screen')).toHaveAttribute('data-crypto-stage', 'ready', { timeout: 90000 })
     await expect(b.page.locator('.chat-row')).toHaveCount(1, { timeout: 30000 }); await b.page.locator('.chat-row').click()
     await expect(b.page.locator('.message-body').filter({ hasText: 'QA queued before room creation' })).toHaveCount(1, { timeout: 30000 })
     await expect(b.page.locator('.message-body').filter({ hasText: 'QA first message before receiver starts messaging' })).toBeVisible({ timeout: 30000 })
-    await expect(a.page.locator('.message-state')).toHaveAttribute('aria-label', 'Прочитано', { timeout: 30000 })
-    console.log(`${engine}: first encrypted message sent before receiver starts messaging is received automatically without invitation`)
+    await expect(a.page.locator('.message-bubble').filter({ hasText: 'QA first message before receiver starts messaging' }).locator('.message-state')).toHaveAttribute('aria-label', 'Прочитано', { timeout: 30000 })
+    stage = 'reply'
+    await label(b.page, 'Сообщение').fill('QA reply from first recipient')
+    await button(b.page, 'Отправить').click()
+    await expect(a.page.locator('.message-body').filter({ hasText: 'QA reply from first recipient' })).toHaveCount(1, { timeout: 30000 })
+    console.log(`${engine}: two accounts exchanged encrypted text in both directions, including first contact before recipient opened Messages`)
   } catch (error) {
     for (const [index, f] of fixtures.entries()) {
       const state = await f.page.evaluate(async () => { const store = await import('/src/messages/store.ts'); return { connection: store.connection.value, crypto: store.diagnostic.value, older: store.olderAvailable.value, messages: store.messages.value.map(({ mine, locked, status, decryptionFailure }) => ({ mine, locked, status, decryptionFailure })) } }).catch(() => ({ unavailable: true }))

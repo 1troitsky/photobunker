@@ -494,6 +494,15 @@ const listed = computed(() =>
     return !listQuery.value || room.name.toLocaleLowerCase().includes(listQuery.value.toLocaleLowerCase())
   }),
 )
+const pendingInbox = computed(() => {
+  if (tab.value !== 'chats') return []
+  const latest = new Map<string, typeof pendingDirectTexts.value[number]>()
+  for (const item of pendingDirectTexts.value) {
+    if (listQuery.value && !item.peerId.toLocaleLowerCase().includes(listQuery.value.toLocaleLowerCase())) continue
+    latest.set(item.peerId, item)
+  }
+  return [...latest.values()].sort((a, b) => b.time - a.time)
+})
 watch(
   () => [account.value?.id, identityDeviceId.value, appLocked.value] as const,
   () => {
@@ -987,10 +996,10 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
               <button v-if="archiveCount || tab === 'archive'" :aria-pressed="tab === 'archive'" @click="tab = 'archive'">{{ ui('archive') }}<span v-if="archiveCount">{{ archiveCount }}</span></button>
             </div>
             <div class="messenger-chat-list">
-              <div v-if="connection === 'connecting' && !listed.length && !pendingDirectTexts.length" class="chat-skeletons" aria-hidden="true"><div v-for="i in 4" :key="i"><i /><span><b /><b /></span></div></div>
+              <div v-if="connection === 'connecting' && !listed.length && !pendingInbox.length" class="chat-skeletons" aria-hidden="true"><div v-for="i in 4" :key="i"><i /><span><b /><b /></span></div></div>
               <template v-else>
-                <button v-for="item in pendingDirectTexts"
-                  :key="item.id" type="button" class="chat-row chatify-conversation-item"
+                <button v-for="item in pendingInbox"
+                  :key="item.peerId" type="button" class="chat-row chatify-conversation-item"
                   @click="writeDirect(item.peerId)">
                   <span :class="['chat-avatar', avatarColor(item.peerId)]">{{ initials(item.peerId) }}</span>
                   <span class="chat-summary">
@@ -1009,7 +1018,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                   <button v-if="swiped !== room.id" class="app-icon-button chat-row-menu" :aria-label="ui('chatActions')" @click="chatMenu = room.id"><AppIcon name="more" /></button>
                 </div>
                 <button v-for="hit in searchResults" :key="hit.id" class="search-result" @click="openSearchResult(hit.roomId, hit.id)"><span class="search-result-label">{{ hit.roomName }}</span><span>{{ hit.body }}</span><AppIcon name="search" /></button>
-                <div v-if="!listed.length && !pendingDirectTexts.length && !searchResults.length" class="native-empty messenger-empty"><AppIcon :name="listQuery ? 'search' : tab === 'archive' ? 'archive' : 'messages'" /><h2>{{ listQuery ? ui('noMatches') : tab === 'archive' ? ui('archive') : m('empty') }}</h2><p>{{ tab.startsWith('folder:') ? ui('folderEmpty') : listQuery ? ui('noMatchesHint') : ui('emptyHint') }}</p><button v-if="!listQuery && tab === 'chats'" class="primary-button" @click="newOpen = true">{{ ui('newMessage') }}</button></div>
+                <div v-if="!listed.length && !pendingInbox.length && !searchResults.length" class="native-empty messenger-empty"><AppIcon :name="listQuery ? 'search' : tab === 'archive' ? 'archive' : 'messages'" /><h2>{{ listQuery ? ui('noMatches') : tab === 'archive' ? ui('archive') : m('empty') }}</h2><p>{{ tab.startsWith('folder:') ? ui('folderEmpty') : listQuery ? ui('noMatchesHint') : ui('emptyHint') }}</p><button v-if="!listQuery && tab === 'chats'" class="primary-button" @click="newOpen = true">{{ ui('newMessage') }}</button></div>
               </template>
             </div>
           </template>

@@ -103,6 +103,9 @@ export const outboxError = ref(false)
 let outboxRestoredScope = ''
 let directOutboxRestoredScope = ''
 let visibleDirectScope = ''
+// A read started before a peer row is bound may resolve with that old row.
+// Keep it out of the visible pending inbox once its durable target is a room.
+const boundDirectIds = new Set<string>()
 let directOutboxRestoring: Promise<void> | undefined
 let outboxRestoring: Promise<void> | undefined
 let outboxDraining = false
@@ -680,6 +683,7 @@ export async function restorePendingDirectOutbox(): Promise<void> {
   if (!scope) return
   if (visibleDirectScope !== scope) {
     pendingDirectTexts.value = []
+    boundDirectIds.clear()
     visibleDirectScope = scope
     directOutboxRestoredScope = ''
   }
@@ -696,7 +700,7 @@ export async function restorePendingDirectOutbox(): Promise<void> {
     // created while IndexedDB was being read in this restore pass.
     const items = new Map(pendingDirectTexts.value.map(item => [item.id, item]))
     for (const row of saved) {
-      if (typeof row.peerId === 'string')
+      if (typeof row.peerId === 'string' && !boundDirectIds.has(row.id))
         items.set(row.id, { id: row.id, txnId: row.txnId,
           peerId: row.peerId, body: row.body, time: row.time })
     }
@@ -750,6 +754,7 @@ export async function bindDirectOutbox(peerId: string, roomId: string): Promise<
       body: item.body,
       time: item.time,
     })
+    boundDirectIds.add(item.id)
     requireClient(current)
     optimisticText.set(item.id, {
       id: item.id,
@@ -824,6 +829,7 @@ export function stopMessaging(clearRequest = true) {
   outboxRestoredScope = ''
   directOutboxRestoredScope = ''
   visibleDirectScope = ''
+  boundDirectIds.clear()
   directOutboxRestoring = undefined
   outboxRestoring = undefined
   outboxDraining = false
@@ -932,7 +938,9 @@ export function startMessaging(): Promise<void> {
       startup = undefined
       return
     }
-    owner = `${account.value.id}:${deviceId.value}`
+    const confirmedAccount = account.value
+    if (!confirmedAccount) return
+    owner = `${confirmedAccount.id}:${deviceId.value}`
     await restorePendingDirectOutbox()
     if (current !== generation) return
     let initialized!: () => void
