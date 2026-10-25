@@ -113,7 +113,7 @@ async function leave() {
         <section class="account-card team-profile-hero">
           <span class="account-avatar team-profile-avatar" aria-hidden="true"><AppIcon name="users" /></span>
           <div class="team-profile-intro">
-            <h1>{{ team.name }}</h1>
+            <h2>{{ team.name }}</h2>
             <p class="field-hint">{{ t('privateOnly') }}</p>
             <p v-if="team.description" class="team-profile-description">{{ team.description }}</p>
             <p v-else class="field-hint">{{ t('noDescription') }}</p>

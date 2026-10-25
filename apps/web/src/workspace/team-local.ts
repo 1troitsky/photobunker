@@ -83,27 +83,36 @@ export async function mutateTeamCache(scope: string, update: (data: TeamCache) =
     await seal(scope, next, key)
     return next
   }
-  const task = () => navigator.locks?.request
-    ? navigator.locks.request('photobunker-team:' + scope, execute)
-    : execute()
+  const task = async (): Promise<TeamCache> => navigator.locks?.request
+    ? await navigator.locks.request('photobunker-team:' + scope, execute)
+    : await execute()
   const current = serial.then(task, task)
   serial = current.catch(() => {})
   return current
 }
 export async function eraseTeamCache(owner: string, device?: string) {
-  const db = await database()
-  return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction('scopes', 'readwrite')
-    const cursor = tx.objectStore('scopes').openCursor()
-    cursor.onsuccess = () => {
-      const row = cursor.result
-      if (!row) return
-      const name = String(row.key)
-      if (name.startsWith('team:' + owner + ':') &&
-          (!device || name === 'team:' + owner + ':' + device)) row.delete()
-      row.continue()
+  const run = async () => {
+    const names = device ? ['team:' + owner + ':' + device] : await (async () => {
+      const db = await database()
+      return new Promise<string[]>((resolve, reject) => {
+        const tx = db.transaction('scopes', 'readonly')
+        const request = tx.objectStore('scopes').getAllKeys()
+        tx.oncomplete = () => {
+          db.close()
+          resolve(request.result.map(String).filter(name => name.startsWith('team:' + owner + ':')))
+        }
+        tx.onabort = () => { db.close(); reject(new Error('workspace.storage_unavailable')) }
+      })
+    })()
+    for (const name of names) {
+      // Logout/deletion must wait for any prior optimistic write, including a
+      // write in another tab, before erasing its encrypted row.
+      if (navigator.locks?.request)
+        await navigator.locks.request('photobunker-team:' + name, () => writeRow(name))
+      else await writeRow(name)
     }
-    tx.oncomplete = () => { db.close(); resolve() }
-    tx.onabort = () => { db.close(); reject(new Error('workspace.storage_unavailable')) }
-  })
+  }
+  const current = serial.then(run, run)
+  serial = current.catch(() => {})
+  return current
 }

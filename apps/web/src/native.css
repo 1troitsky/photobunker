@@ -352,7 +352,7 @@
 .team-profile-avatar { flex: none; display: grid; place-items: center; width: 56px; height: 56px; border-radius: 17px; }
 .team-profile-avatar svg { width: 30px; height: 30px; }
 .team-profile-intro { min-width: 0; flex: 1 1 210px; }
-.team-profile-intro h1 { font-size: clamp(21px, 4vw, 28px); overflow-wrap: anywhere; margin: 0 0 5px; }
+.team-profile-intro h2 { font-size: clamp(21px, 4vw, 28px); overflow-wrap: anywhere; margin: 0 0 5px; }
 .team-profile-description { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; margin-top: 9px; }
 .team-profile-hero > .inline-actions { width: 100%; flex-wrap: wrap; }
 .team-profile-hero > .inline-actions button { min-height: 44px; }
