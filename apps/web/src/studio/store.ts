@@ -38,7 +38,7 @@ const scope = () =>
     ? `account:${account.value.id}`
     : accessLibraryId.value || 'device'
 let generation = 0
-let sendingTeams = false
+let sendingTeams: Promise<void> | undefined
 const teamCacheScope = () => account.value?.id && deviceId.value &&
   appLockReady.value && !appLocked.value && sessionState.value !== 'signed-out' &&
   sessionState.value !== 'revoked'
@@ -67,10 +67,11 @@ function sameTeam(source: Team, candidate: Team) {
 // Deliver only while server Identity is really confirmed, never from an
 // R0-02 offline capture descriptor. Existing Workspace revision checks and
 // UUIDs prevent extra Team records on lost ACK/retry.
-export async function flushPendingTeams() {
+export function flushPendingTeams(): Promise<void> {
+  if (sendingTeams) return sendingTeams
+  const job = (async () => {
   const key = teamCacheScope(), owner = scope()
-  if (!key || !hasConfirmedIdentity() || sendingTeams) return
-  sendingTeams = true
+  if (!key || !hasConfirmedIdentity()) return
   try {
     for (const intent of (await readTeamCache(key)).pending) {
       if (teamCacheScope() !== key || scope() !== owner || !hasConfirmedIdentity()) return
@@ -97,14 +98,17 @@ export async function flushPendingTeams() {
         projectTeams(next)
         teamSyncErrors.value = teamSyncErrors.value.filter(id => id !== intent.id)
         changed()
-      } catch (error) {
+      } catch {
         if (teamCacheScope() !== key || scope() !== owner) return
         // Conflict / ACL remain pending and actionable. Never silently
         // discard the local draft or imply the server accepted an invite.
         teamSyncErrors.value = [...new Set([...teamSyncErrors.value, intent.id])]
       }
     }
-  } finally { sendingTeams = false }
+  } finally { /* The in-flight promise owns the cross-caller barrier. */ }
+  })()
+  sendingTeams = job.finally(() => { sendingTeams = undefined })
+  return sendingTeams
 }
 const changed = () => {
   window.dispatchEvent(new Event('photobunker-studio'))
@@ -289,7 +293,11 @@ export async function saveTeam(value: Team): Promise<Team> {
     // awaiting a successful online server commit. Preserve that contract
     // whenever the session is confirmed, while retaining the durable intent
     // on transient network errors for offline/reload.
-    if (hasConfirmedIdentity()) await flushPendingTeams()
+    if (hasConfirmedIdentity()) {
+      await flushPendingTeams()
+      // A concurrent flush may have snapshotted before this intent was saved.
+      if (pendingTeamIds.value.includes(item.id)) await flushPendingTeams()
+    }
     return teams.value.find(team => team.id === item.id) ?? item
   }
   const saved = await repository.save(owner, 'teams', item, value.revision)
