@@ -677,13 +677,23 @@ export async function restorePendingDirectOutbox(): Promise<void> {
   if (!locallyAllowed || !appLockReady.value || appLocked.value) return
   const scope = account.value?.id && deviceId.value ? `${account.value.id}:${deviceId.value}` : ''
   if (!scope || directOutboxRestoredScope === scope) return
-  if (directOutboxRestoring) { await directOutboxRestoring; return }
+  if (directOutboxRestoring) {
+    await directOutboxRestoring
+    if (directOutboxRestoredScope !== scope) return restorePendingDirectOutbox()
+    return
+  }
   directOutboxRestoring = (async () => {
     const saved = await readDurableText()
     if (`${account.value?.id || ''}:${deviceId.value}` !== scope) return
-    pendingDirectTexts.value = saved
-      .filter((row): row is DurableText & { peerId: string } => typeof row.peerId === 'string')
-      .map(({ id, txnId, peerId, body, time }) => ({ id, txnId, peerId, body, time }))
+    // Do not overwrite a freshly inserted optimistic local intent if it was
+    // created while IndexedDB was being read in this restore pass.
+    const items = new Map(pendingDirectTexts.value.map(item => [item.id, item]))
+    for (const row of saved) {
+      if (typeof row.peerId === 'string')
+        items.set(row.id, { id: row.id, txnId: row.txnId,
+          peerId: row.peerId, body: row.body, time: row.time })
+    }
+    pendingDirectTexts.value = [...items.values()].sort((a, b) => a.time - b.time)
     directOutboxRestoredScope = scope
     outboxError.value = false
   })()
@@ -722,6 +732,7 @@ export async function bindDirectOutbox(peerId: string, roomId: string): Promise<
   if (!current || !room || !roomChat(room).encrypted || roomChat(room).blocked)
     throw new Error('not_ready')
   for (const item of pendingDirectTexts.value.filter(value => value.peerId === peerId)) {
+    requireClient(current)
     await saveDurableText({
       id: item.id,
       txnId: item.txnId,
@@ -729,6 +740,7 @@ export async function bindDirectOutbox(peerId: string, roomId: string): Promise<
       body: item.body,
       time: item.time,
     })
+    requireClient(current)
     optimisticText.set(item.id, {
       id: item.id,
       txnId: item.txnId,
