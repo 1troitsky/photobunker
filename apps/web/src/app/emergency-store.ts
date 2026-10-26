@@ -8,6 +8,7 @@ export type EmergencyPending =
   | { action:'register'; operationId:string; keyId:string; expectedRevision:number; sealed:SealedEmergencyKey }
   | { action:'disable'; operationId:string; keyId:string; revision:number }
 export type EmergencyRow = {
+  attempts?: {failures:number;cooldownUntil:number;lastWall:number}
   version:1
   accountId:string
   deviceId:string
