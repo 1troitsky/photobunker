@@ -263,7 +263,7 @@ export async function decryptCard(blob: Blob, manifest: CardManifest, secret: st
     const key = await crypto.subtle.importKey('raw', raw as Uint8Array<ArrayBuffer>, 'AES-GCM', false, ['decrypt'])
     const clear = new Uint8Array(await crypto.subtle.decrypt({
       name: 'AES-GCM', iv: unb64(manifest.object.iv, 12) as Uint8Array<ArrayBuffer>,
-      additionalData: aad(manifest) as Uint8Array<ArrayBuffer>, tagLength: 128,
+      additionalData: objectAAD(manifest,'card') as Uint8Array<ArrayBuffer>, tagLength: 128,
     }, key, bytes))
     try {
       const payload: unknown = JSON.parse(new TextDecoder().decode(clear))
