@@ -27,8 +27,9 @@ final class PhotoBrowserController extends Controller
         $row = $this->workspace->record($actor, $assignmentId, 'task');
         if ($row->owner_id !== $actor) {
             $member = $this->workspace->member($actor, $row);
-            abort_unless($member && $member->expires_at > Retention::milliseconds() &&
-                ! $this->accounts->blocked($actor, $row->owner_id), 403);
+            // Invitation expiry is not accepted-membership expiry.
+            // Reuse the canonical Workspace state=accepted membership contract.
+            abort_unless($member && ! $this->accounts->blocked($actor, $row->owner_id), 403);
             if ($creator) {
                 abort_unless($member->role === 'curator', 403);
             }
