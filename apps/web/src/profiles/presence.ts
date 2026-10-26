@@ -112,7 +112,7 @@ export async function initializePresencePreference(){
   }
 }
 export async function setPresenceVisibility(value:PresenceVisibility):Promise<void>{
-  if(!['all','contacts','nobody'].includes(value)||!canSync()&&!hasConfirmedIdentity())
+  if(!['all','contacts','nobody'].includes(value)||!hasConfirmedIdentity()||appLocked.value)
     throw new Error('presence.locked')
   const s=scope(),epoch=changeGeneration
   await exclusive(s,async()=>{
