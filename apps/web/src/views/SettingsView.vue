@@ -5,7 +5,7 @@ import AppIcon from '../components/AppIcon.vue'
 import { locale, setLocale, t, type Locale } from '../i18n'
 import { q } from '../crypto/text'
 import { a } from '../identity/text'
-import { account, deviceId } from '../identity/store'
+import { account, deviceId, sessionState, offlineCaptureIdentity } from '../identity/store'
 import { appLockReady, appLocked } from '../app/lock'
 import { locationEnabled, locationPreferenceSaved, locationState, requestLocation, setLocationEnabled } from '../profiles/location'
 import { locationText } from '../profiles/location-text'
@@ -59,7 +59,8 @@ async function changePrivacy(event:Event){
             <p>{{ presenceText('hint') }}</p>
           </div>
           <select class="presence-visibility-select" :value="visibility"
-            :aria-label="presenceText('title')" :disabled="!account || appLocked"
+            :aria-label="presenceText('title')" :disabled="!account || appLocked ||
+              (sessionState !== 'authenticated' && !(sessionState === 'offline' && offlineCaptureIdentity))"
             @change="changePrivacy">
             <option v-for="choice in (['all','contacts','nobody'] as PresenceVisibility[])"
               :key="choice" :value="choice">{{ visibilityLabel(choice) }}</option>
