@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AccountRecoveryController;
 use App\Http\Controllers\AccountStorageController;
+use App\Http\Controllers\EmergencyIntentController;
 use App\Http\Controllers\EncryptedPhotoController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\IdentityController;
@@ -23,6 +24,7 @@ use App\Http\Controllers\RtcController;
 use App\Http\Controllers\WorkspaceController;
 use App\Http\Controllers\WorkspaceImportController;
 use App\Http\Controllers\WorkspacePhotoController;
+use App\Http\Middleware\EmergencyIntentBoundary;
 use App\Http\Middleware\IdentityBoundary;
 use App\Http\Middleware\LocalPrototype;
 use Illuminate\Support\Facades\Route;
@@ -36,6 +38,10 @@ Route::prefix('v1')->group(function (): void {
     Route::get('/rtc-gate', [RtcController::class, 'gate']);
     Route::get('/health', [HealthController::class, 'live']);
     Route::get('/ready', [HealthController::class, 'ready']);
+    // The only cookie-independent destructive endpoint, isolated from the
+    // ordinary IdentityBoundary without relaxing any existing route.
+    Route::post('/identity/emergency/intent', [EmergencyIntentController::class, 'intent'])
+        ->middleware(EmergencyIntentBoundary::class);
     Route::prefix('identity')->middleware(IdentityBoundary::class)->group(function (): void {
         $rtc = RtcController::class;
         Route::get('/rtc/config', [$rtc, 'config']);
@@ -57,6 +63,9 @@ Route::prefix('v1')->group(function (): void {
         Route::patch('/storage', [AccountStorageController::class, 'update']);
         Route::post('/activity', [AccountStorageController::class, 'activity']);
         Route::delete('/account', [AccountStorageController::class, 'destroy']);
+        Route::get('/emergency/key', [EmergencyIntentController::class, 'show']);
+        Route::put('/emergency/key', [EmergencyIntentController::class, 'register']);
+        Route::delete('/emergency/key', [EmergencyIntentController::class, 'disable']);
         Route::get('/recovery', [AccountRecoveryController::class, 'show']);
         Route::put('/recovery', [AccountRecoveryController::class, 'save']);
         Route::get('/devices', [$controller, 'devices']);

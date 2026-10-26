@@ -141,7 +141,9 @@ export async function configureLocalDeletePin(
   if (appPinEnabled.value && !appPin) throw new Error('localDelete.appPin')
   if (appPinEnabled.value) await confirmAppPinForLocalDelete(appPin)
   assertScope(owner, device, epoch)
-  if (await matchesAppPinForLocalDelete(nextPin)) throw new Error('localDelete.samePin')
+  if (await matchesAppPinForLocalDelete(nextPin) ||
+    await (await import('./emergency')).matchesConfiguredEmergencyPin(nextPin))
+    throw new Error('localDelete.samePin')
   assertScope(owner, device, epoch)
   const fingerprint = await provePB1Locally(pb1, account.value?.rootKey ?? '')
   assertScope(owner, device, epoch)
