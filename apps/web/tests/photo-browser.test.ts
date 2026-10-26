@@ -43,7 +43,9 @@ describe('R1-12 scoped browser projection', () => {
       role: 'viewer', read: false, thumbnail: true, edit: false,
       delete: false, share: false, shareExternal: false,
     }, shortId: 'ABCD1234' })
-    expect(visibleBrowserPhotos(collection, [limited], 'current', 1_000_000)[0]?.label).toBe('ABCD1234')
+    expect(visibleBrowserPhotos(collection, [limited], 'current', 1_000_000)[0]).toMatchObject({
+      label: 'ABCD1234', createdAt: 0,
+    })
     expect(visibleBrowserPhotos(collection, [{ ...limited, shortId: undefined }], 'current', 1_000_000)[0]?.label).toBe('')
   })
   it('excludes other accounts, tasks, receipts, deleted/expired and unverified local rows', () => {
