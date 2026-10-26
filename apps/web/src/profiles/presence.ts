@@ -17,7 +17,7 @@ const DATABASE='photobunker-private-presence-v1'
 const textEncoder=new TextEncoder()
 let activeScope='', changeGeneration=0, retryDelay=2000
 let retryTimer:ReturnType<typeof setTimeout>|undefined
-let flushing:Promise<void>|undefined
+const flushing=new Map<string,Promise<void>>()
 function scope() {
   if(!account.value?.id||!deviceId.value) throw new Error('presence.no_identity')
   return account.value.id+':'+deviceId.value
@@ -130,9 +130,9 @@ export async function setPresenceVisibility(value:PresenceVisibility):Promise<vo
   void flushPresencePreference()
 }
 export async function flushPresencePreference():Promise<void>{
-  if(flushing)return flushing
   if(!activeScope||!canSync())return
   const s=activeScope,epoch=changeGeneration
+  if(flushing.has(s))return flushing.get(s)
   const job=exclusive(s,async()=>{
     const local=await read(s)
     if(!local?.pending)return
@@ -162,8 +162,9 @@ export async function flushPresencePreference():Promise<void>{
       }
     }
   })
-  flushing=job.finally(()=>{flushing=undefined})
-  return flushing
+  const tracked=job.finally(()=>{flushing.delete(s)})
+  flushing.set(s,tracked)
+  return tracked
 }
 export function stopPresencePreference(){
   changeGeneration++;activeScope='';visibility.value='contacts'
