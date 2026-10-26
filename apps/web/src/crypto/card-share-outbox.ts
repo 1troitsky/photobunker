@@ -20,7 +20,7 @@ export type ShareRow = { id: string; photoId: string; manifest: CardManifest; ur
   state: Item['state']; expiresAt: number }
 const DB_NAME = 'photobunker-card-share-intents-v1'
 const enc = new TextEncoder(), dec = new TextDecoder()
-let busy: Promise<void> | undefined
+const busy = new Map<string, Promise<void>>()
 function ownerScope(): string {
   if (!account.value?.id || !deviceId.value || !appLockReady.value || appLocked.value ||
       !photoReadAllowed() || ['signed-out', 'revoked'].includes(sessionState.value))
@@ -190,11 +190,13 @@ async function flushScope(scope: string) {
   }
 }
 export function flushCardShares(): Promise<void> {
-  if (busy) return busy
   const scope = ownerScope()
+  const previous = busy.get(scope)
+  if (previous) return previous
   const job = flushScope(scope)
-  busy = job.finally(() => { busy = undefined })
-  return busy
+  const tracked = job.finally(() => { busy.delete(scope) })
+  busy.set(scope, tracked)
+  return tracked
 }
 export function cardShareLink(id: string, secret: string): string {
   return location.origin + '/c/' + encodeURIComponent(id) + '#' + secret
