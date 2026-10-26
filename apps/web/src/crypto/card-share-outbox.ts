@@ -2,6 +2,7 @@ import { account, deviceId, hasConfirmedIdentity, sessionState } from '../identi
 import { appLockReady, appLocked } from '../app/lock'
 import { photoReadAllowed } from './store'
 import { request } from './api'
+import { IdentityError } from '../identity/api'
 import { canonical, b64, unb64 } from './protocol'
 import { encryptCard, type CardManifest, type CardScopes } from './card-shares'
 import type { PrivatePhotoCard } from '../studio/private-photo-card'
@@ -14,10 +15,11 @@ type Item = {
   bytes: string
   state: 'queued' | 'sending' | 'sent' | 'revoking' | 'revoked'
   everStarted: boolean
+  lastError?: 'denied' | 'expired'
 }
 type Stored = { scope: string; key: CryptoKey; iv: Uint8Array<ArrayBuffer>; data: ArrayBuffer }
 export type ShareRow = { id: string; photoId: string; manifest: CardManifest; url: string;
-  state: Item['state']; expiresAt: number }
+  state: Item['state']; expiresAt: number; lastError?: Item['lastError'] }
 const DB_NAME = 'photobunker-card-share-intents-v1'
 const enc = new TextEncoder(), dec = new TextDecoder()
 const busy = new Map<string, Promise<void>>()
@@ -102,7 +104,7 @@ function exclusive<T>(scope: string, id: string, action: () => Promise<T>) {
 function row(item: Item): ShareRow {
   return { id: item.id, photoId: item.photoId, manifest: item.manifest,
     url: location.origin + '/c/' + encodeURIComponent(item.id) + '#' + item.secret,
-    state: item.state, expiresAt: item.manifest.expiresAt }
+    state: item.state, expiresAt: item.manifest.expiresAt, lastError: item.lastError }
 }
 export async function listCardShareIntents(photoId: string): Promise<ShareRow[]> {
   const scope = ownerScope(), ids = await all(scope), values: ShareRow[] = []
@@ -160,6 +162,7 @@ async function flushScope(scope: string) {
       if (item.state === 'queued' || item.state === 'sending') {
         item.state = 'sending'
         item.everStarted = true
+        item.lastError = undefined
         await save(scope, item)
         try {
           await submit(item)
@@ -171,8 +174,18 @@ async function flushScope(scope: string) {
             item.state = 'sent'
             await save(scope, item)
           }
-        } catch {
-          // Retry with exact same id, manifest and ciphertext after reconnect.
+        } catch (error) {
+          // Preserve the intent and exact ciphertext. Surface ACL/TTL failures
+          // without claiming the link is live or allocating another share ID.
+          if (error instanceof IdentityError && [403, 410].includes(error.status)) {
+            current(scope)
+            item = await decrypt(scope, id)
+            if (item && item.state === 'sending') {
+              item.lastError = error.status === 403 ? 'denied' : 'expired'
+              item.state = 'queued'
+              await save(scope, item)
+            }
+          }
           return
         }
       }
