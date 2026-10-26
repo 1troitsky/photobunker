@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { Blob as NodeBlob } from 'node:buffer'
 import { ZipWriter, distinctPath, safePart } from '../src/photo-browser/zip'
-import { permittedSource, fileName } from '../src/photo-browser/download'
+import { chooseZipDestination, permittedSource, fileName } from '../src/photo-browser/download'
 import type { Photo } from '../src/local/photos'
 
 const photo = (read: boolean, thumbnail: boolean, shareExternal: boolean): Photo =>
@@ -11,6 +11,21 @@ const photo = (read: boolean, thumbnail: boolean, shareExternal: boolean): Photo
       share: false, edit: false, delete: false } }) as Photo
 
 describe('R1-13 export permission boundary', () => {
+  it('invokes the native save picker with its Window receiver', async () => {
+    const writer = { write: async () => {}, close: async () => {}, abort: async () => {} }
+    let receiver: unknown
+    const previous = (window as Window & { showSaveFilePicker?: unknown }).showSaveFilePicker
+    Object.defineProperty(window, 'showSaveFilePicker', { configurable: true, value: function (this: Window) {
+      receiver = this
+      return Promise.resolve({ createWritable: async () => writer })
+    } })
+    try {
+      expect(await chooseZipDestination()).toBe(writer)
+      expect(receiver).toBe(window)
+    } finally {
+      Object.defineProperty(window, 'showSaveFilePicker', { configurable: true, value: previous })
+    }
+  })
   it('permits thumbnail-only only as a restricted thumbnail, never a stronger image', () => {
     expect(permittedSource(photo(false, true, false))).toBe('thumbnail')
     expect(() => permittedSource(photo(false, false, true))).toThrow('browser.denied')

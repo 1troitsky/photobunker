@@ -149,7 +149,8 @@ type FilePicker = (options: {
   types: { description: string; accept: Record<string, string[]> }[]
 }) => Promise<{ createWritable(): Promise<FileWriter> }>
 function picker(): FilePicker | undefined {
-  return (window as Window & { showSaveFilePicker?: FilePicker }).showSaveFilePicker
+  const choose = (window as Window & { showSaveFilePicker?: FilePicker }).showSaveFilePicker
+  return choose?.bind(window)
 }
 /** Call during the click, before any asynchronous photo read, for user activation. */
 export function chooseZipDestination(): Promise<FileWriter | undefined> {

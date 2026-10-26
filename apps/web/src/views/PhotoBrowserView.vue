@@ -155,8 +155,11 @@ function toggle(id: string) {
     : [...selected.value, id]
 }
 function selectAll() { selected.value = [...new Set(ordered.value.map(x => x.id))] }
-const selection = computed(() =>
-  ordered.value.filter(item => selectedSet.value.has(item.id)))
+// Selection survives search/folder/display changes. Export exactly what the
+// counter shows, while dropping rows that expired since they were selected.
+const selection = computed(() => status.value === 'ready' && snapshot.value
+  ? snapshot.value.photos.filter(item => selectedSet.value.has(item.id) && item.expiresAt > now.value)
+  : [])
 function exportSelection(mode: 'single' | 'zip') {
   if (exporting.value || status.value !== 'ready' || !collection.value ||
       !hasConfirmedIdentity() || !online.value) return
@@ -230,6 +233,7 @@ async function revoke() {
   const epoch = generation, owner = account.value!.id, device = deviceId.value, collectionId = id.value
   busy.value = true
   stopExport()
+  exportNotice.value = ''
   try {
     await request('/browser/' + encodeURIComponent(collectionId), 'DELETE', undefined, owner)
     await eraseBrowser(owner, device, collectionId)
@@ -276,6 +280,7 @@ onBeforeUnmount(() => {
           status === 'locked' ? 'locked' : status === 'denied' ? 'denied' :
           status === 'revoked' ? 'revoked' :
           status === 'failed' ? 'loadFailed' : 'unavailable') }}</p>
+        <p v-if="exportNotice" class="field-hint">{{ bt(exportNotice) }}</p>
         <button class="primary-button" type="button" @click="load">{{ bt('retry') }}</button>
       </div>
       <template v-else>
@@ -310,14 +315,14 @@ onBeforeUnmount(() => {
             @click="choosing = !choosing; selected = []">{{ bt('select') }}</button>
         </div>
         <div v-if="choosing" class="browser-selection" role="status">
-          {{ bt('selectedCount') }}: {{ selected.length }}
+          {{ bt('selectedCount') }}: {{ selection.length }}
           <button class="quiet-button" type="button" @click="selectAll">{{ bt('selectAll') }}</button>
           <button class="quiet-button" type="button" @click="selected = []">{{ bt('clear') }}</button>
           <button type="button" class="secondary-button"
-            :disabled="exporting || status !== 'ready' || selected.length !== 1"
+            :disabled="exporting || status !== 'ready' || selection.length !== 1"
             @click="exportSelection('single')">{{ bt('downloadOne') }}</button>
           <button type="button" class="primary-button"
-            :disabled="exporting || status !== 'ready' || selected.length < 1"
+            :disabled="exporting || status !== 'ready' || selection.length < 1"
             @click="exportSelection('zip')">{{ bt('downloadZip') }}</button>
         </div>
         <div v-if="exporting || exportNotice" class="browser-export-status" role="status" aria-live="polite">
@@ -330,7 +335,7 @@ onBeforeUnmount(() => {
           <button v-if="exportNotice && exportNotice !== 'exportWritten' &&
             exportNotice !== 'exportDispatched'" type="button"
             class="quiet-button" :disabled="exporting || status !== 'ready'"
-            @click="exportSelection(selected.length === 1 ? 'single' : 'zip')">
+            @click="exportSelection(selection.length === 1 ? 'single' : 'zip')">
             {{ bt('retry') }}</button>
         </div>
         <p v-if="status === 'ready'" class="field-hint">{{ bt('exportLimit') }}</p>

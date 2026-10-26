@@ -587,7 +587,10 @@ export function startProtection() {
   )
   const hide = () => {
       document.documentElement.dataset.photoBackground = 'true'
-      hardLock()
+      // Closing/reloading one document must not lock another tab, and the
+      // retiring document must not race the replacement page's auto-unlock.
+      // Explicit app/account/security locks still broadcast via hardLock().
+      hardLock(false)
       autoAttempt.clear()
     },
     visibility = () => {
