@@ -33,7 +33,7 @@ function valid(value: PinRecord | undefined): boolean {
     /^[a-f0-9]{64}$/.test(value.verifier) &&
     Number.isSafeInteger(value.iterations) &&
     value.iterations >= 100000 && value.iterations <= 600000 &&
-    (value.length === 6 || value.length === 8) &&
+    (value.length === 4 || value.length === 6 || value.length === 8) &&
     Number.isSafeInteger(value.lastWall) && value.lastWall >= 0
 }
 function failClosed() {
