@@ -218,7 +218,11 @@ export function refreshPresenceHeartbeat(){
     return
   }
   const s=scope()
-  if(lastScope!==s){endLease();lastScope=s}
+  if(lastScope!==s){
+    endLease()
+    if(pulseTimer){clearInterval(pulseTimer);pulseTimer=undefined}
+    lastScope=s
+  }
   if(!instance){instance=crypto.randomUUID();sequence=0}
   async function send(){
     if(!pulseGate()||lastScope!==s||!instance)return
