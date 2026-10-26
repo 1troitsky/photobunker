@@ -13,6 +13,7 @@ import GalleryView from './views/GalleryView.vue'
 import SettingsView from './views/SettingsView.vue'
 import DataStorageView from './views/DataStorageView.vue'
 import PhotoView from './views/PhotoView.vue'
+import PhotoCardView from './views/PhotoCardView.vue'
 import ProfilesView from './views/ProfilesView.vue'
 import ProfileEditView from './views/ProfileEditView.vue'
 import TeamView from './views/TeamView.vue'
@@ -107,6 +108,7 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
         name: 'photo-editor',
         component: PhotoEditView,
       },
+      { path: '/gallery/:id/card', name: 'photo-card', component: PhotoCardView },
       { path: '/gallery/:id', name: 'photo', component: PhotoView },
       { path: '/settings', name: 'settings', component: SettingsView },
       { path: '/settings/data', name: 'data-storage', component: DataStorageView },
