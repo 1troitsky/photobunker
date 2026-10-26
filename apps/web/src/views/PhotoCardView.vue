@@ -25,7 +25,8 @@ const now = ref(Date.now())
 const id = computed(() => String(route.params.id ?? ''))
 const galleryLink = computed(() => '/gallery/' + encodeURIComponent(id.value))
 const inGallery = computed(() => photos.value.some(item =>
-  item.id === id.value && !item.deleteRequested &&
+  item.id === id.value && item.accountId === account.value?.id &&
+  !item.deleteRequested &&
   (item.expiresAt === undefined || item.expiresAt > now.value)))
 const visible = computed(() =>
   privateCardScopeAllowed() && ownerOfCard.value === account.value?.id &&
