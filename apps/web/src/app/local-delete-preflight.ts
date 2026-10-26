@@ -52,7 +52,12 @@ type KeyRow = { database: string; store: string; key: IDBValidKey }
 export async function inventory(): Promise<KeyRow[]> {
   if (!indexedDB.databases) throw new PreflightDenied('storage')
   const names = (await indexedDB.databases()).map(x => x.name).filter((x):x is string => !!x)
-  if (names.some(name => name.startsWith('photobunker-') && !DATABASES.has(name)))
+  // Matrix Rust crypto uses per account+device+Matrix-device database names.
+  // Treat the known format as a scoped store, not an unknown database. Other
+  // account/device Matrix databases are preserved during this device wipe.
+  const matrixName = /^photobunker-matrix-[0-9a-f-]{36}:[0-9a-f-]{36}:/i
+  if (names.some(name => name.startsWith('photobunker-') &&
+    !DATABASES.has(name) && !matrixName.test(name)))
     throw new PreflightDenied('storage')
   const items: KeyRow[] = []
   for (const name of names.filter(x => DATABASES.has(x))) {
