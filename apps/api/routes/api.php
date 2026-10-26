@@ -6,6 +6,7 @@ use App\Http\Controllers\EncryptedPhotoController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\IdentityController;
 use App\Http\Controllers\MessagingController;
+use App\Http\Controllers\PresenceController;
 use App\Http\Controllers\PhotoCardShareController;
 use App\Http\Controllers\PhotoDeviceLinkController;
 use App\Http\Controllers\PhotoKeyController;
@@ -44,6 +45,11 @@ Route::prefix('v1')->group(function (): void {
         Route::post('/challenges', [$controller, 'challenge']);
         Route::post('/sessions', [$controller, 'authenticate']);
         Route::get('/me', [$controller, 'me']);
+        Route::get('/presence/privacy', [PresenceController::class, 'privacy']);
+        Route::put('/presence/privacy', [PresenceController::class, 'savePrivacy']);
+        Route::post('/presence/pulse', [PresenceController::class, 'pulse']);
+        Route::get('/presence/{handle}', [PresenceController::class, 'show'])->where('handle', '[^/]+');
+
         Route::patch('/profile', [$controller, 'profile']);
         Route::delete('/session', [$controller, 'logout']);
         Route::get('/storage', [AccountStorageController::class, 'show']);
