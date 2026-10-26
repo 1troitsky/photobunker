@@ -33,6 +33,35 @@ function good(row:EmergencyRow|undefined,s:ReturnType<typeof scope>) {
     throw new Error('emergency.storage')
   return row
 }
+/** Versioned separate PIN throttling, scoped to this emergency key/device.
+ * A copied browser profile still permits OFFLINE guessing; not a hardware PIN.
+ */
+async function openWithThrottle(s:ReturnType<typeof scope>,generation:number,pin:string,
+  sealed:SealedEmergencyKey) {
+  assertScope(s,generation)
+  const before=good(await readEmergency(s.owner,s.device),s)
+  const attempts=before?.attempts
+  const now=Date.now()
+  if(attempts&&(now<attempts.lastWall||now<attempts.cooldownUntil))
+    throw new Error('emergency.cooldown')
+  let valid=false
+  try{await openEmergencyKey(pin,sealed);valid=true}catch(error){
+    if(!(error instanceof Error)||error.message!=='emergency.wrong')throw error
+  }
+  assertScope(s,generation)
+  await changeEmergency(s.owner,s.device,row=>{
+    if(!row)throw new Error('emergency.storage')
+    if(!row.confirmed || row.confirmed.keyId!==sealed.keyId)
+      throw new Error('emergency.scope')
+    const old=row.attempts??{failures:0,cooldownUntil:0,lastWall:0},time=Date.now()
+    if(time<old.lastWall||time<old.cooldownUntil)throw new Error('emergency.cooldown')
+    const failures=valid?0:Math.min(100,old.failures+1)
+    const delay=failures<3?0:Math.min(60000,2000*2**Math.min(5,failures-3))
+    return {...row,attempts:{failures,cooldownUntil:valid?0:time+delay,lastWall:time}}
+  })
+  assertScope(s,generation)
+  if(!valid)throw new Error('emergency.wrong')
+}
 function mutate(s:ReturnType<typeof scope>,pending:EmergencyPending,revision:number) {
   return changeEmergency(s.owner,s.device,prior=>{
     if(prior?.pending)throw new Error('emergency.pending')
@@ -137,7 +166,7 @@ export async function configureEmergencyPin(next:string,repeat:string,pb1:string
     if(row?.pending)throw new Error('emergency.pending')
     if(row?.confirmed){
       if(!oldPin)throw new Error('emergency.oldPin')
-      await openEmergencyKey(oldPin,row.confirmed.sealed)
+      await openWithThrottle(s,generation,oldPin,row.confirmed.sealed)
     }
     await proveSettings(s,generation,pb1,appPin)
     if(await matchesAppPinForLocalDelete(next) || await matchesLocalDeletePin(next))
@@ -162,7 +191,7 @@ export async function disableEmergencyPin(oldPin:string,pb1:string,appPin:string
     const row=good(await readEmergency(s.owner,s.device),s)
     const current=row?.confirmed
     if(!current||row?.pending)throw new Error('emergency.unavailable')
-    await openEmergencyKey(oldPin,current.sealed)
+    await openWithThrottle(s,generation,oldPin,current.sealed)
     await proveSettings(s,generation,pb1,appPin)
     const remote=await onlineStatus(s,generation)
     if(!remote.active||remote.keyId!==current.keyId||remote.revision!==current.revision)
@@ -199,6 +228,7 @@ export async function makeSignedEmergencyIntent(pin:string,operationId:string) {
     version:1,operationId,accountId:s.owner,keyId:row.confirmed.keyId,
     revision:row.confirmed.revision,action:'emergency-delete',
   }
+  await openWithThrottle(s,generation,pin,row.confirmed.sealed)
   const signed=await signEmergencyIntent(pin,row.confirmed.sealed,intent)
   assertScope(s,generation)
   return signed
