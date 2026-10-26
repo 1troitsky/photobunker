@@ -7,6 +7,7 @@ use App\Http\Controllers\HealthController;
 use App\Http\Controllers\IdentityController;
 use App\Http\Controllers\MessagingController;
 use App\Http\Controllers\PhotoCardShareController;
+use App\Http\Controllers\PhotoBrowserController;
 use App\Http\Controllers\PhotoDeviceLinkController;
 use App\Http\Controllers\PhotoKeyController;
 use App\Http\Controllers\PhotoMigrationController;
@@ -125,6 +126,10 @@ Route::prefix('v1')->group(function (): void {
         Route::post('/workspace/import-record', [WorkspaceImportController::class, 'record']);
         Route::get('/workspace/legacy', [WorkspaceImportController::class, 'preview']);
         Route::post('/workspace/legacy/photos/{id}/import', [WorkspaceImportController::class, 'photo'])->whereUuid('id');
+        // Browser URLs are locators only: Identity session + live assignment ACL required.
+        Route::put('/workspace/browser/{id}', [PhotoBrowserController::class, 'save'])->whereUuid('id');
+        Route::get('/workspace/browser/{id}', [PhotoBrowserController::class, 'show'])->whereUuid('id');
+        Route::delete('/workspace/browser/{id}', [PhotoBrowserController::class, 'revoke'])->whereUuid('id');
         Route::get('/workspace/photos', [WorkspacePhotoController::class, 'index']);
         Route::post('/workspace/photos', [WorkspacePhotoController::class, 'upload']);
         Route::get('/workspace/photos/{id}', [WorkspacePhotoController::class, 'show'])->whereUuid('id');
