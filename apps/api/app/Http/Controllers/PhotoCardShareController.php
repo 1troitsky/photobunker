@@ -37,6 +37,8 @@ final class PhotoCardShareController
     {
         $m = Protocol::decode($share->manifest, 3000);
         if (($m['type'] ?? null) !== 'photo-card' || ($m['version'] ?? null) !== 2) abort(404);
+        try { $this->validateManifest($m); }
+        catch (\Throwable) { abort(410); }
         return $m;
     }
 
