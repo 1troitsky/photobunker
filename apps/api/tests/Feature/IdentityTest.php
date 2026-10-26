@@ -168,6 +168,42 @@ final class IdentityTest extends TestCase
             ->assertUnauthorized();
     }
 
+    public function test_presence_multiple_devices_survives_one_revoke_but_not_final_logout(): void
+    {
+        $alice = $this->create();
+        $secondKey = $this->key();
+        $secondDeviceId = (string) Str::uuid();
+        $second = $this->authenticate([
+            'purpose' => 'recover', 'rootKey' => $alice['root']['public'],
+            'deviceKey' => $secondKey['public'], 'deviceId' => $secondDeviceId,
+            'name' => 'Other synthetic device',
+        ], $alice['root']);
+        $bob = $this->create();
+        $peerUrl = '/api/v1/identity/presence/'.$alice['account']['publicId'];
+        $this->withUnencryptedCookie('pb_identity', $second['token']);
+        $this->putJson('/api/v1/identity/presence/privacy', [
+            'visibility' => 'all', 'expectedRevision' => 0, 'operationId' => (string) Str::uuid(),
+        ])->assertOk();
+        $this->withUnencryptedCookie('pb_identity', $alice['token']);
+        $this->postJson('/api/v1/identity/presence/pulse', [
+            'instanceId' => (string) Str::uuid(), 'sequence' => 1, 'active' => true,
+        ])->assertOk();
+        $this->withUnencryptedCookie('pb_identity', $second['token']);
+        $this->postJson('/api/v1/identity/presence/pulse', [
+            'instanceId' => (string) Str::uuid(), 'sequence' => 1, 'active' => true,
+        ])->assertOk();
+        $this->withUnencryptedCookie('pb_identity', $bob['token'])
+            ->getJson($peerUrl)->assertExactJson(['state' => 'online']);
+        $this->withUnencryptedCookie('pb_identity', $second['token'])
+            ->deleteJson('/api/v1/identity/devices/'.$alice['deviceId'])->assertOk();
+        $this->withUnencryptedCookie('pb_identity', $bob['token'])
+            ->getJson($peerUrl)->assertExactJson(['state' => 'online']);
+        $this->withUnencryptedCookie('pb_identity', $second['token'])
+            ->deleteJson('/api/v1/identity/session')->assertOk();
+        $this->withUnencryptedCookie('pb_identity', $bob['token'])
+            ->getJson($peerUrl)->assertExactJson(['state' => 'recent']);
+    }
+
     public function test_signed_registration_replay_expiry_and_device_binding(): void
     {
         $root = $this->key();
