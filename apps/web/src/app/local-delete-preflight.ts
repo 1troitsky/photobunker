@@ -4,6 +4,10 @@ import { appLockReady, appLocked } from './lock'
 import { localDeletePinFailure, localDeletePinReady, verifyLocalDeletePin } from './local-delete-pin'
 import { readVerifier } from './local-delete-store'
 import { listPhotos } from '../local/photos'
+import { credentials } from '../identity/keys'
+import * as encryptedDb from '../crypto/database'
+import type { Job } from '../crypto/photos'
+import * as versionCloud from '../crypto/version-cloud'
 import { delivery } from '../delivery/queue'
 import { pendingCount, queueBusy, queueError } from '../workspace/state'
 import { readDurableText } from '../messages/durable-outbox'
@@ -78,9 +82,7 @@ function isPendingRow(row: KeyRow, s: DeleteScope) {
   if (row.database === 'photobunker-message-outbox-v1')
     return k.startsWith('msg:' + scoped + ':')
   if (row.database === 'photobunker-encrypted-queue-v1')
-    return k.startsWith('job:' + s.owner + ':') ||
-      k.startsWith('version:' + s.owner + ':') ||
-      k.startsWith('account-recovery-pending:' + s.owner)
+    return k.startsWith('account-recovery-pending:' + s.owner)
   // Without an adapter proving cloud acknowledgement, local Workspace drafts
   // must be treated as unbacked-up, not as a cloud copy.
   if (row.database === 'photobunker-ui-workspace-v1')
@@ -105,6 +107,11 @@ export async function freshLocalDeletePreflight(pin: string): Promise<{scope: De
   checkPreflightScope(scope)
   if (me.account.id !== scope.owner || me.deviceId !== scope.device ||
     me.account.rootKey !== account.value?.rootKey) throw new PreflightDenied('scope')
+  const knownDevices = await credentials()
+  // The account vault uses an account-wide key on the current browser profile;
+  // never wipe it when another local device for the same account is enrolled.
+  if (knownDevices.some(d => d.id !== scope.device && d.publicId === account.value?.publicId))
+    throw new PreflightDenied('scope')
   const rows = await inventory()
   checkPreflightScope(scope)
   if (rows.some(row => isPendingRow(row, scope))) throw new PreflightDenied('unsynced')
@@ -125,6 +132,34 @@ export async function freshLocalDeletePreflight(pin: string): Promise<{scope: De
   const { assertPresenceQueueEmptyForDelete } = await import('../profiles/presence')
   await assertPresenceQueueEmptyForDelete(scope.owner,scope.device)
   checkPreflightScope(scope)
+  const jobs = await encryptedDb.entries<Job>('job:' + scope.owner + ':')
+  for (const row of jobs) {
+    const job = row.value
+    if (job.accountId !== scope.owner || !job.received || job.deleted ||
+      job.expiresAt <= Date.now() || job.draft || job.gps || job.edit || job.cardGps ||
+      job.cardMetadata || job.needsName)
+      throw new PreflightDenied('unsynced')
+    const remote=await secureRemote(job.id)
+    if (remote.expiresAt<=Date.now() || remote.revision<job.revision ||
+      !remote.objects.original) throw new PreflightDenied('cloud')
+    checkPreflightScope(scope)
+  }
+  const storedVersions = await encryptedDb.entries<{
+    id:string;parentId:string;expiresAt:number;synced?:boolean;conflict?:boolean;upload?:unknown
+  }>('version:'+scope.owner+':')
+  for (const row of storedVersions) {
+    const v = row.value
+    if (!v.synced || v.conflict || v.upload || v.expiresAt<=Date.now())
+      throw new PreflightDenied('unsynced')
+    const remoteParent=await secureRemote(v.parentId)
+    const corresponding={id:v.parentId,accountId:scope.owner,encrypted:true,
+      expiresAt:remoteParent.expiresAt} as import('../local/photos').Photo
+    const verified = await versionCloud.fetchVersions(corresponding)
+    if (!verified.some(remote=>remote.id===v.id && remote.parentId===v.parentId &&
+      remote.sync!=='pending' && remote.expiresAt!==undefined && remote.expiresAt>Date.now()))
+      throw new PreflightDenied('cloud')
+    checkPreflightScope(scope)
+  }
   const photos = (await listPhotos()).filter(photo => photo.accountId === scope.owner)
   if (photos.some(p => p.uiOnly || p.uploadRequested || p.metadataDirty || p.deleteRequested ||
     p.uploadError || p.remoteRevision === undefined || p.deliveryOnly || p.uploadOnly))
