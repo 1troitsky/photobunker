@@ -432,3 +432,8 @@
 .photo-card-share-action:disabled { opacity:.5; cursor:not-allowed; }
 .photo-card-share select, .photo-card-share button { min-height:44px; }
 @media (max-width:480px) { .photo-card-safe-image { max-height:52dvh; } }
+
+/* R1-05 private presence: no precise timestamp, readable touch controls. */
+.presence-label { font-size:13px; line-height:1.35; }
+.presence-visibility-select { border:1px solid var(--border); border-radius:10px; min-height:44px; min-width:126px; padding:8px 11px; background:var(--background); color:var(--text); }
+@media (max-width:540px) { .settings-panel .setting-row:has(.presence-visibility-select) { flex-wrap:wrap; } .presence-visibility-select { margin-inline-start:auto; } }
