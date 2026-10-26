@@ -135,42 +135,88 @@ final class PhotoCardShareController
     {
         $actor = $this->accounts->current($request)->id;
         $this->keys->read($request);
-        $data = $request->validate(['manifest' => 'required|string|max:3000', 'file' => 'required|file|max:40']);
-        $manifest = Protocol::decode($data['manifest'], 3000);
+        // Reject unlisted input parts rather than silently storing an object
+        // not bound by the authenticated v2 manifest.
+        abort_unless(count(array_diff(array_keys($request->all()), ['manifest','file','photo','original'])) === 0, 422);
+        $data = $request->validate([
+            'manifest' => 'required|string|max:5000',
+            'file' => 'required|file|max:40',
+            'photo' => 'sometimes|file|max:65600',
+            'original' => 'sometimes|file|max:65600',
+        ]);
+        $manifest = Protocol::decode($data['manifest'], 5000);
         $this->validateManifest($manifest);
-        $file = $request->file('file');
-        abort_unless($file->getSize() === $manifest['object']['ciphertextBytes'] &&
-            Protocol::ciphertextHash($file->getRealPath()) === $manifest['object']['ciphertextHash'], 422);
+        $descriptors = ['card' => $manifest['object']] + ($manifest['objects'] ?? []);
+        $uploads = ['card' => $request->file('file')];
+        if ($request->hasFile('photo')) $uploads['photo'] = $request->file('photo');
+        if ($request->hasFile('original')) $uploads['original'] = $request->file('original');
+        abort_unless(array_keys($uploads) === array_keys($descriptors), 422);
+        $bytes = 0;
+        foreach ($descriptors as $kind => $d) {
+            $part = $uploads[$kind];
+            abort_unless($part && $part->getSize() === $d['ciphertextBytes'] &&
+                Protocol::ciphertextHash($part->getRealPath()) === $d['ciphertextHash'], 422);
+            $bytes += $part->getSize();
+        }
+        // Cleanup compensates object-store writes if the database transaction
+        // fails; the public share row is inserted ONLY after all objects.
+        $written = [];
+        try {
+            $result = DB::transaction(function () use ($actor, $id, $data, $manifest, $uploads, $bytes, &$written) {
+                $photo = $this->versions->lock($actor, $id);
+                $this->effectiveRead($actor, $photo);
+                abort_unless($manifest['expiresAt'] <= $photo->expires_at &&
+                    $manifest['expiresAt'] > Retention::milliseconds() &&
+                    $manifest['expiresAt'] <= Retention::milliseconds() + $manifest['durationSeconds'] * 1000, 422);
+                abort_if(DB::table('photo_card_share_tombstones')->where('id', $manifest['id'])->exists(), 410);
+                $existing = DB::table('encrypted_shares')->find($manifest['id']);
+                if ($existing) {
+                    abort_if($existing->revoked_at, 410);
+                    abort_unless($existing->creator_id === $actor && $existing->photo_id === $id &&
+                        hash_equals($existing->manifest, $data['manifest']), 409);
+                    // Exact prior manifest, no newly supplied ciphertext accepted.
+                    $existingKinds = DB::table('photo_card_share_objects')->where('share_id', $existing->id)
+                        ->pluck('kind')->all();
+                    $expected = array_keys($manifest['objects'] ?? []);
+                    sort($existingKinds); sort($expected);
+                    abort_unless($existingKinds === $expected, 409);
 
-        $result = DB::transaction(function () use ($actor, $id, $data, $manifest, $file) {
-            $photo = $this->versions->lock($actor, $id);
-            $this->effectiveRead($actor, $photo);
-            abort_unless($photo->creator_id && $manifest['expiresAt'] <= $photo->expires_at &&
-                $manifest['expiresAt'] > Retention::milliseconds() &&
-                $manifest['expiresAt'] <= Retention::milliseconds() + $manifest['durationSeconds'] * 1000, 422);
-            abort_if(DB::table('photo_card_share_tombstones')->where('id', $manifest['id'])->exists(), 410);
-            $existing = DB::table('encrypted_shares')->find($manifest['id']);
-            if ($existing) {
-                abort_if($existing->revoked_at, 410);
-                abort_unless($existing->creator_id === $actor && $existing->photo_id === $id &&
-                    hash_equals($existing->manifest, $data['manifest']), 409);
-
-                return ['id' => $existing->id, 'expiresAt' => (int) $existing->expires_at];
+                    return ['id' => $existing->id, 'expiresAt' => (int) $existing->expires_at];
+                }
+                if (isset($manifest['objects']['photo'])) {
+                    $versionId = $manifest['objects']['photo']['versionId'];
+                    abort_unless(DB::table('encrypted_versions')->where('photo_id', $id)
+                        ->where('id', $versionId)->where('conflict', false)->exists(), 422);
+                }
+                $this->versions->quota($photo, $bytes);
+                $objectIds = [];
+                foreach ($uploads as $kind => $file) {
+                    $oid = (string) Str::uuid();
+                    $written[] = ['vault' => $photo->vault_id, 'photo' => $id, 'id' => $oid];
+                    $this->versions->store($photo, $oid, 'share-export', $file, '{}');
+                    $objectIds[$kind] = $oid;
+                }
+                abort_if($photo->expires_at <= Retention::milliseconds(), 410);
+                DB::table('encrypted_shares')->insert([
+                    'id' => $manifest['id'], 'photo_id' => $id, 'object_id' => $objectIds['card'],
+                    'creator_id' => $actor, 'manifest' => $data['manifest'],
+                    'expires_at' => $manifest['expiresAt'], 'created_at' => now(),
+                ]);
+                foreach (($manifest['objects'] ?? []) as $kind => $unused)
+                    DB::table('photo_card_share_objects')->insert([
+                        'share_id' => $manifest['id'], 'kind' => $kind, 'object_id' => $objectIds[$kind],
+                    ]);
+                return ['id' => $manifest['id'], 'expiresAt' => $manifest['expiresAt']];
+            }, 3);
+            return response()->json($result, 200, ['Cache-Control' => 'no-store']);
+        } catch (\Throwable $error) {
+            $disk = Storage::disk(config('prototype.disk'));
+            foreach ($written as $object) {
+                try { $disk->delete('encrypted/'.$object['vault'].'/'.$object['photo'].'/'.$object['id']); }
+                catch (\Throwable) { /* orphan audit by storage maintenance */ }
             }
-            $this->versions->quota($photo, $file->getSize());
-            $object = (string) Str::uuid();
-            $this->versions->store($photo, $object, 'share-export', $file, '{}');
-            abort_if($photo->expires_at <= Retention::milliseconds(), 410);
-            DB::table('encrypted_shares')->insert([
-                'id' => $manifest['id'], 'photo_id' => $id, 'object_id' => $object,
-                'creator_id' => $actor, 'manifest' => $data['manifest'],
-                'expires_at' => $manifest['expiresAt'], 'created_at' => now(),
-            ]);
-
-            return ['id' => $manifest['id'], 'expiresAt' => $manifest['expiresAt']];
-        }, 3);
-
-        return response()->json($result, 200, ['Cache-Control' => 'no-store']);
+            throw $error;
+        }
     }
 
     public function revoke(Request $request, string $id, string $shareId)
