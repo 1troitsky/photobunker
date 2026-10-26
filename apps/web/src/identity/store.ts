@@ -540,9 +540,12 @@ if (typeof window !== 'undefined')
 export function invalidateLocalDeleteSession(owner: string, device: string) {
   if(account.value?.id !== owner || deviceId.value !== device) return
   cancelRetry()
-  clear()
+  // Do not let a delayed, unscoped capture-current deletion erase account B.
+  // D4's journal-owned cleanup examines the captured account/device explicitly.
+  clear(true, false)
   sessionState.value='signed-out'
   identityReady.value=true
   identityUnavailable.value=false
-  channel?.postMessage({kind:'logout',accountId:owner})
+  // The separate local-delete channel locks sibling tabs without starting
+  // the generic logout's global credential-cleanup path.
 }
