@@ -43,7 +43,7 @@ export function visibleBrowserPhotos(
     label: photo.workspaceAccess?.read === true
       ? (photo.title || photo.shortId || '')
       : (photo.shortId || ''),
-    createdAt: Number.isFinite(photo.createdAt) ? photo.createdAt : 0,
+    createdAt: photo.workspaceAccess?.read === true && Number.isFinite(photo.createdAt) ? photo.createdAt : 0,
     expiresAt: Math.min(collection.expiresAt, photo.expiresAt ?? collection.expiresAt),
   })).filter(photo => photo.expiresAt > now)
 }
