@@ -72,7 +72,7 @@ async function submit() {
       if (connecting.value) {
         const parsed = await parseKit(backup.accountKey)
         if (!account.value || account.value.rootKey !== parsed.publicKey) throw new Error('recovery.wrong_account')
-      } else await recover(backup.accountKey)
+      } else await recover(backup.accountKey, undefined, route.query.pinReset === '1')
       if (attempt !== sequence) throw new DOMException('Sign-in cancelled', 'AbortError')
       const scope = `${account.value?.id}:${deviceId.value}`
       completedScope = scope

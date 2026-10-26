@@ -1,4 +1,5 @@
 import { protectionEnabled, protectionReady, photoReadAllowed } from '../crypto/store'
+import { appLockReady, appLocked } from '../app/lock'
 import { index as secureIndex } from '../crypto/photos'
 import { receipts } from '../workspace/state'
 import { account } from '../identity/store'
@@ -25,6 +26,10 @@ let generation = 0
 export async function refreshLibrary() {
   if (!localPrototype) return
   const current = ++generation
+  if (account.value && (!appLockReady.value || appLocked.value)) {
+    photos.value = []; receipts.value = []; libraryLoading.value = false
+    return
+  }
   if (account.value) {
     if (!protectionReady.value || (protectionEnabled.value && !photoReadAllowed())) { photos.value=[];receipts.value=[];libraryLoading.value=false;return }
     const owner = account.value.id
@@ -33,7 +38,8 @@ export async function refreshLibrary() {
       listPhotos(),
       protectionEnabled.value ? secureIndex() : photoIndex(),
     ])
-    if (current !== generation || owner !== account.value?.id) return
+    if (current !== generation || owner !== account.value?.id ||
+        !appLockReady.value || appLocked.value) return
     receipts.value = remote.status === 'fulfilled' ? remote.value.receipts : []
     serverError.value = remote.status === 'rejected'
     const pending =
@@ -62,7 +68,8 @@ export async function refreshLibrary() {
         await deletePhoto(id).catch(() => {})
       }
     }
-    if (current !== generation || owner !== account.value?.id) return
+    if (current !== generation || owner !== account.value?.id ||
+        !appLockReady.value || appLocked.value) return
     photos.value = [...merged.values()].sort(
       (a, b) => b.createdAt - a.createdAt,
     )
@@ -76,13 +83,14 @@ export async function refreshLibrary() {
 }
 
 watch(
-  () => account.value?.id,
+  [() => account.value?.id, appLockReady, appLocked],
   () => {
     generation++
     photos.value = []
     receipts.value = []
-    void refreshLibrary()
+    if (appLockReady.value && !appLocked.value) void refreshLibrary()
   },
+  { flush: 'sync' },
 )
 
 // Other tabs send only an invalidation hint, never photo bytes or metadata.

@@ -1,19 +1,34 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { appPinEnabled, setAppPin, removeAppPin, lockApp } from '../app/lock'
-const appPin = ref(''),
-  pinNotice = ref('')
+import { ref, onMounted, watch } from 'vue'
+import { appPinEnabled, appPinLegacy, setAppPin, removeAppPin, lockApp } from '../app/lock'
+import { pt, pinError } from '../app/pin-text'
+const appPin = ref(''), oldPin = ref(''), pinNotice = ref(''), pinBusy = ref(false)
 async function savePin() {
+  if (pinBusy.value) return
+  const value = appPin.value, old = oldPin.value
+  const owner = account.value?.id, device = deviceId.value
+  pinBusy.value = true
+  pinNotice.value = ''
   try {
-    await setAppPin(appPin.value)
-    appPin.value = ''
-    pinNotice.value = 'PIN приложения установлен'
-  } catch {
-    pinNotice.value = 'Введите 4, 6 или 8 цифр'
-  }
+    await setAppPin(value, old)
+    if (owner === account.value?.id && device === deviceId.value) pinNotice.value = pt('saved')
+  } catch (error) { pinNotice.value = pinError(error) }
+  finally { appPin.value = ''; oldPin.value = ''; pinBusy.value = false }
 }
+async function disablePin() {
+  if (pinBusy.value) return
+  pinBusy.value = true
+  pinNotice.value = ''
+  try {
+    await removeAppPin(oldPin.value)
+    pinNotice.value = pt('disabled')
+  } catch (error) { pinNotice.value = pinError(error) }
+  finally { appPin.value = ''; oldPin.value = ''; pinBusy.value = false }
+}
+watch(() => `${account.value?.id}:${deviceId.value}`, () => {
+  appPin.value = ''; oldPin.value = ''; pinNotice.value = ''
+}, { flush: 'sync' })
 
-import { onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import ScreenHeader from '../components/ScreenHeader.vue'
 import AppIcon from '../components/AppIcon.vue'
@@ -106,37 +121,24 @@ async function claim() {
     <div class="screen-body">
       <template v-if="account"
         ><form class="native-form form-card" @submit.prevent="savePin">
-          <h2>Блокировка приложения</h2>
-          <p class="field-hint">
-            Необязательный PIN закрывает всё приложение при запуске и
-            сворачивании. Фотографии открываются автоматически на этом
-            устройстве.
-          </p>
-          <label
-            >Новый PIN приложения<input
-              v-model="appPin"
-              type="password"
-              inputmode="numeric"
-              autocomplete="new-password"
-              maxlength="8"
-              required /></label
-          ><button class="secondary-button">
-            {{ appPinEnabled ? 'Изменить PIN' : 'Включить PIN' }}</button
-          ><button
-            v-if="appPinEnabled"
-            type="button"
-            class="quiet-button"
-            @click="removeAppPin"
-          >
-            Отключить PIN</button
-          ><button
-            v-if="appPinEnabled"
-            type="button"
-            class="quiet-button"
-            @click="lockApp"
-          >
-            Заблокировать приложение
-          </button>
+          <h2>{{ pt('title') }}</h2>
+          <p class="field-hint">{{ pt('hint') }}</p>
+          <p v-if="appPinLegacy" class="field-hint" role="status">{{ pt('legacy') }}</p>
+          <label v-if="appPinEnabled">{{ pt('oldPin') }}
+            <input v-model="oldPin" type="password" inputmode="numeric"
+              pattern="[0-9]*" autocomplete="off" maxlength="8" :disabled="pinBusy" />
+          </label>
+          <label>{{ pt('newPin') }}
+            <input v-model="appPin" type="password" inputmode="numeric"
+              pattern="[0-9]*" autocomplete="new-password" maxlength="8"
+              minlength="6" :disabled="pinBusy" required />
+          </label>
+          <button class="secondary-button" :disabled="pinBusy || !appPin">
+            {{ pt(appPinEnabled ? 'change' : 'enable') }}</button>
+          <button v-if="appPinEnabled" type="button" class="quiet-button"
+            :disabled="pinBusy || !oldPin" @click="disablePin">{{ pt('disable') }}</button>
+          <button v-if="appPinEnabled" type="button" class="quiet-button"
+            :disabled="pinBusy" @click="lockApp">{{ pt('lock') }}</button>
           <p v-if="pinNotice" role="status">{{ pinNotice }}</p>
         </form>
         <button
