@@ -88,6 +88,7 @@ async function save(scope: string, item: Item): Promise<void> {
     current(scope)
     await put(scope + ':' + item.id, { scope, key, iv, data })
     current(scope)
+    window.dispatchEvent(new Event('photobunker-card-shares'))
   } finally { clear.fill(0) }
 }
 /**
@@ -198,6 +199,20 @@ export function flushCardShares(): Promise<void> {
   busy.set(scope, tracked)
   return tracked
 }
-export function cardShareLink(id: string, secret: string): string {
-  return location.origin + '/c/' + encodeURIComponent(id) + '#' + secret
+export async function purgeCardShareIntents(owner: string, device?: string): Promise<void> {
+  const database = await db()
+  const prefix = owner + ':' + (device || '')
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction('records', 'readwrite')
+    const req = tx.objectStore('records').openCursor()
+    req.onsuccess = () => {
+      const cursor = req.result
+      if (!cursor) return
+      const id = String(cursor.key)
+      if (id.startsWith(prefix + (device ? ':' : ''))) cursor.delete()
+      cursor.continue()
+    }
+    tx.oncomplete = () => { database.close(); resolve() }
+    tx.onabort = () => { database.close(); reject(new Error('card_share.no_storage')) }
+  })
 }
