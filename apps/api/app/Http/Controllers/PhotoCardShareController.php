@@ -210,7 +210,7 @@ final class PhotoCardShareController
                         'share_id' => $manifest['id'], 'kind' => $kind, 'object_id' => $objectIds[$kind],
                     ]);
                 return ['id' => $manifest['id'], 'expiresAt' => $manifest['expiresAt']];
-            }, 3);
+            }, 1);
             return response()->json($result, 200, ['Cache-Control' => 'no-store']);
         } catch (\Throwable $error) {
             $disk = Storage::disk(config('prototype.disk'));
