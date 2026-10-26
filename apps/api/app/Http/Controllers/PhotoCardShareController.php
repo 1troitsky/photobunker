@@ -107,6 +107,7 @@ final class PhotoCardShareController
             $this->effectiveRead($actor, $photo);
             abort_unless($photo->creator_id && $manifest['expiresAt'] <= $photo->expires_at &&
                 $manifest['expiresAt'] > Retention::milliseconds(), 422);
+            abort_if(DB::table('photo_card_share_tombstones')->where('id', $manifest['id'])->exists(), 410);
             $existing = DB::table('encrypted_shares')->find($manifest['id']);
             if ($existing) {
                 abort_if($existing->revoked_at, 410);
@@ -135,16 +136,31 @@ final class PhotoCardShareController
         $share = DB::transaction(function () use ($actor, $id, $shareId) {
             $photo = $this->versions->lock($actor, $id);
             $grant = $this->workspace->grant($actor, $photo);
-            $share = DB::table('encrypted_shares')->where('id', $shareId)->where('photo_id', $id)->first();
-            abort_unless($share, 404);
-            $this->manifest($share);
-            abort_unless($share->creator_id === $actor ||
-                in_array($grant['role'], ['owner', 'curator'], true), 403);
-            if (! $share->revoked_at)
+            $share = DB::table('encrypted_shares')->where('id', $shareId)->first();
+            if ($share) {
+                abort_unless($share->photo_id === $id, 404);
+                $this->manifest($share); // never revoke a legacy /s share here
+                abort_unless($share->creator_id === $actor ||
+                    in_array($grant['role'], ['owner', 'curator'], true), 403);
+            } else {
+                $prior = DB::table('photo_card_share_tombstones')->where('id', $shareId)->first();
+                if ($prior) {
+                    abort_unless($prior->photo_id === $id && $prior->creator_id === $actor, 404);
+                } else {
+                    // Allowed to pre-revoke the UUID of an as-yet unacknowledged
+                    // card only with the current shareExternal/strong E2EE grant.
+                    $this->effectiveRead($actor, $photo);
+                }
+            }
+            DB::table('photo_card_share_tombstones')->insertOrIgnore([
+                'id' => $shareId, 'photo_id' => $id, 'creator_id' => $share?->creator_id ?? $actor,
+                'created_at' => now(),
+            ]);
+            if ($share && ! $share->revoked_at)
                 DB::table('encrypted_shares')->where('id', $shareId)->update(['revoked_at' => now()]);
             return $share;
         }, 3);
-        $deleted = $this->legacy->cleanup($share);
+        $deleted = ! $share || $this->legacy->cleanup($share);
         return response()->json(['revoked' => true, 'deletion' => $deleted ? 'verified' : 'pending'],
             $deleted ? 200 : 202, ['Cache-Control' => 'no-store']);
     }
