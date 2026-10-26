@@ -48,7 +48,7 @@ async function transact<T>(mode: IDBTransactionMode,
   })
 }
 
-export async function readBrowser(owner: string, device: string, id: string): Promise<BrowserSnapshot | undefined> {
+export async function readBrowser(owner: string, device: string, id: string, eraseExpired = true): Promise<BrowserSnapshot | undefined> {
   const scope = name(owner, device, id)
   const row = await transact<Cipher | undefined>('readonly', s => s.get(scope))
   if (!row) return undefined
@@ -62,7 +62,7 @@ export async function readBrowser(owner: string, device: string, id: string): Pr
       !Array.isArray(value.photos) || !Number.isSafeInteger(value.collection.expiresAt))
     throw new Error('browser.storage_invalid')
   if (value.collection.expiresAt <= Date.now()) {
-    await eraseBrowser(owner, device, id)
+    if (eraseExpired) await eraseBrowser(owner, device, id)
     return undefined
   }
   return value
