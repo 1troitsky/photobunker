@@ -231,6 +231,7 @@ export async function setAppPin(pin: string, oldPin?: string) {
         throw new Error('pin.changed')
       return next
     })
+    if (old && isLegacy(old)) await clearLegacyPin(id)
   } catch (error) { storageFailure(error) }
   guard(id, epoch, mutation)
   current = next
