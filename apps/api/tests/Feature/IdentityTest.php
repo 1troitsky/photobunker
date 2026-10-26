@@ -7,6 +7,7 @@ use App\Identity\Accounts;
 use App\Identity\MatrixBridge;
 use App\Identity\MatrixFailure;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -152,12 +153,12 @@ final class IdentityTest extends TestCase
         $new = (string) Str::uuid();
         $this->postJson('/api/v1/identity/presence/pulse', $pulse($new, 1, true))->assertOk();
         try {
-            \Illuminate\Support\Carbon::setTestNow(now()->addSeconds(90));
+            Carbon::setTestNow(now()->addSeconds(90));
             $this->getJson($url)->assertExactJson(['state' => 'recent']);
-            \Illuminate\Support\Carbon::setTestNow(now()->addHours(25));
+            Carbon::setTestNow(now()->addHours(25));
             $this->getJson($url)->assertExactJson(['state' => 'longAgo']);
         } finally {
-            \Illuminate\Support\Carbon::setTestNow();
+            Carbon::setTestNow();
         }
         // Logout kills server session; lease can no longer create online.
         $this->deleteJson('/api/v1/identity/session')->assertOk();

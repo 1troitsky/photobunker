@@ -7,7 +7,8 @@ export type PresenceVisibility = 'all'|'contacts'|'nobody'
 export type PresenceState = 'online'|'recent'|'longAgo'|'hidden'|'unknown'
 type ServerPrivacy = {visibility:PresenceVisibility;revision:number}
 type Pending = {visibility:PresenceVisibility;expectedRevision:number;operationId:string}
-type LocalRecord = {privacy:ServerPrivacy;pending?:Pending}
+type Queued = {visibility:PresenceVisibility;operationId:string}
+type LocalRecord = {privacy:ServerPrivacy;pending?:Pending;queued?:Queued}
 type Cipher = {scope:string;key:CryptoKey;iv:Uint8Array<ArrayBuffer>;data:ArrayBuffer}
 
 export const visibility = ref<PresenceVisibility>('contacts')
@@ -18,6 +19,7 @@ const textEncoder=new TextEncoder()
 let activeScope='', changeGeneration=0, retryDelay=2000
 let retryTimer:ReturnType<typeof setTimeout>|undefined
 const flushing=new Map<string,Promise<void>>()
+const initializing=new Map<string,Promise<void>>()
 function scope() {
   if(!account.value?.id||!deviceId.value) throw new Error('presence.no_identity')
   return account.value.id+':'+deviceId.value
@@ -90,31 +92,54 @@ export async function initializePresencePreference(){
   activeScope=s
   privacyError.value=''
   visibility.value='contacts';privacyPending.value=false
-  try{
-    const local=await read(s)
-    if(epoch!==changeGeneration)return
-    if(local){
-      visibility.value=local.pending?.visibility??local.privacy.visibility
-      privacyPending.value=!!local.pending
-    }
-    if(canSync()){
-      // If pending, resolve the exact durable operation, never overwrite it
-      // with an unrelated network response.
-      if(local?.pending)void flushPresencePreference()
-      else {
-        const remote=await identityRequest<ServerPrivacy>('/presence/privacy')
-        if(epoch!==changeGeneration)return
-        await exclusive(s,async()=>{
-          const latest=await read(s)
-          if(latest?.pending)return
-          await write(s,{privacy:remote})
-          if(epoch===changeGeneration){visibility.value=remote.visibility;privacyPending.value=false}
-        })
+  let shouldFlush=false
+  const job=(async()=>{
+    try{
+      const local=await read(s)
+      if(epoch!==changeGeneration)return
+      if(local){
+        visibility.value=local.queued?.visibility??local.pending?.visibility??local.privacy.visibility
+        privacyPending.value=!!local.pending
       }
+      if(canSync()){
+        // If pending, resolve the exact durable operation, never overwrite it
+        // with an unrelated network response.
+        if(local?.pending)shouldFlush=true
+        else {
+          // This baseline request may overlap a new local selection. The
+          // selection is committed immediately, but its send waits for this
+          // job so it can use the fresh server revision instead of producing
+          // a false conflict.
+          const remote=await identityRequest<ServerPrivacy>('/presence/privacy')
+          if(epoch!==changeGeneration)return
+          await exclusive(s,async()=>{
+            const latest=await read(s)
+            if(latest?.pending){
+              if(latest.pending.expectedRevision===latest.privacy.revision &&
+                remote.revision>=latest.privacy.revision){
+                await write(s,{...latest,privacy:remote,pending:{
+                  ...latest.pending,
+                  expectedRevision:remote.revision,
+                }})
+              }
+              shouldFlush=true
+              return
+            }
+            await write(s,{privacy:remote})
+            if(epoch===changeGeneration){visibility.value=remote.visibility;privacyPending.value=false}
+          })
+        }
+      }
+    }catch {
+      if(epoch===changeGeneration)privacyError.value='offline'
     }
-  }catch {
-    if(epoch===changeGeneration)privacyError.value='offline'
+  })()
+  initializing.set(s,job)
+  try{await job}
+  finally{
+    if(initializing.get(s)===job)initializing.delete(s)
   }
+  if(shouldFlush&&epoch===changeGeneration)void flushPresencePreference()
 }
 export async function setPresenceVisibility(value:PresenceVisibility):Promise<void>{
   if(!['all','contacts','nobody'].includes(value)||!canChangeLocally())
@@ -122,9 +147,17 @@ export async function setPresenceVisibility(value:PresenceVisibility):Promise<vo
   const s=scope(),epoch=changeGeneration
   await exclusive(s,async()=>{
     const previous=await read(s)??{privacy:{visibility:'contacts' as const,revision:0}}
-    const next:LocalRecord={privacy:previous.privacy,pending:{
-      visibility:value,
-      expectedRevision:previous.pending?.expectedRevision??previous.privacy.revision,
+    // A previous request may have reached the server while its ACK was lost.
+    // Preserve that exact operation and durably queue the latest user choice;
+    // changing the payload of an already-sent idempotency key is forbidden.
+    const next:LocalRecord=previous.pending ? {
+      ...previous,
+      queued:value===previous.pending.visibility ? undefined : {
+        visibility:value,
+        operationId:previous.queued?.operationId??crypto.randomUUID(),
+      },
+    } : {privacy:previous.privacy,pending:{
+      visibility:value,expectedRevision:previous.privacy.revision,
       operationId:crypto.randomUUID(),
     }}
     await write(s,next)
@@ -137,33 +170,52 @@ export async function setPresenceVisibility(value:PresenceVisibility):Promise<vo
 export async function flushPresencePreference():Promise<void>{
   if(!activeScope||!canSync())return
   const s=activeScope,epoch=changeGeneration
+  // Never send against a stale revision while the initial server baseline is
+  // still loading. The user's choice is already visible and durable locally.
+  const baseline=initializing.get(s)
+  if(baseline)await baseline
+  if(s!==activeScope||epoch!==changeGeneration||!canSync())return
   if(flushing.has(s))return flushing.get(s)
   const job=exclusive(s,async()=>{
-    const local=await read(s)
-    if(!local?.pending)return
-    const op=local.pending
-    try{
-      const saved=await identityRequest<ServerPrivacy>('/presence/privacy','PUT',op)
-      check(s)
-      const next:LocalRecord={privacy:saved}
-      await write(s,next)
-      if(epoch===changeGeneration){
-        visibility.value=saved.visibility;privacyPending.value=false;privacyError.value=''
-      }
-      retryDelay=2000
-    }catch(err){
-      if(err instanceof IdentityError&&err.status===409){
-        // Another device won the CAS: soft rollback to the current server
-        // choice. Never silently overwrite its newer privacy decision.
-        const remote=await identityRequest<ServerPrivacy>('/presence/privacy')
+    while(true){
+      const local=await read(s)
+      if(!local?.pending)return
+      const op=local.pending
+      try{
+        const saved=await identityRequest<ServerPrivacy>('/presence/privacy','PUT',op)
         check(s)
-        await write(s,{privacy:remote})
-        if(epoch===changeGeneration){
-          visibility.value=remote.visibility;privacyPending.value=false;privacyError.value='conflict'
+        if(local.queued){
+          await write(s,{privacy:saved,pending:{
+            visibility:local.queued.visibility,
+            expectedRevision:saved.revision,
+            operationId:local.queued.operationId,
+          }})
+          if(epoch===changeGeneration){
+            visibility.value=local.queued.visibility;privacyPending.value=true;privacyError.value=''
+          }
+          continue
         }
-      }else{
-        if(epoch===changeGeneration)privacyError.value='offline'
-        timer()
+        await write(s,{privacy:saved})
+        if(epoch===changeGeneration){
+          visibility.value=saved.visibility;privacyPending.value=false;privacyError.value=''
+        }
+        retryDelay=2000
+        return
+      }catch(err){
+        if(err instanceof IdentityError&&err.status===409){
+          // Another device won the CAS: soft rollback to the current server
+          // choice. Never silently overwrite its newer privacy decision.
+          const remote=await identityRequest<ServerPrivacy>('/presence/privacy')
+          check(s)
+          await write(s,{privacy:remote})
+          if(epoch===changeGeneration){
+            visibility.value=remote.visibility;privacyPending.value=false;privacyError.value='conflict'
+          }
+        }else{
+          if(epoch===changeGeneration)privacyError.value='offline'
+          timer()
+        }
+        return
       }
     }
   })

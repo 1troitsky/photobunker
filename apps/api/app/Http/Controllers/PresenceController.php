@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Identity\AccountLifecycle;
 use App\Identity\Accounts;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -18,6 +19,7 @@ use Illuminate\Support\Facades\DB;
 final class PresenceController extends Controller
 {
     private const LEASE_SECONDS = 85;
+
     private const RECENT_HOURS = 24;
 
     public function __construct(private readonly Accounts $accounts) {}
@@ -123,7 +125,9 @@ final class PresenceController extends Controller
         $visibility = DB::table('identity_presence_preferences')
             ->where('account_id', $other->id)->value('visibility') ?? 'contacts';
         if ($viewer->id !== $other->id) {
-            if ($visibility === 'nobody') return response()->json(['state' => 'hidden']);
+            if ($visibility === 'nobody') {
+                return response()->json(['state' => 'hidden']);
+            }
             if ($visibility === 'contacts') {
                 // Only *mutual* confirmed address-book entries count.
                 // Pending and a unilateral "add contact" are insufficient.
@@ -131,7 +135,9 @@ final class PresenceController extends Controller
                     ->where('contact_id', $other->id)->exists()
                     && DB::table('identity_address_book')->where('account_id', $other->id)
                         ->where('contact_id', $viewer->id)->exists();
-                if (! $mutual) return response()->json(['state' => 'hidden']);
+                if (! $mutual) {
+                    return response()->json(['state' => 'hidden']);
+                }
             }
         }
         $online = DB::table('identity_presence_leases as lease')
@@ -145,13 +151,17 @@ final class PresenceController extends Controller
                     ->where(fn ($q) => $q->whereNull('session.expires_at')
                         ->orWhere('session.expires_at', '>', now()));
             })->exists();
-        if ($online) return response()->json(['state' => 'online']);
+        if ($online) {
+            return response()->json(['state' => 'online']);
+        }
 
         $activity = DB::table('identity_presence_preferences')
             ->where('account_id', $other->id)->value('last_active_at');
-        $state = ! $activity ? 'unknown' :
-            \Illuminate\Support\Carbon::parse($activity)->gte(now()->subHours(self::RECENT_HOURS))
-                ? 'recent' : 'longAgo';
+        $state = ! $activity
+            ? 'unknown'
+            : (Carbon::parse($activity)->gte(now()->subHours(self::RECENT_HOURS))
+                ? 'recent'
+                : 'longAgo');
 
         return response()->json(['state' => $state]);
     }
