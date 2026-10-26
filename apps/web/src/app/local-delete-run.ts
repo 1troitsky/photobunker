@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { replayLocalDeletion } from './local-delete-phases'
 import { invalidateLocalDeleteSession } from '../identity/store'
 import { identityRequest, IdentityError } from '../identity/api'
 import { appLocked, appLockReady, lockApp } from './lock'
@@ -147,42 +148,26 @@ async function sessionFor(s: DeleteScope) {
     throw error
   }
 }
-export async function runJournalWithSteps(
-  initial: LocalDeleteJournal,
-  steps: {
-    lock: () => void
-    signOut: () => void
-    purge: (scope: DeleteScope) => Promise<void>
-    server: (scope: DeleteScope) => Promise<void>
-  },
-) {
-  const s={owner:initial.accountId,device:initial.deviceId}
-  let row=initial
-  steps.lock()
-  if(row.phase==='committed'){
-    steps.signOut()
-    invalidateLocalDeleteSession(s.owner,s.device)
-    await stage(row.operationId,'committed','signed-out')
-    row={...row,phase:'signed-out'}
-  } else { steps.signOut();invalidateLocalDeleteSession(s.owner,s.device) }
-  if(row.phase==='signed-out') {
-    await steps.purge(s)
-    await stage(row.operationId,'signed-out','local-purged')
-    row={...row,phase:'local-purged'}
-  }
-  if(row.phase==='local-purged'){
-    await steps.server(s)
-    await stage(row.operationId,'local-purged','server-logout')
-    row={...row,phase:'server-logout'}
-  }
-  if(row.phase==='server-logout') {
-    await mutateJournal(current=>{
-      if(!current || current.operationId!==row.operationId || current.phase!=='server-logout')
-        throw new Error('localDelete.journal_changed')
-      return undefined
-    })
-  }
+export async function runJournalWithSteps(initial: LocalDeleteJournal) {
+  return replayLocalDeletion(initial,{
+    lock:lockState,
+    signedOut:(s)=>{
+      signedOutMarker()
+      invalidateLocalDeleteSession(s.owner,s.device)
+    },
+    purge:purgeLocalDeleteScope,
+    serverLogout:sessionFor,
+    advance:stage,
+    finish:async operationId => {
+      await mutateJournal(current=>{
+        if(!current || current.operationId!==operationId || current.phase!=='server-logout')
+          throw new Error('localDelete.journal_changed')
+        return undefined
+      })
+    },
+  })
 }
+
 let running: Promise<boolean> | undefined
 export function resumeLocalDeletion(): Promise<boolean> {
   if (running) return running
@@ -202,12 +187,7 @@ export function resumeLocalDeletion(): Promise<boolean> {
         const current=await readJournal()
         if(!current) return
         if(!validJournal(current)) throw new Error('localDelete.storage')
-        await runJournalWithSteps(current,{
-          lock:lockState,
-          signOut:signedOutMarker,
-          purge:purgeLocalDeleteScope,
-          server:sessionFor,
-        })
+        await runJournalWithSteps(current)
       })
       deletionBlocked.value=false
       deletionFailure.value=false
