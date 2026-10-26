@@ -13,6 +13,7 @@ import { deviceId, sessionState, offlineCaptureIdentity, hasConfirmedIdentity, l
 import { q } from './crypto/text'
 import { deletionBlocked, deletionFailure, deletionPhase, resumeLocalDeletion } from './app/local-delete-run'
 import { localDeleteText } from './app/local-delete-text'
+import { emergencyBlocked,tryEmergencyOnLockedScreen } from './app/emergency-run'
 import AccountPhotoAccess from './components/AccountPhotoAccess.vue'
 import {
   startProtection,
@@ -107,7 +108,8 @@ async function openApp() {
   try {
     await unlockApp(pin)
   } catch (error) {
-    appPinError.value = pinError(error)
+    const triggered = await tryEmergencyOnLockedScreen(pin)
+    if(!triggered)appPinError.value = pinError(error)
   } finally {
     appPin.value = ''
   }
@@ -313,7 +315,7 @@ function isActive(name: string) {
   )
 }
 function startPrivateRuntime() {
-  if (runtimeStarted || deletionBlocked.value ||
+  if (runtimeStarted || emergencyBlocked.value || deletionBlocked.value ||
       route.name === 'shared-photo' || route.name === 'shared-card') return
   runtimeStarted = true
   document.addEventListener('visibilitychange', backgroundLock)
@@ -369,9 +371,9 @@ function stopPrivateRuntime() {
   window.removeEventListener('offline', updatePrivatePresence)
   window.removeEventListener('photobunker-privacy-screen', privacy)
 }
-watch([deletionBlocked, () => route.name], ([blocked]) => {
+watch([emergencyBlocked,deletionBlocked, () => route.name], ([emergency,blocked]) => {
   if (!mounted) return
-  if (blocked) stopPrivateRuntime()
+  if (emergency || blocked) stopPrivateRuntime()
   else startPrivateRuntime()
 }, { flush: 'post' })
 onMounted(() => {
@@ -415,7 +417,12 @@ watch(
 </script>
 
 <template>
-  <RouterView v-if="(route.name === 'shared-photo' || route.name === 'shared-card')" :key="route.fullPath" />
+  <section v-if="emergencyBlocked" class="native-screen" aria-live="polite">
+    <div class="screen-body native-form">
+      <h1>{{ locale === 'ru' ? 'Сбой программы' : 'Application error' }}</h1>
+    </div>
+  </section>
+  <RouterView v-else-if="(route.name === 'shared-photo' || route.name === 'shared-card')" :key="route.fullPath" />
   <template v-else>
     <a class="skip-link" href="#main">{{ t('skip') }}</a>
     <div
