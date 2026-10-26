@@ -80,9 +80,12 @@ async function progress() {
     row=(await phase(row.operationId,'prepared','locked'))!
   }else signedOut()
   if(row.phase==='locked')row=(await phase(row.operationId,'locked','purging'))!
+  let wipeFailed=false
   if(row.phase==='purging'){
-    await purgeEmergencyDevice({owner:row.accountId,device:row.deviceId})
-    row=(await phase(row.operationId,'purging','purged'))!
+    try{
+      await purgeEmergencyDevice({owner:row.accountId,device:row.deviceId})
+      row=(await phase(row.operationId,'purging','purged'))!
+    }catch{wipeFailed=true}
   }
   // Local completion never authorizes a UI unlock. The original signed
   // public command must remain until a verified server lifecycle receipt.
@@ -95,7 +98,7 @@ async function progress() {
     })
   }
   const final=await readEmergencyCommand()
-  if(final?.delivery!=='completed')schedule()
+  if(wipeFailed || final?.delivery!=='completed')schedule()
 }
 export function resumeEmergency():Promise<boolean> {
   if(replay)return replay
