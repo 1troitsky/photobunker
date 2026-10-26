@@ -144,8 +144,11 @@ function paint() {
       compare.value ? emptyEdits() : edits.value,
       1200,
     )
-    preview.value.width = canvas.width
-    preview.value.height = canvas.height
+    // Reassigning canvas dimensions resets its bitmap and implicitly releases
+    // pointer capture. Keep the live drawing gesture intact when the output
+    // dimensions did not actually change.
+    if (preview.value.width !== canvas.width) preview.value.width = canvas.width
+    if (preview.value.height !== canvas.height) preview.value.height = canvas.height
     preview.value.getContext('2d')!.drawImage(canvas, 0, 0)
     if (tab.value === 'text' && activeText.value && !compare.value) {
       const context = preview.value.getContext('2d')!,
@@ -367,6 +370,14 @@ function up(event: PointerEvent, cancel = false) {
   checkpoint()
   if (!cancel && gesture.offset) void nextTick(focusText)
 }
+function lostCapture(event: PointerEvent) {
+  if (!pointer || pointer.id !== event.pointerId) return
+  // pointercancel performs an explicit rollback first. A standalone capture
+  // loss only means no more samples will arrive, so preserve and checkpoint
+  // the points already shown instead of erasing the entire gesture.
+  pointer = undefined
+  checkpoint()
+}
 function setPosition(axis: 'x' | 'y', value: number) {
   if (!activeText.value || !Number.isFinite(value)) return
   value = Math.max(0, Math.min(100, value))
@@ -580,7 +591,7 @@ onBeforeUnmount(() => {
         @pointermove="move"
         @pointerup="up($event)"
         @pointercancel="up($event, true)"
-        @lostpointercapture="up($event, true)"
+        @lostpointercapture="lostCapture"
         @keydown="keyboard"
       />
       <p v-else class="field-hint">{{ error || s('preview') }}</p>
