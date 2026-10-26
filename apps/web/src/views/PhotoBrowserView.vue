@@ -14,7 +14,7 @@ import { eraseBrowser, readBrowser, saveBrowser } from '../photo-browser/cache'
 import { visibleBrowserPhotos, type BrowserCollection, type BrowserSnapshot } from '../photo-browser/model'
 import { bt } from '../photo-browser/text'
 import { locale } from '../i18n'
-import { downloadBrowser, chooseZipDestination } from '../photo-browser/download'
+import { downloadBrowser, chooseZipDestination, releaseTemporaryDownloads } from '../photo-browser/download'
 import { lockGeneration } from '../crypto/state'
 
 const route = useRoute()
@@ -72,6 +72,7 @@ function stopExport() {
 }
 function clear() {
   stopExport()
+  releaseTemporaryDownloads()
   generation++
   snapshot.value = undefined
   selected.value = []
@@ -242,7 +243,7 @@ async function revoke() {
 const tick = setInterval(() => {
   now.value = Date.now()
   if (snapshot.value?.collection.expiresAt && snapshot.value.collection.expiresAt <= now.value) {
-    stopExport(); snapshot.value = undefined; status.value = 'unavailable'
+    stopExport(); releaseTemporaryDownloads(); snapshot.value = undefined; status.value = 'unavailable'
   }
 }, 5000)
 function exportVisibility() { if (document.hidden) stopExport() }
