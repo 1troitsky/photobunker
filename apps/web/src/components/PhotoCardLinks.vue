@@ -81,8 +81,15 @@ async function retry() {
 }
 watch([() => props.card.id, () => account.value?.id, deviceId, sessionState, appLocked],
   () => { reset(); if (eligible.value) void load() }, { immediate: true, flush: 'sync' })
-onMounted(() => { if (eligible.value) { void load(); void flushCardShares().catch(() => {}) } })
-onBeforeUnmount(reset)
+function changed() { if (eligible.value) void load() }
+onMounted(() => {
+  window.addEventListener('photobunker-card-shares', changed)
+  if (eligible.value) { void load(); void flushCardShares().catch(() => {}) }
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('photobunker-card-shares', changed)
+  reset()
+})
 </script>
 <template>
   <section class="photo-card-section photo-card-share" aria-labelledby="photo-card-share-heading">
