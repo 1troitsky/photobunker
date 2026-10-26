@@ -782,7 +782,7 @@ export async function readLocalCardMetadata(id: string): Promise<Photo | undefin
     thumbnailOnly: !grant.read,
     uploadOnly: !grant.thumbnail,
     expiresAt: value.expiresAt,
-    remoteRevision: undefined,
+    remoteRevision: value.received ? value.revision : undefined,
   }
 }
 
