@@ -150,11 +150,28 @@ async function sweep(s:DeleteScope,erase:boolean) {
   await matrix(s,all,erase)
   await localCaches(s,erase)
 }
+async function guardSiblingDevice(s:DeleteScope) {
+  const known=await names()
+  if(!known.includes('photobunker-identity-devices-v1'))return
+  const db=await dbOpen('photobunker-identity-devices-v1')
+  try{
+    if(!db.objectStoreNames.contains('devices'))fail()
+    const rows=await new Promise<Array<{id:string;publicId:string}>>((resolve,reject)=>{
+      const tx=db.transaction('devices','readonly')
+      const req=tx.objectStore('devices').getAll()
+      tx.oncomplete=()=>resolve(req.result)
+      tx.onabort=()=>reject(new Error('emergency.wipe_storage'))
+    })
+    const target=rows.find(row=>row.id===s.device)
+    // Before the first wipe a target with two local device credentials must
+    // fail closed: account-wide ciphertext entries cannot be safely partitioned.
+    if(target?.publicId&&rows.some(row=>row.id!==s.device&&row.publicId===target.publicId))
+      fail()
+  }finally{db.close()}
+}
 export async function purgeEmergencyDevice(s:DeleteScope) {
-  // Account-level encrypted records may be shared by two device credentials
-  // in the same browser profile. Never destroy a second local device's data.
-  // (Multiple separately installed device profiles are different origins.)
   if(!/^[a-f0-9-]{36}$/i.test(s.owner)||!/^[a-f0-9-]{36}$/i.test(s.device))fail()
+  await guardSiblingDevice(s)
   await sweep(s,true)
   for(const key of Object.keys(localStorage)) {
     if(key.includes(s.owner)&&!key.startsWith('pb-emergency-'))
