@@ -4,7 +4,7 @@ import { photoReadAllowed } from './store'
 import { request } from './api'
 import { IdentityError } from '../identity/api'
 import { canonical, b64, unb64 } from './protocol'
-import { encryptCard, type CardManifest, type CardScopes } from './card-shares'
+import { encryptCardBundle, type CardManifest, type CardScopes } from './card-shares'
 import type { PrivatePhotoCard } from '../studio/private-photo-card'
 
 type Item = {
@@ -12,7 +12,8 @@ type Item = {
   photoId: string
   manifest: CardManifest
   secret: string
-  bytes: string
+  bytes: string // Legacy v2 single-card encrypted record
+  objects?: { card:string; photo?:string; original?:string }
   state: 'queued' | 'sending' | 'sent' | 'revoking' | 'revoked'
   everStarted: boolean
   lastError?: 'denied' | 'expired'
@@ -122,14 +123,20 @@ export async function listCardShareIntents(photoId: string): Promise<ShareRow[]>
 }
 export async function commitCardShare(photoId: string, card: PrivatePhotoCard,
   scopes: CardScopes, expiresAt: number,
-  durationSeconds: 3600 | 86400 | 604800): Promise<ShareRow> {
+  durationSeconds: 3600 | 86400 | 604800,
+  files: {photo?:{blob:Blob;versionId:string};original?:Blob} = {}): Promise<ShareRow> {
   const scope = ownerScope()
   if (!photoId || photoId !== card.id) throw new Error('card_share.invalid_photo')
-  const encrypted = await encryptCard(card, scopes, expiresAt, durationSeconds)
+  const encrypted = await encryptCardBundle(card, scopes, expiresAt, durationSeconds, files)
   current(scope)
   const item: Item = {
     id: encrypted.manifest.id, photoId, manifest: encrypted.manifest,
     secret: encrypted.secret, bytes: b64(new Uint8Array(await encrypted.ciphertext.arrayBuffer())),
+    objects: {
+      card:b64(new Uint8Array(await encrypted.objects.card!.arrayBuffer())),
+      ...(encrypted.objects.photo ? {photo:b64(new Uint8Array(await encrypted.objects.photo.arrayBuffer()))} : {}),
+      ...(encrypted.objects.original ? {original:b64(new Uint8Array(await encrypted.objects.original.arrayBuffer()))} : {}),
+    },
     state: 'queued', everStarted: false,
   }
   await exclusive(scope, item.id, () => save(scope, item))
@@ -158,6 +165,20 @@ async function submit(item: Item) {
     decoded.byteOffset + decoded.byteLength,
   ) as ArrayBuffer
   form.set('file', new Blob([bytes], { type: 'application/octet-stream' }), 'ciphertext')
+  // Replays transmit exact same bytes and manifest. Legacy v2 records had
+  // just bytes and are always interpreted as card-only.
+  const objectBlob = (encoded: string) => {
+    const decoded = unb64(encoded)
+    const value = decoded.buffer.slice(
+      decoded.byteOffset,
+      decoded.byteOffset + decoded.byteLength,
+    ) as ArrayBuffer
+    return new Blob([value], { type: 'application/octet-stream' })
+  }
+  if (item.objects?.photo)
+    form.set('photo', objectBlob(item.objects.photo), 'photo-ciphertext')
+  if (item.objects?.original)
+    form.set('original', objectBlob(item.objects.original), 'original-ciphertext')
   await request('/photos/' + item.photoId + '/cards', 'POST', form)
 }
 async function flushScope(scope: string) {

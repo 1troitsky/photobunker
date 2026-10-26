@@ -453,6 +453,93 @@ final class EncryptedPhotosTest extends TestCase
         $this->getJson('/api/v1/cards/'.$shareId)->assertNotFound();
     }
 
+    public function test_photo_card_multi_object_share_is_all_or_nothing_and_revokes_every_kind(): void
+    {
+        $f = $this->uploadFixture();
+        $id = $f['id'];
+        $this->post('/api/v1/identity/secure/photos', $f['body'])->assertOk();
+        $version = $this->versionBody($f);
+        $saved = $this->post('/api/v1/identity/secure/photos/'.$id.'/versions', $version)->assertOk()->json();
+        $versionId = $saved['id'];
+        $card = random_bytes(96);
+        $safe = random_bytes(120);
+        $original = random_bytes(150);
+        $share = (string) Str::uuid();
+        $descriptor = fn (string $kind, string $bytes) => [
+            'type' => $kind, 'version' => 1, 'iv' => Protocol::b64(random_bytes(12)),
+            'ciphertextHash' => Protocol::digest($bytes), 'ciphertextBytes' => strlen($bytes),
+        ];
+        $m = ['type' => 'photo-card', 'version' => 2, 'id' => $share,
+            'scopes' => ['card' => true, 'photo' => true, 'original' => true,
+                'download' => true, 'metadata' => false],
+            'expiresAt' => min($f['s']['expiresAt'], now()->addMinutes(20)->getTimestampMs()),
+            'durationSeconds' => 3600,
+            'object' => $descriptor('card', $card),
+            'objects' => [
+                'photo' => [...$descriptor('photo', $safe), 'versionId' => $versionId],
+                'original' => [...$descriptor('original', $original), 'mime' => 'image/png'],
+            ],
+        ];
+        $make = fn (array $manifest) => [
+            'manifest' => Protocol::canonical($manifest),
+            'file' => UploadedFile::fake()->createWithContent('card', $card),
+            'photo' => UploadedFile::fake()->createWithContent('photo', $safe),
+            'original' => UploadedFile::fake()->createWithContent('original', $original),
+        ];
+        $path = '/api/v1/identity/secure/photos/'.$id.'/cards';
+        $public = '/api/v1/cards/'.$share;
+        $missing = $make($m);
+        unset($missing['photo']);
+        $this->post($path, $missing)->assertUnprocessable();
+        $this->getJson($public)->assertNotFound();
+        $extra = $make($m);
+        $extra['unexpected'] = UploadedFile::fake()->create('extra');
+        $this->post($path, $extra)->assertUnprocessable();
+        $this->getJson($public)->assertNotFound();
+        $this->post($path, $make($m))->assertOk()->assertJsonPath('id', $share);
+        $this->post($path, $make($m))->assertOk()->assertJsonPath('id', $share);
+        $this->assertDatabaseCount('encrypted_shares', 1);
+        $this->assertDatabaseCount('photo_card_share_objects', 2);
+        foreach (['', '/photo', '/original'] as $suffix) {
+            $this->get($public.'/content'.$suffix)->assertOk();
+        }
+        $this->get($public.'/content/metadata')->assertNotFound();
+        $this->getJson('/api/v1/shares/'.$share)->assertNotFound();
+        $this->deleteJson($path.'/'.$share)->assertOk();
+        $this->deleteJson($path.'/'.$share)->assertOk();
+        $this->getJson($public)->assertGone();
+        foreach (['', '/photo', '/original'] as $suffix) {
+            $this->get($public.'/content'.$suffix)->assertGone();
+        }
+        $this->post($path, $make($m))->assertGone();
+        $this->assertSame(0, (int) DB::table('encrypted_objects')
+            ->where('id', DB::table('encrypted_shares')->where('id', $share)->value('object_id'))->value('bytes'));
+        foreach (DB::table('photo_card_share_objects')->where('share_id', $share)->get() as $object) {
+            $this->assertSame(0, (int) DB::table('encrypted_objects')->where('id', $object->object_id)->value('bytes'));
+        }
+    }
+
+    public function test_card_download_scope_cannot_invent_a_photo_object(): void
+    {
+        $f = $this->uploadFixture();
+        $id = $f['id'];
+        $this->post('/api/v1/identity/secure/photos', $f['body'])->assertOk();
+        $bytes = random_bytes(88);
+        $manifest = ['type' => 'photo-card', 'version' => 2, 'id' => (string) Str::uuid(),
+            'scopes' => ['card' => true, 'photo' => false, 'original' => false,
+                'download' => true, 'metadata' => false],
+            'expiresAt' => min($f['s']['expiresAt'], now()->addMinutes(20)->getTimestampMs()),
+            'durationSeconds' => 3600,
+            'object' => ['type' => 'card', 'version' => 1,
+                'iv' => Protocol::b64(random_bytes(12)),
+                'ciphertextHash' => Protocol::digest($bytes), 'ciphertextBytes' => strlen($bytes)],
+        ];
+        $this->post('/api/v1/identity/secure/photos/'.$id.'/cards', [
+            'manifest' => Protocol::canonical($manifest),
+            'file' => UploadedFile::fake()->createWithContent('ciphertext', $bytes),
+        ])->assertUnprocessable();
+    }
+
     public function test_version_pair_storage_failure_does_not_publish_and_exact_retry_keeps_original(): void
     {
         $f = $this->uploadFixture();

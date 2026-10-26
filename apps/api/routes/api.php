@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('v1')->group(function (): void {
     Route::get('/cards/{id}', [PhotoCardShareController::class, 'show'])->whereUuid('id');
     Route::get('/cards/{id}/content', [PhotoCardShareController::class, 'content'])->whereUuid('id');
+    Route::get('/cards/{id}/content/{kind}', [PhotoCardShareController::class, 'content'])->whereUuid('id')->whereIn('kind', ['photo', 'original']);
     Route::get('/shares/{id}', [PhotoShareController::class, 'show'])->whereUuid('id');
     Route::get('/shares/{id}/content', [PhotoShareController::class, 'content'])->whereUuid('id');
     Route::get('/rtc-gate', [RtcController::class, 'gate']);

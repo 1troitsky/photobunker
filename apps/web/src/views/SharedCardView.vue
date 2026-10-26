@@ -2,7 +2,8 @@
 import { ref, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import PrivateLocationMap from '../components/PrivateLocationMap.vue'
-import { decryptCard, type CardManifest, type PublicCard } from '../crypto/card-shares'
+import { decryptCard, decryptCardObject, type CardManifest, type PublicCard } from '../crypto/card-shares'
+import { downloadFile } from '../studio/export'
 import { cardShareText as t } from '../studio/card-share-text'
 import { locale } from '../i18n'
 import { profilePath } from '../identity/person'
@@ -15,10 +16,20 @@ let secret = location.hash.slice(1)
 history.replaceState(history.state, '', location.pathname + location.search)
 const card = ref<PublicCard>(), error = ref<'invalid'|'expired'|'unavailable'>()
 const loading = ref(true), details = ref(false), now = ref(Date.now())
+const manifestRef = ref<CardManifest>(), imageUrl = ref(''), originalUrl = ref(''),
+  imageError = ref(false), originalBusy = ref(false)
+let safeFile: Blob | undefined, originalFile: Blob | undefined
 const copyState = ref<'idle'|'copied'|'failed'>('idle')
 let disposed = false, timer: ReturnType<typeof setInterval> | undefined
 let controller = new AbortController()
 function clear(clearSecret = true) {
+  if (imageUrl.value) URL.revokeObjectURL(imageUrl.value)
+  if (originalUrl.value) URL.revokeObjectURL(originalUrl.value)
+  imageUrl.value = originalUrl.value = ''
+  manifestRef.value = undefined
+  safeFile = originalFile = undefined
+  imageError.value = false
+  originalBusy.value = false
   card.value = undefined
   if (clearSecret) secret = ''
   details.value = false
@@ -48,7 +59,20 @@ async function load() {
     const blob = await requestPart('/api/v1/cards/' + encodeURIComponent(id) + '/content', 'blob') as Blob
     const decrypted = await decryptCard(blob, manifest, secret)
     if (disposed) return
+    if (manifest.scopes.photo) {
+      // Only safe flattened photo loads automatically. Card-only does NOT
+      // make an image request; original must NEVER be fetched here.
+      const content = await requestPart('/api/v1/cards/' + encodeURIComponent(id) + '/content/photo','blob') as Blob
+      const safe = await decryptCardObject(content, manifest, secret, 'photo')
+      if (disposed) return
+      safeFile = safe
+      imageUrl.value = URL.createObjectURL(safe)
+    }
+    if (disposed) return
     card.value = decrypted
+    // Preserve manifest for download controls and manual original request.
+    // It is public metadata only; secret remains in component memory.
+    manifestRef.value = manifest
     // The card is still constrained by its actual expiry in the browser.
   } catch (reason) {
     if (!disposed) {
@@ -60,6 +84,36 @@ async function load() {
       error.value = next
     }
   } finally { if (!disposed) loading.value = false }
+}
+async function openOriginal() {
+  if (!card.value || !manifestRef.value?.scopes.original || originalBusy.value || !secret) return
+  originalBusy.value=true
+  imageError.value=false
+  try {
+    await verifyAlive()
+    const content=await requestPart('/api/v1/cards/'+encodeURIComponent(id)+'/content/original','blob') as Blob
+    const original=await decryptCardObject(content,manifestRef.value,secret,'original')
+    if (disposed || !card.value) return
+    originalFile=original
+    originalUrl.value=URL.createObjectURL(original)
+  } catch { if (!disposed) imageError.value=true }
+  finally { originalBusy.value=false }
+}
+async function save(kind:'photo'|'original') {
+  if (!manifestRef.value?.scopes.download) return
+  const content=kind==='photo'?safeFile:originalFile
+  if (!content || !card.value) return
+  try {
+    await verifyAlive()
+    const extensions: Record<string, string> = {
+      'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp',
+      'image/avif': 'avif', 'image/heic': 'heic', 'image/heif': 'heif',
+    }
+    const mime = kind === 'photo' ? 'image/jpeg' : content.type
+    const extension = extensions[mime]
+    if (!extension) throw new Error('card_share.invalid_original')
+    downloadFile(new File([content], `photobunker-${kind}.${extension}`, { type: mime }))
+  } catch { if (!disposed) imageError.value=true }
 }
 function hide() {
   clear(); controller.abort()
@@ -122,6 +176,23 @@ onBeforeUnmount(() => {
           <p v-if="card.description" class="photo-card-description">{{ card.description }}</p>
         </div>
         <div class="photo-card-content">
+          <section v-if="imageUrl" class="photo-card-section">
+            <img :src="imageUrl" :alt="card.title" class="photo-card-safe-image" />
+            <p class="field-hint">{{ t('pixelsHint') }}</p>
+            <button v-if="manifestRef?.scopes.download" type="button" class="secondary-button"
+              @click="save('photo')">{{ t('savePhoto') }}</button>
+          </section>
+          <section v-if="manifestRef?.scopes.original" class="photo-card-section">
+            <button type="button" class="secondary-button" :disabled="originalBusy"
+              @click="openOriginal">{{ t('showOriginal') }}</button>
+            <template v-if="originalUrl">
+              <img :src="originalUrl" :alt="card.title" class="photo-card-safe-image" />
+              <p class="field-hint">{{ t('pixelsHint') }}</p>
+              <button v-if="manifestRef?.scopes.download" type="button" class="secondary-button"
+                @click="save('original')">{{ t('saveOriginal') }}</button>
+            </template>
+          </section>
+          <p v-if="imageError" role="alert">{{ t('imageError') }}</p>
           <section class="photo-card-section"><dl class="native-facts">
             <div><dt>{{ t('expiry') }}</dt><dd>{{ date(card.expiresAt) }}</dd></div>
             <div v-if="card.capturedAt"><dt>{{ t('capture') }}</dt><dd>{{ date(card.capturedAt) }}</dd></div>

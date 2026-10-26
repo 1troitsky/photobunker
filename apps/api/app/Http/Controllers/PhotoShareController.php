@@ -11,6 +11,7 @@ use App\Workspace\Workspace;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -146,20 +147,32 @@ final class PhotoShareController
 
     public function cleanup(object $s): bool
     {
-        $o = DB::table('encrypted_objects')->find($s->object_id);
-        if (! $o || (int) $o->bytes === 0) {
-            return true;
+        $objectIds = collect([$s->object_id]);
+        if (Schema::hasTable('photo_card_share_objects')) {
+            $objectIds = $objectIds->merge(
+                DB::table('photo_card_share_objects')->where('share_id', $s->id)->pluck('object_id')
+            );
         }
-        try {
-            $disk = Storage::disk(config('prototype.disk'));
-            $disk->delete($o->object_key);
-            if ($disk->exists($o->object_key)) {
-                return false;
-            } DB::table('encrypted_objects')->where('id', $o->id)->update(['bytes' => 0]);
+        $deleted = true;
+        foreach ($objectIds->filter()->unique() as $objectId) {
+            $o = DB::table('encrypted_objects')->find($objectId);
+            if (! $o || (int) $o->bytes === 0) {
+                continue;
+            }
+            try {
+                $disk = Storage::disk(config('prototype.disk'));
+                $disk->delete($o->object_key);
+                if ($disk->exists($o->object_key)) {
+                    $deleted = false;
 
-            return true;
-        } catch (\Throwable) {
-            return false;
+                    continue;
+                }
+                DB::table('encrypted_objects')->where('id', $o->id)->update(['bytes' => 0]);
+            } catch (\Throwable) {
+                $deleted = false;
+            }
         }
+
+        return $deleted;
     }
 }
