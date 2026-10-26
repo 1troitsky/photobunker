@@ -99,7 +99,8 @@ async function photos(s:DeleteScope,erase:boolean) {
         const item=cursor.result
         if(!item)return
         const photo=item.value as {accountId?:string}|undefined
-        if(photo?.accountId===s.owner) {
+        if(!photo?.accountId){failed=true;tx.abort();return} // ambiguous local-only ownership
+        if(photo.accountId===s.owner) {
           if(!erase){failed=true;tx.abort();return}
           ids.delete(item.primaryKey)
           tx.objectStore('originals').delete(item.primaryKey)
@@ -128,7 +129,8 @@ async function matrix(s:DeleteScope,all:string[],erase:boolean) {
 async function localCaches(s:DeleteScope,erase:boolean) {
   if(!('caches' in window))return
   for(const name of await caches.keys()) {
-    if(!/private|encrypted|photo|message/i.test(name))continue
+    if(name.startsWith('photobunker-shell-'))continue // only static public PWA precache
+    if(!/private|encrypted|photo|message/i.test(name.replace(/^photobunker-/,'')))continue
     const target=name.includes(pair(s))
     const scoped=/[0-9a-f]{8}-[0-9a-f-]{27,}:[0-9a-f]{8}-[0-9a-f-]{27,}/i.test(name)
     if(!target&&!scoped)fail() // ambiguous shared cache: never delete B
@@ -165,7 +167,7 @@ async function guardSiblingDevice(s:DeleteScope) {
     const target=rows.find(row=>row.id===s.device)
     // Before the first wipe a target with two local device credentials must
     // fail closed: account-wide ciphertext entries cannot be safely partitioned.
-    if(target?.publicId&&rows.some(row=>row.id!==s.device&&row.publicId===target.publicId))
+    if(target && rows.some(row=>row.id!==s.device&&(!row.publicId||row.publicId===target.publicId)))
       fail()
   }finally{db.close()}
 }
