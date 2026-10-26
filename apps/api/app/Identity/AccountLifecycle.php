@@ -3,6 +3,7 @@
 namespace App\Identity;
 
 use App\Encrypted\Objects;
+use Closure;
 use App\Http\Controllers\PhotoShareController;
 use App\Prototype\Library;
 use App\Prototype\Retention;
@@ -32,9 +33,9 @@ final class AccountLifecycle
         });
     }
 
-    public function claim(string $id, bool $inactive = false): bool
+    public function claim(string $id, bool $inactive = false, string $reason = 'user', ?Closure $beforeClaim = null): bool
     {
-        return Cache::lock('identity:account-write:'.$id, 120)->block(10, fn () => DB::transaction(function () use ($id, $inactive) {
+        return Cache::lock('identity:account-write:'.$id, 120)->block(10, fn () => DB::transaction(function () use ($id, $inactive, $reason, $beforeClaim) {
             $account = DB::table('identity_accounts')->where('id', $id)->lockForUpdate()->first();
             if (! $account || $account->deletion_requested_at) {
                 return false;
@@ -43,7 +44,11 @@ final class AccountLifecycle
             if ($inactive && (! $account->inactivity_delete_at || Carbon::parse($account->inactivity_delete_at)->gt(now()))) {
                 return false;
             }
-            DB::table('identity_accounts')->where('id', $id)->update(['deletion_requested_at' => now(), 'deletion_reason' => $inactive ? 'inactivity' : 'user', 'deletion_retry_at' => now()]);
+            abort_unless(in_array($reason, ['user', 'inactivity', 'emergency'], true), 422);
+            // The emergency receipt is inserted in this SAME transaction and
+            // account write-lock as revoking every device/session/read grant.
+            $beforeClaim?.__invoke($account);
+            DB::table('identity_accounts')->where('id', $id)->update(['deletion_requested_at' => now(), 'deletion_reason' => $inactive ? 'inactivity' : $reason, 'deletion_retry_at' => now()]);
             $devices = DB::table('identity_devices')->where('account_id', $id)->pluck('id');
             DB::table('identity_sessions')->whereIn('device_id', $devices)->delete();
             DB::table('identity_devices')->where('account_id', $id)->update(['revoked_at' => now(), 'matrix_revoke_pending' => true]);
@@ -154,6 +159,10 @@ final class AccountLifecycle
                     DB::table('identity_accounts')->where('id', $id)->lockForUpdate()->first();
                     DB::table('identity_accounts')->where('id', $id)->delete();
                 });
+                // Retained separately from account FKs for permanent idempotent
+                // replies even after physical cleanup. Worker also reconciles a
+                // crash between account deletion and this update.
+                DB::table('identity_emergency_receipts')->where('account_id', $id)->whereNull('completed_at')->update(['completed_at' => now()]);
 
                 return true;
             } catch (\Throwable) {
