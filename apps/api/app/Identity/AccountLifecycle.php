@@ -47,6 +47,7 @@ final class AccountLifecycle
             $devices = DB::table('identity_devices')->where('account_id', $id)->pluck('id');
             DB::table('identity_sessions')->whereIn('device_id', $devices)->delete();
             DB::table('identity_devices')->where('account_id', $id)->update(['revoked_at' => now(), 'matrix_revoke_pending' => true]);
+            DB::table('identity_presence_leases')->whereIn('device_id', $devices)->delete();
             DB::table('photo_read_sessions')->where('account_id', $id)->delete();
             DB::table('photo_device_links')->where('account_id', $id)->delete();
             $photos = $this->photos($id)->pluck('id');
