@@ -17,11 +17,10 @@ createApp(App).use(createAppRouter()).mount('#app')
 // have an independent public entry point.
 // The destructive journal is checked BEFORE any Identity/Matrix bootstrap.
  // Never restore a session or mount private data while a partial wipe exists.
-if (!location.pathname.startsWith('/s/')) {
-  void resumeEmergency().then(safe => {
-    if(safe)void resumeLocalDeletion().then(ok => { if(ok)startIdentityBootstrap() })
-  })
-}
+void resumeEmergency().then(safe => {
+  if(safe && !location.pathname.startsWith('/s/'))
+    void resumeLocalDeletion().then(ok => { if(ok)startIdentityBootstrap() })
+})
 
 // The development server deliberately does not install an offline worker.
 // A production build served over HTTPS (or localhost) precaches public shell files.
