@@ -475,3 +475,10 @@
 .browser-selection { padding: 10px; border: 1px solid var(--border); border-radius: 12px; }
 @media (max-width: 720px) { .browser-toolbar { grid-template-columns: repeat(2,minmax(0,1fr)); } .browser-toolbar label:first-child { grid-column: 1/-1; } .browser-intro { flex-direction: column; } .browser-body { padding-bottom: calc(82px + env(safe-area-inset-bottom)); } }
 @media (max-width: 360px) { .browser-toolbar { grid-template-columns: minmax(0,1fr); } .browser-toolbar label:first-child { grid-column: auto; } }
+
+/* R1-13: explicit bounded export state, mobile cancellation controls. */
+.protected-browser .browser-export-status { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; border: 1px solid var(--border); padding: 10px 12px; border-radius: 12px; }
+.protected-browser .browser-export-status p { margin: 0; }
+.protected-browser .browser-export-status progress { flex: 1 1 130px; max-width: 320px; height: 12px; accent-color: var(--accent); }
+.protected-browser .browser-selection button { min-height: 44px; }
+@media (max-width: 720px) { .protected-browser .browser-export-status { padding-bottom: calc(12px + env(safe-area-inset-bottom)); } .protected-browser .browser-selection { align-items: stretch; } }
