@@ -22,7 +22,7 @@ const DB = 'photobunker-local-delete-v1'
 const PIN_STORE = 'pins'
 const JOURNAL_STORE = 'journal'
 async function open() {
-  if (!indexedDB || !crypto.subtle) throw new Error('localDelete.storage')
+  if (!globalThis.indexedDB || !globalThis.crypto?.subtle) throw new Error('localDelete.storage')
   return new Promise<IDBDatabase>((resolve, reject) => {
     const req = indexedDB.open(DB, 1)
     req.onupgradeneeded = () => {
@@ -46,7 +46,7 @@ function transact<T>(
   return open().then(db => new Promise<T | undefined>((resolve, reject) => {
     const tx = db.transaction(storeName, mode, { durability: 'strict' })
     const store = tx.objectStore(storeName), req = store.get(key)
-    let value: T | undefined
+    let value: T | undefined, failure: unknown
     req.onsuccess = () => {
       try {
         value = mutate ? mutate(req.result as T | undefined) : req.result as T | undefined
@@ -54,10 +54,16 @@ function transact<T>(
           if (value === undefined) store.delete(key)
           else store.put(value, key)
         }
-      } catch { tx.abort() }
+      } catch (error) { failure = error; tx.abort() }
     }
     tx.oncomplete = () => { db.close(); resolve(value) }
-    tx.onabort = () => { db.close(); reject(new Error('localDelete.storage')) }
+    tx.onabort = () => {
+      db.close()
+      reject(failure instanceof Error ? failure : new Error('localDelete.storage'))
+    }
+    tx.onerror = () => {
+      if (!failure) failure = new Error('localDelete.storage')
+    }
   }))
 }
 export const pinKey = (owner: string, device: string) => `local-delete:${owner}:${device}`

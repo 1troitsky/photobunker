@@ -123,7 +123,8 @@ export async function verifyLocalDeletePin(pin: string, fingerprint?: string) {
       }
     })
   } catch (error) {
-    localDeletePinFailure.value = true
+    if (!(error instanceof Error) || error.message === 'localDelete.storage')
+      localDeletePinFailure.value = true
     throw error
   }
   assertScope(owner, device, epoch)
@@ -160,6 +161,9 @@ export async function configureLocalDeletePin(
 export async function matchesLocalDeletePin(candidate: string): Promise<boolean> {
   const { owner, device } = scope(), epoch = generation
   if (!owner || !device) return false
+  // App-PIN storage cannot be usable without IndexedDB in production. This
+  // guard also keeps storage-adapter unit tests independent when D4 is absent.
+  if (!globalThis.indexedDB) return false
   const record = await readVerifier(owner,device)
   if (!record) return false
   if (!valid(record)) throw new Error('localDelete.storage')

@@ -146,6 +146,8 @@ let stopLibrary: (() => void) | undefined
 let stopWorkspace: (() => void) | undefined
 let stopStudio: (() => void) | undefined
 let stopActivity: (() => void) | undefined
+let mounted = false
+let runtimeStarted = false
 const hidden = ref(false)
 const locationVisible = ref(!document.hidden)
 const locationResumeEpoch = ref(0)
@@ -310,8 +312,10 @@ function isActive(name: string) {
     (name === 'assignments' && ['assignment', 'photo-browser', 'photo-browser-new'].includes(String(route.name)))
   )
 }
-onMounted(() => {
-  if (location.pathname.startsWith('/s/')) return
+function startPrivateRuntime() {
+  if (runtimeStarted || deletionBlocked.value ||
+      route.name === 'shared-photo' || route.name === 'shared-card') return
+  runtimeStarted = true
   document.addEventListener('visibilitychange', backgroundLock)
   document.addEventListener('visibilitychange', locationVisibilityChanged)
   document.addEventListener('visibilitychange', updatePrivatePresence)
@@ -336,8 +340,10 @@ onMounted(() => {
   window.addEventListener('offline', updateConnection)
   window.addEventListener('offline', updatePrivatePresence)
   window.addEventListener('photobunker-privacy-screen', privacy)
-})
-onBeforeUnmount(() => {
+}
+function stopPrivateRuntime() {
+  if (!runtimeStarted) return
+  runtimeStarted = false
   document.removeEventListener('visibilitychange', backgroundLock)
   document.removeEventListener('visibilitychange', locationVisibilityChanged)
   document.removeEventListener('visibilitychange', updatePrivatePresence)
@@ -348,13 +354,13 @@ onBeforeUnmount(() => {
   window.removeEventListener('pagehide', lockApp)
   window.removeEventListener('pagehide', stopLocation)
   window.removeEventListener('pageshow', locationPageShow)
-  stopProtection?.()
-  stopLibrary?.()
-  stopDelivery?.()
-  stopCollaboration?.()
-  stopStudio?.()
-  stopWorkspace?.()
-  stopActivity?.()
+  stopProtection?.(); stopProtection = undefined
+  stopLibrary?.(); stopLibrary = undefined
+  stopDelivery?.(); stopDelivery = undefined
+  stopCollaboration?.(); stopCollaboration = undefined
+  stopStudio?.(); stopStudio = undefined
+  stopWorkspace?.(); stopWorkspace = undefined
+  stopActivity?.(); stopActivity = undefined
   window.removeEventListener('online', updateConnection)
   window.removeEventListener('online', reconnectPhotoNames)
   window.removeEventListener('online', updatePrivatePresence)
@@ -362,6 +368,19 @@ onBeforeUnmount(() => {
   window.removeEventListener('offline', updateConnection)
   window.removeEventListener('offline', updatePrivatePresence)
   window.removeEventListener('photobunker-privacy-screen', privacy)
+}
+watch([deletionBlocked, () => route.name], ([blocked]) => {
+  if (!mounted) return
+  if (blocked) stopPrivateRuntime()
+  else startPrivateRuntime()
+}, { flush: 'post' })
+onMounted(() => {
+  mounted = true
+  startPrivateRuntime()
+})
+onBeforeUnmount(() => {
+  mounted = false
+  stopPrivateRuntime()
 })
 watch(
   [sessionState, () => route.path, () => route.query.returnTo],

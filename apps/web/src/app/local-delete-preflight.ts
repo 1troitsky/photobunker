@@ -84,7 +84,7 @@ export async function inventory(): Promise<KeyRow[]> {
 function isPendingRow(row: KeyRow, s: DeleteScope) {
   const k = String(row.key)
   if (row.database === 'photobunker-message-outbox-v1')
-    return k.startsWith('msg:' + scoped + ':')
+    return k.startsWith('msg:' + s.owner + ':' + s.device + ':')
   if (row.database === 'photobunker-encrypted-queue-v1')
     return k.startsWith('account-recovery-pending:' + s.owner)
   // Without an adapter proving cloud acknowledgement, local Workspace drafts
@@ -92,6 +92,9 @@ function isPendingRow(row: KeyRow, s: DeleteScope) {
   if (row.database === 'photobunker-ui-workspace-v1')
     return k.startsWith('account:' + s.owner + ':')
   return false
+}
+function inventorySignature(rows: KeyRow[]) {
+  return rows.map(row => `${row.database}\u0000${row.store}\u0000${String(row.key)}`).sort()
 }
 export async function freshLocalDeletePreflight(pin: string): Promise<{scope: DeleteScope; inventory: KeyRow[]}> {
   const scope = currentScope()
@@ -124,10 +127,19 @@ export async function freshLocalDeletePreflight(pin: string): Promise<{scope: De
     throw new PreflightDenied('scope')
   const rows = await inventory()
   checkPreflightScope(scope)
+  const allPhotos = await listPhotos()
+  const storedPhotoIds = new Set(allPhotos.map(photo => photo.id))
+  const localRows = rows.filter(row => row.database === 'photobunker-local-prototype-v1')
+  // Blob stores have no account field of their own. An orphan cannot be
+  // attributed safely to A or B, so destructive cleanup must stop.
+  if (allPhotos.some(photo => !photo.accountId) || localRows.some(row =>
+    row.store !== 'photos' && !storedPhotoIds.has(String(row.key))))
+    throw new PreflightDenied('storage')
   if ('caches' in window) {
     const knownCaches = await caches.keys()
     if (knownCaches.some(name => /private|encrypted|photo|message/i.test(name) &&
-      !name.includes(scope.owner+':'+scope.device)))
+      !name.includes(scope.owner+':'+scope.device) &&
+      !/[0-9a-f]{8}-[0-9a-f-]{27,}:[0-9a-f]{8}-[0-9a-f-]{27,}/i.test(name)))
       throw new PreflightDenied('storage')
   }
   if (rows.some(row => isPendingRow(row, scope))) throw new PreflightDenied('unsynced')
@@ -183,7 +195,7 @@ export async function freshLocalDeletePreflight(pin: string): Promise<{scope: De
       throw new PreflightDenied('cloud')
     checkPreflightScope(scope)
   }
-  const photos = (await listPhotos()).filter(photo => photo.accountId === scope.owner)
+  const photos = allPhotos.filter(photo => photo.accountId === scope.owner)
   if (photos.some(p => p.uiOnly || p.uploadRequested || p.metadataDirty || p.deleteRequested ||
     p.uploadError || p.remoteRevision === undefined || p.deliveryOnly || p.uploadOnly))
     throw new PreflightDenied('unsynced')
@@ -216,8 +228,7 @@ export async function freshLocalDeletePreflight(pin: string): Promise<{scope: De
   // cannot silently become an undetected queue entry.
   const again = await inventory()
   if (again.some(row => isPendingRow(row,scope)) ||
-    JSON.stringify(rows.map(r=>[r.database,r.store,String(r.key)])) !==
-    JSON.stringify(again.map(r=>[r.database,r.store,String(r.key)])))
+    JSON.stringify(inventorySignature(rows)) !== JSON.stringify(inventorySignature(again)))
     throw new PreflightDenied('unsynced')
   checkPreflightScope(scope)
   return {scope, inventory:again}

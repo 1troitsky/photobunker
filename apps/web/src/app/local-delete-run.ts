@@ -31,7 +31,13 @@ const lockState = () => {
   hardLock()
   stopMessaging()
 }
-channel?.addEventListener('message', () => lockState())
+channel?.addEventListener('message', () => {
+  lockState()
+  // Every open tab joins the same journal replay. Web Locks serialize the
+  // destructive phase and the losing tab observes either the next phase or
+  // an already-finished journal, so it cannot remain unlocked or stuck.
+  void resumeLocalDeletion()
+})
 function signedOutMarker() {
   // Distinguish a scoped D4 wipe from regular logout, whose legacy cleanup
   // wipes global credential stores (and therefore potentially account B).
@@ -108,10 +114,35 @@ async function clearScopedCaches(s: DeleteScope) {
   // Public PWA shell precache stays intact. Private caches must explicitly
   // identify the device; unscoped private cache means fail closed.
   for (const name of await caches.keys()) {
-    if (/private|encrypted|photo|message/i.test(name) && !name.includes(s.owner+':'+s.device))
+    if (!/private|encrypted|photo|message/i.test(name)) continue
+    const target = name.includes(s.owner + ':' + s.device)
+    // A cache belonging to another explicit UUID/UUID scope is preserved.
+    // An unscoped private cache cannot be attributed safely and blocks D4.
+    const scoped = /[0-9a-f]{8}-[0-9a-f-]{27,}:[0-9a-f]{8}-[0-9a-f-]{27,}/i.test(name)
+    if (!target && !scoped) throw new Error('localDelete.storage')
+    if (target && !await caches.delete(name))
       throw new Error('localDelete.storage')
-    if (name.includes(s.owner+':'+s.device) && !await caches.delete(name))
-      throw new Error('localDelete.storage')
+  }
+}
+function rowMatchesScope(row: {database:string;store:string;key:IDBValidKey}, s: DeleteScope) {
+  const key = String(row.key), pair = s.owner + ':' + s.device
+  switch (row.database) {
+    case 'photobunker-identity-devices-v1': return row.store === 'devices' && key === s.device
+    case 'photobunker-app-pin-v2': return key === 'app-pin:' + pair
+    case 'photobunker-local-delete-v1': return row.store === 'pins' && key === 'local-delete:' + pair
+    case 'photobunker-encrypted-queue-v1': return key.split(':').includes(s.owner)
+    case 'photobunker-ui-workspace-v1': return key.startsWith('account:' + s.owner + ':')
+    case 'photobunker-message-storage-v1': return key.startsWith(pair + ':')
+    case 'photobunker-message-outbox-v1':
+      return key === 'key:' + pair || key.startsWith('msg:' + pair + ':')
+    case 'photobunker-private-messenger-folders-v1':
+      return key === 'key:' + pair || key === 'data:' + pair
+    case 'photobunker-team-cache-v1': return key === 'team:' + pair
+    case 'photobunker-private-presence-v1': return key === pair
+    case 'photobunker-photo-browser-cache-v1': return key.startsWith('browser:' + pair + ':')
+    case 'photobunker-photo-names-v1': return key === 'photo-names:' + pair
+    case 'photobunker-card-share-intents-v1': return key.startsWith(pair + ':')
+    default: return false
   }
 }
 /** Idempotent, explicit account/device scope; never call the broad
@@ -150,18 +181,7 @@ export async function purgeLocalDeleteScope(s: DeleteScope) {
   const outstanding=(await listPhotos()).filter(p=>p.accountId===s.owner)
   if(outstanding.length) throw new Error('localDelete.storage')
   const remaining = (await (await import('./local-delete-preflight')).inventory())
-    .filter(row=>{
-      const k=String(row.key)
-      return k.startsWith('local-delete:'+s.owner+':'+s.device) ||
-        k.startsWith('app-pin:'+s.owner+':'+s.device) ||
-        k.startsWith('msg:'+s.owner+':'+s.device+':') ||
-        k.startsWith('job:'+s.owner+':') ||
-        k.startsWith('version:'+s.owner+':') ||
-        k.startsWith('browser:'+s.owner+':'+s.device+':') ||
-        k.startsWith(s.owner+':'+s.device) ||
-        k.startsWith('photo-names:'+s.owner+':'+s.device) ||
-        k.startsWith('trusted:'+s.owner+':'+s.device)
-    })
+    .filter(row => rowMatchesScope(row, s))
   if(remaining.length) throw new Error('localDelete.storage')
   // Do not clear the signed-out marker or any account B data.
   signedOutMarker()

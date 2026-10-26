@@ -217,6 +217,7 @@ export async function setAppPin(pin: string, oldPin?: string) {
   const id = scope(), epoch = loadEpoch, mutation = guardEpoch
   if (!id || !appLockReady.value || appLockFailure.value || appLocked.value)
     throw new Error('pin.locked')
+  if (!/^(?:\d{6}|\d{8})$/.test(pin)) throw new Error('pin.length')
   const old = current
   if (appPinEnabled.value) {
     if (!oldPin) throw new Error('pin.confirm_required')
