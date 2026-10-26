@@ -1,6 +1,6 @@
 # PhotoBunker — совместная работа и Scrumban
 
-Этот документ задаёт рабочий цикл владельца, Codex и Chatbot Agent. Продукт и архитектура находятся в `docs/IMPLEMENTATION_PLAN.md`; оперативная очередь — только в GitHub Issues и GitHub Project **PhotoBunker Development**.
+Этот документ задаёт рабочий цикл владельца, Codex и Chatbot Agent. Продукт и архитектура находятся в `docs/IMPLEMENTATION_PLAN.md`; оперативная очередь — только в [GitHub Issues](https://github.com/1troitsky/photobunker/issues) и [Project PhotoBunker Development](https://github.com/users/1troitsky/projects/1).
 
 ## 1. Роли
 
@@ -106,7 +106,9 @@ Issue можно переводить в `Ready`, только если:
 
 ## 8. Автоматизация
 
-GitHub автоматически добавляет Issues/PR в Project и выполняет безопасные переходы, доступные встроенным workflows. PR обязан ссылаться на Issue. Merge закрывает Issue и переводит технический результат в `Integrated`; `Accepted` никогда не выставляется автоматически.
+Шаблоны Issue/PR убирают ручное копирование полей, `Closes #...` связывает реализацию с задачей и закрывает Issue при merge. Codex через GitHub CLI добавляет новые Issues в Project и меняет стадии; Chatbot Agent делает это сам, только если его GitHub-доступ позволяет. Это metadata-операции, а не изменение `main`. `Accepted` никогда не выставляется автоматически.
+
+Встроенную Project-автоматизацию можно включать только для переходов с однозначным сигналом. Пока закрытый Issue неотличим от `Integrated` и отменённой задачи, стадия после merge выставляется Codex, а не небезопасным общим правилом.
 
 Автоматизация не принимает продуктовые решения, не включает auto-merge, не отменяет локальный review Codex и не получает секреты приложения. OpenAI API-агент в GitHub Actions не используется, пока текущий CI не стабилен и владелец отдельно не согласовал стоимость и доступы.
 

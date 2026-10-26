@@ -18,7 +18,7 @@ PhotoBunker — устанавливаемое Local-First PWA для прива
 
 Большая часть функций реализована, но приложение ещё не считается production-ready. Первые критерии приёмки — рабочие регистрация/вход и обычная переписка между двумя реальными аккаунтами: открыть диалог, отправить и получить текст, повторить offline/reload/reconnect без потерь и дублей. Сборка и автоматические проверки эту приёмку не заменяют.
 
-25 октября аудит выявил ранние блокеры входа и базовой переписки. Их технические исправления уже интегрированы, но перечисленные реализации не означают финальную пользовательскую приёмку. [Аудит](docs/AUDIT-20261025.md) и [чеклист](docs/CHECKLIST.md) задают требования, [IMPLEMENTATION_PLAN](docs/IMPLEMENTATION_PLAN.md) — архитектуру и долгосрочный roadmap, а единственная текущая очередь находится в [GitHub Issues](https://github.com/1troitsky/photobunker/issues) и Project **PhotoBunker Development**.
+25 октября аудит выявил ранние блокеры входа и базовой переписки. Их технические исправления уже интегрированы, но перечисленные реализации не означают финальную пользовательскую приёмку. [Аудит](docs/AUDIT-20261025.md) и [чеклист](docs/CHECKLIST.md) задают требования, [IMPLEMENTATION_PLAN](docs/IMPLEMENTATION_PLAN.md) — архитектуру и долгосрочный roadmap, а единственная текущая очередь находится в [GitHub Issues](https://github.com/1troitsky/photobunker/issues) и [Project PhotoBunker Development](https://github.com/users/1troitsky/projects/1).
 
 ## Принцип работы
 

@@ -1,6 +1,6 @@
 # PhotoBunker — архив remediation 25–26 октября 2026
 
-Этот файл больше не является планом или очередью задач. Операционный backlog перенесён в [GitHub Issues](https://github.com/1troitsky/photobunker/issues), стадии — в Project **PhotoBunker Development**, продуктовый roadmap — в [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
+Этот файл больше не является планом или очередью задач. Операционный backlog перенесён в [GitHub Issues](https://github.com/1troitsky/photobunker/issues), стадии — в [Project PhotoBunker Development](https://github.com/users/1troitsky/projects/1), продуктовый roadmap — в [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 
 Новые карточки, статусы и критерии сюда не добавляются. Исторические подробности остаются в PR и их review.
 
