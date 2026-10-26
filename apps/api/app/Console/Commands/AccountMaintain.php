@@ -34,6 +34,14 @@ final class AccountMaintain extends Command
                 $pending++;
             }
         }
+        // A process may crash after the account row is physically removed
+        // but before the retained emergency receipt's completedAt is set.
+        // Account absence is definitive ONLY after lifecycle erase() removed
+        // that account; claim() never deletes the row.
+        DB::table('identity_emergency_receipts')
+            ->whereNull('completed_at')
+            ->whereNotIn('account_id', DB::table('identity_accounts')->select('id'))
+            ->update(['completed_at' => now()]);
         $this->line($pending ? 'Account cleanup pending; automatic retries scheduled.' : 'Account lifecycle reconciled.');
 
         return self::SUCCESS;
