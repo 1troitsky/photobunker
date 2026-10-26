@@ -15,7 +15,7 @@ export type PinV2 = {
   until: number
   lastWall: number
 }
-export type PinRecord = PinV2 | LegacyPin
+export type PinRecord = PinV2 | LegacyPin | { version: 0 }
 
 const DATABASE = 'photobunker-app-pin-v2'
 const STORE = 'records'
@@ -68,3 +68,43 @@ export const readPin = (scope: string) =>
   transaction<PinRecord>(scope, 'readonly', value => value)
 export const writePin = (scope: string, update: (value: PinRecord | undefined) => PinRecord | undefined) =>
   transaction<PinRecord>(scope, 'readwrite', update)
+
+/** The 2026 legacy verifier lived in encrypted-queue-v1.
+ * Read it without importing the prototype-only queue gate in production.
+ * Never migrate on load: migration requires successful PIN verification.
+ */
+async function legacyStore<T>(scope: string, mode: IDBTransactionMode,
+  update?: (record: LegacyPin | undefined, store: IDBObjectStore) => void): Promise<T | undefined> {
+  const dbName = 'photobunker-encrypted-queue-v1'
+  if (!globalThis.indexedDB) throw new Error('pin.storage_failed')
+  if (indexedDB.databases) {
+    const existing = await indexedDB.databases()
+    if (!existing.some(row => row.name === dbName)) return undefined
+  }
+  const database = await new Promise<IDBDatabase>((resolve, reject) => {
+    const req = indexedDB.open(dbName, 1)
+    req.onupgradeneeded = () => { req.transaction?.abort() }
+    req.onerror = () => reject(new Error('pin.storage_failed'))
+    req.onblocked = () => reject(new Error('pin.storage_failed'))
+    req.onsuccess = () => resolve(req.result)
+  })
+  if (!database.objectStoreNames.contains('entries')) {
+    database.close()
+    return undefined
+  }
+  return new Promise((resolve, reject) => {
+    const tx = database.transaction('entries', mode, { durability: 'strict' })
+    const store = tx.objectStore('entries')
+    const req = store.get(scope)
+    let result: LegacyPin | undefined
+    req.onsuccess = () => {
+      result = req.result as LegacyPin | undefined
+      if (update) update(result, store)
+    }
+    tx.oncomplete = () => { database.close(); resolve(result as T | undefined) }
+    tx.onabort = () => { database.close(); reject(new Error('pin.storage_failed')) }
+  })
+}
+export const readLegacyPin = (scope: string) => legacyStore<LegacyPin>(scope, 'readonly')
+export const clearLegacyPin = (scope: string) =>
+  legacyStore<LegacyPin>(scope, 'readwrite', (_, store) => { store.delete(scope) })
