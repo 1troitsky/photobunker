@@ -12,11 +12,14 @@ import { enabled as callsEnabled, phase as callPhase } from '../calls/store'
 import { t as callText } from '../calls/text'
 import AppIcon from '../components/AppIcon.vue'
 import AppSheet from '../components/AppSheet.vue'
+import { usePeerPresence } from '../profiles/presence'
+import { presenceLabel } from '../profiles/presence-text'
 const props = defineProps<{ inMessages?: boolean }>()
 const emit = defineEmits<{ message: [id: string]; call: [id: string] }>()
 const route = useRoute(), router = useRouter()
 const person = ref<Person>(), loading = ref(false), busy = ref(false), error = ref(''), notice = ref('')
 const confirmAction = ref<'remove' | 'block' | ''>(''), shareOpen = ref(false)
+const peerPresence = usePeerPresence(computed(() => person.value && !person.value.blocked ? person.value.publicId : ''))
 const title = computed(() => person.value?.fields.name || (person.value?.username ? '@' + person.value.username : person.value?.publicId) || text('title'))
 const shareUrl = computed(() => person.value ? new URL(profilePath(person.value.publicId), window.location.origin).href : '')
 const facts = computed(() => (['email', 'phone', 'links', 'about'] as ProfileField[]).filter(field => person.value?.fields[field]))
@@ -81,7 +84,7 @@ async function share() {
       <div v-if="!account" class="native-empty"><AppIcon name="user" /><h2>{{ text('title') }}</h2><p>{{ text('signIn') }}</p><button class="primary-button" @click="router.push({ path: '/profile/account', query: { mode: 'recover', returnTo: profilePath(String(route.params.handle)) } })">{{ a('signIn') }}</button><button class="quiet-button" @click="router.push({ path: '/profile/account', query: { returnTo: profilePath(String(route.params.handle)) } })">{{ a('create') }}</button></div>
       <p v-else-if="loading && !person" class="field-hint" role="status">{{ text('loading') }}</p>
       <template v-else-if="person">
-        <div class="person-hero"><span :class="['chat-avatar', 'person-avatar', avatarColor(person.publicId)]">{{ initials(title) }}</span><h2>{{ title }}</h2><p v-if="person.username">@{{ person.username }}</p><p v-if="person.self" class="field-hint">{{ a('self') }}</p><p v-else-if="person.blocked" class="person-state" role="status">{{ text('blocked') }}</p><p v-else-if="person.relationship?.state === 'accepted'" class="person-state">{{ text('added') }}</p></div>
+        <div class="person-hero"><span :class="['chat-avatar', 'person-avatar', avatarColor(person.publicId)]">{{ initials(title) }}</span><h2>{{ title }}</h2><p v-if="person.username">@{{ person.username }}</p><p class="person-state presence-label" role="status">{{ presenceLabel(peerPresence) }}</p><p v-if="person.self" class="field-hint">{{ a('self') }}</p><p v-else-if="person.blocked" class="person-state" role="status">{{ text('blocked') }}</p><p v-else-if="person.relationship?.state === 'accepted'" class="person-state">{{ text('added') }}</p></div>
         <div v-if="!person.self && !person.blocked" class="person-main-actions"><button class="primary-button" :disabled="busy" @click="write()"><AppIcon name="messages" />{{ ui('write') }}</button><button class="secondary-button" :disabled="busy || (inMessages && (!callsEnabled || callPhase !== 'idle'))" @click="write(true)"><AppIcon name="phone" />{{ callText('audio') }}</button></div>
         <p v-if="inMessages && !person.self && !person.blocked && !callsEnabled" class="field-hint">{{ ui('callsUnavailable') }}</p>
         <p v-else-if="inMessages && !person.self && !person.blocked && callPhase !== 'idle'" class="field-hint">{{ callText('busy') }}</p>
