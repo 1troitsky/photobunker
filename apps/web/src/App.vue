@@ -252,6 +252,8 @@ const title = computed(
         ? s('teams')
         : route.name === 'photo-editor'
           ? s('editor')
+          : ['photo-browser', 'photo-browser-new'].includes(String(route.name))
+            ? s('photoBrowser')
           : route.name === 'team'
             ? c('team')
             : route.name === 'join'
