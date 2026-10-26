@@ -1,0 +1,162 @@
+import { account, deviceId, hasConfirmedIdentity } from '../identity/store'
+import { identityRequest } from '../identity/api'
+import { appLockReady, appLocked } from './lock'
+import { localDeletePinFailure, localDeletePinReady, verifyLocalDeletePin } from './local-delete-pin'
+import { readVerifier } from './local-delete-store'
+import { listPhotos } from '../local/photos'
+import { delivery } from '../delivery/queue'
+import { pendingCount, queueBusy, queueError } from '../workspace/state'
+import { readDurableText } from '../messages/durable-outbox'
+import { readTeamCache } from '../workspace/team-local'
+import { assertMatrixRecoveryForLocalDelete } from '../messages/store'
+import { protectionEnabled, protectionReady, photoReadAllowed, keyState } from '../crypto/store'
+import { request as secureRequest } from '../crypto/api'
+import { photoIndex } from '../workspace/api'
+import { remote as secureRemote } from '../crypto/photos'
+import { readBrowser } from '../photo-browser/cache'
+
+export type DeleteScope = { owner: string; device: string }
+export type PreflightError = 'offline' | 'scope' | 'pin' | 'storage' |
+  'unsynced' | 'recovery' | 'cloud'
+export class PreflightDenied extends Error {
+  constructor(public category: PreflightError) { super('localDelete.' + category) }
+}
+export function currentScope(): DeleteScope {
+  if (!account.value?.id || !deviceId.value) throw new PreflightDenied('scope')
+  return { owner: account.value.id, device: deviceId.value }
+}
+export function sameScope(s: DeleteScope) {
+  return account.value?.id === s.owner && deviceId.value === s.device &&
+    appLockReady.value && !appLocked.value && hasConfirmedIdentity()
+}
+export function checkPreflightScope(s: DeleteScope) {
+  if (!sameScope(s)) throw new PreflightDenied('scope')
+  if (!navigator.onLine) throw new PreflightDenied('offline')
+}
+const DATABASES = new Set([
+  'photobunker-identity-devices-v1', 'photobunker-app-pin-v2',
+  'photobunker-local-delete-v1', 'photobunker-local-prototype-v1',
+  'photobunker-encrypted-queue-v1', 'photobunker-ui-workspace-v1',
+  'photobunker-message-storage-v1', 'photobunker-message-outbox-v1',
+  'photobunker-private-messenger-folders-v1',
+  'photobunker-team-cache-v1', 'photobunker-private-presence-v1',
+  'photobunker-photo-browser-cache-v1', 'photobunker-photo-names-v1',
+  'photobunker-card-share-outbox-v1',
+])
+type KeyRow = { database: string; store: string; key: IDBValidKey }
+/** A read-only full store inventory; unknown storage is never assumed empty. */
+export async function inventory(): Promise<KeyRow[]> {
+  if (!indexedDB.databases) throw new PreflightDenied('storage')
+  const names = (await indexedDB.databases()).map(x => x.name).filter((x):x is string => !!x)
+  if (names.some(name => name.startsWith('photobunker-') && !DATABASES.has(name)))
+    throw new PreflightDenied('storage')
+  const items: KeyRow[] = []
+  for (const name of names.filter(x => DATABASES.has(x))) {
+    const db = await new Promise<IDBDatabase>((resolve,reject) => {
+      const req = indexedDB.open(name)
+      req.onerror = () => reject(new PreflightDenied('storage'))
+      req.onblocked = () => reject(new PreflightDenied('storage'))
+      req.onsuccess = () => resolve(req.result)
+    })
+    try {
+      for (const storeName of Array.from(db.objectStoreNames)) {
+        await new Promise<void>((resolve,reject) => {
+          const tx=db.transaction(storeName,'readonly')
+          const req=tx.objectStore(storeName).openKeyCursor()
+          req.onsuccess=()=>{const cursor=req.result; if(cursor){items.push({database:name,store:storeName,key:cursor.primaryKey});cursor.continue()}}
+          tx.oncomplete=()=>resolve()
+          tx.onabort=()=>reject(new PreflightDenied('storage'))
+        })
+      }
+    } finally { db.close() }
+  }
+  return items
+}
+function isPendingRow(row: KeyRow, s: DeleteScope) {
+  const k = String(row.key)
+  const scoped = s.owner + ':' + s.device
+  if (row.database === 'photobunker-message-outbox-v1')
+    return k.startsWith('msg:' + scoped + ':')
+  if (row.database === 'photobunker-encrypted-queue-v1')
+    return k.startsWith('job:' + s.owner + ':') ||
+      k.startsWith('version:' + s.owner + ':') ||
+      k.startsWith('account-recovery-pending:' + s.owner)
+  // Without an adapter proving cloud acknowledgement, local Workspace drafts
+  // must be treated as unbacked-up, not as a cloud copy.
+  if (row.database === 'photobunker-ui-workspace-v1')
+    return k.startsWith('account:' + s.owner + ':')
+  return false
+}
+export async function freshLocalDeletePreflight(pin: string): Promise<{scope: DeleteScope; inventory: KeyRow[]}> {
+  const scope = currentScope()
+  checkPreflightScope(scope)
+  if (!localDeletePinReady.value || localDeletePinFailure.value) throw new PreflightDenied('storage')
+  if (delivery.value.busy || delivery.value.pending || delivery.value.deleting ||
+    delivery.value.failed || delivery.value.storageFailed ||
+    queueBusy.value || pendingCount.value || queueError.value)
+    throw new PreflightDenied('unsynced')
+  await verifyLocalDeletePin(pin)
+  checkPreflightScope(scope)
+  const verifier = await readVerifier(scope.owner, scope.device)
+  if (!verifier || verifier.version !== 1 || !/^[a-f0-9]{64}$/.test(verifier.recoveryFingerprint))
+    throw new PreflightDenied('recovery')
+  // Server /me is fresh; an old in-memory session or visible Vue count is not a proof.
+  const me = await identityRequest<{account:{id:string;rootKey?:string};deviceId:string}>('/me')
+  checkPreflightScope(scope)
+  if (me.account.id !== scope.owner || me.deviceId !== scope.device ||
+    me.account.rootKey !== account.value?.rootKey) throw new PreflightDenied('scope')
+  const rows = await inventory()
+  checkPreflightScope(scope)
+  if (rows.some(row => isPendingRow(row, scope))) throw new PreflightDenied('unsynced')
+  if ((await readDurableText()).length) throw new PreflightDenied('unsynced')
+  const team = await readTeamCache(scope.owner + ':' + scope.device)
+  if (team.pending.length) throw new PreflightDenied('unsynced')
+  const browserKeys = rows.filter(x =>
+    x.database === 'photobunker-photo-browser-cache-v1' &&
+    String(x.key).startsWith('browser:' + scope.owner + ':' + scope.device + ':'))
+  for (const row of browserKeys) {
+    const snapshot = await readBrowser(scope.owner, scope.device, String(row.key).split(':').at(-1)!)
+    if (snapshot?.pending) throw new PreflightDenied('unsynced')
+  }
+  // Any unsynchronized share intent is vetoed. Existing access grants remain
+  // server-side and are NOT revoked by local deletion.
+  const { assertCardShareQueueEmptyForDelete } = await import('../crypto/card-share-outbox')
+  await assertCardShareQueueEmptyForDelete(scope.owner,scope.device)
+  const { assertPresenceQueueEmptyForDelete } = await import('../profiles/presence')
+  await assertPresenceQueueEmptyForDelete(scope.owner,scope.device)
+  checkPreflightScope(scope)
+  const photos = (await listPhotos()).filter(photo => photo.accountId === scope.owner)
+  if (photos.some(p => p.uiOnly || p.uploadRequested || p.metadataDirty || p.deleteRequested ||
+    p.uploadError || p.remoteRevision === undefined || p.deliveryOnly || p.uploadOnly))
+    throw new PreflightDenied('unsynced')
+  const existing = await photoIndex()
+  checkPreflightScope(scope)
+  const remoteIds = new Map(existing.photos.map(p => [p.id,p]))
+  for (const p of photos) {
+    const server = p.encrypted ? await secureRemote(p.id) : undefined
+    const known = p.encrypted ? server : remoteIds.get(p.id)
+    if (!known || known.expiresAt === undefined || known.expiresAt <= Date.now() ||
+      (p.encrypted ? server!.revision < p.remoteRevision! ||
+        !server!.objects.original : (known.remoteRevision ?? -1) < p.remoteRevision!))
+      throw new PreflightDenied('cloud')
+    checkPreflightScope(scope)
+  }
+  // Require an authenticated photo recovery bundle; not just a local cached key.
+  if (!protectionReady.value || !protectionEnabled.value || !photoReadAllowed() ||
+    !keyState.value.document || !keyState.value.bundle)
+    throw new PreflightDenied('recovery')
+  const remoteKeys = await secureRequest<{enabled:boolean;document?:unknown;bundle?:unknown}>('/keys')
+  if (!remoteKeys.enabled || !remoteKeys.document || !remoteKeys.bundle)
+    throw new PreflightDenied('recovery')
+  await assertMatrixRecoveryForLocalDelete(scope.owner,scope.device)
+  checkPreflightScope(scope)
+  // A second inventory is required so work arriving during the remote checks
+  // cannot silently become an undetected queue entry.
+  const again = await inventory()
+  if (again.some(row => isPendingRow(row,scope)) ||
+    JSON.stringify(rows.map(r=>[r.database,r.store,String(r.key)])) !==
+    JSON.stringify(again.map(r=>[r.database,r.store,String(r.key)])))
+    throw new PreflightDenied('unsynced')
+  checkPreflightScope(scope)
+  return {scope, inventory:again}
+}
