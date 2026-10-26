@@ -9,11 +9,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('photo_card_share_objects', function (Blueprint $table): void {
-            $table->uuid('share_id');
+            $table->foreignUuid('share_id')->constrained('encrypted_shares')->cascadeOnDelete();
             $table->string('kind', 16);
-            $table->uuid('object_id')->unique();
+            $table->foreignUuid('object_id')->unique()->constrained('encrypted_objects')->cascadeOnDelete();
             $table->primary(['share_id', 'kind']);
-            $table->index('share_id');
         });
     }
 

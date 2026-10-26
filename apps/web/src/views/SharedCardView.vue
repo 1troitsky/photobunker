@@ -105,8 +105,14 @@ async function save(kind:'photo'|'original') {
   if (!content || !card.value) return
   try {
     await verifyAlive()
-    downloadFile(new File([content],kind==='photo'?'photobunker-safe.jpg':'photobunker-original.bin',
-      {type:kind==='photo'?'image/jpeg':'application/octet-stream'}))
+    const extensions: Record<string, string> = {
+      'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp',
+      'image/avif': 'avif', 'image/heic': 'heic', 'image/heif': 'heif',
+    }
+    const mime = kind === 'photo' ? 'image/jpeg' : content.type
+    const extension = extensions[mime]
+    if (!extension) throw new Error('card_share.invalid_original')
+    downloadFile(new File([content], `photobunker-${kind}.${extension}`, { type: mime }))
   } catch { if (!disposed) imageError.value=true }
 }
 function hide() {

@@ -16,6 +16,8 @@ export type CardObject = {
   type: 'card'|'photo'|'original'; version: 1; iv: string
   ciphertextHash: string; ciphertextBytes: number
 }
+const originalMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/heic', 'image/heif'] as const
+type OriginalMime = typeof originalMimes[number]
 export type CardManifest = {
   type: 'photo-card'
   version: 2
@@ -24,7 +26,7 @@ export type CardManifest = {
   expiresAt: number
   durationSeconds: 3600 | 86400 | 604800
   object: CardObject
-  objects?: { photo?: CardObject & { versionId: string }; original?: CardObject }
+  objects?: { photo?: CardObject & { versionId: string }; original?: CardObject & { mime: OriginalMime } }
 }
 export type PublicCard = {
   type: 'photo-card-payload'
@@ -67,8 +69,9 @@ export function manifestValid(input: unknown): input is CardManifest {
       Object.keys(extra.photo).sort().join(',') ===
         ['type','version','iv','ciphertextHash','ciphertextBytes','versionId'].sort().join(','))) &&
     (!extra.original || (descriptor(extra.original,'original') &&
+      originalMimes.includes(extra.original.mime as OriginalMime) &&
       Object.keys(extra.original).sort().join(',') ===
-        ['type','version','iv','ciphertextHash','ciphertextBytes'].sort().join(',')))
+        ['type','version','iv','ciphertextHash','ciphertextBytes','mime'].sort().join(',')))
   )
   return v.type === 'photo-card' && v.version === 2 && uuid(v.id ?? '') &&
     scopesValid(v.scopes) && validExtra &&
@@ -176,12 +179,13 @@ function objectAAD(manifest: CardManifest, kind: 'card'|'photo'|'original') {
   if (!manifest.objects) return aad(manifest)
   const descriptor = kind === 'card' ? manifest.object : manifest.objects[kind]
   if (!descriptor) throw new Error('card_share.scope')
-  return new TextEncoder().encode('photobunker/photo-card/object/v2\\0' + canonical({
+  return new TextEncoder().encode('photobunker/photo-card/object/v2\0' + canonical({
     type:manifest.type, version:manifest.version, id:manifest.id, kind,
     scopes:manifest.scopes, expiresAt:manifest.expiresAt,
     durationSeconds:manifest.durationSeconds,
     versionId:kind === 'photo' ? manifest.objects.photo?.versionId : null,
-    object:{type:descriptor.type,version:descriptor.version},
+    object:{type:descriptor.type,version:descriptor.version,
+      ...(kind === 'original' ? { mime: manifest.objects.original?.mime } : {})},
   }))
 }
 export async function encryptCardBundle(card: PrivatePhotoCard, scopes: CardScopes,
@@ -191,7 +195,8 @@ export async function encryptCardBundle(card: PrivatePhotoCard, scopes: CardScop
   await ready()
   validateCardScopes(scopes)
   if (!!scopes.photo !== !!files.photo || !!scopes.original !== !!files.original ||
-    (files.photo && (!uuid(files.photo.versionId) || files.photo.blob.type !== 'image/jpeg')))
+    (files.photo && (!uuid(files.photo.versionId) || files.photo.blob.type !== 'image/jpeg')) ||
+    (files.original && !originalMimes.includes(files.original.type as OriginalMime)))
     throw new Error('card_share.invalid_object')
   if (!files.photo && !files.original)
     return encryptCard(card,scopes,expiresAt,durationSeconds).then(v => ({
@@ -209,7 +214,7 @@ export async function encryptCardBundle(card: PrivatePhotoCard, scopes: CardScop
       ...(files.photo ? {photo:{type:'photo' as const,version:1 as const,
         versionId:files.photo.versionId,iv:'',ciphertextHash:'',ciphertextBytes:0}} : {}),
       ...(files.original ? {original:{type:'original' as const,version:1 as const,
-        iv:'',ciphertextHash:'',ciphertextBytes:0}} : {}),
+        mime:files.original.type as OriginalMime,iv:'',ciphertextHash:'',ciphertextBytes:0}} : {}),
     },
   }
   const objects:Record<string,Blob> = {}
@@ -250,7 +255,7 @@ export async function decryptCardObject(blob:Blob,manifest:CardManifest,secret:s
       name:'AES-GCM',iv:unb64(d.iv,12) as Uint8Array<ArrayBuffer>,
       additionalData:objectAAD(manifest,kind) as Uint8Array<ArrayBuffer>,tagLength:128,
     },key,bytes))
-    try{return new Blob([clear],{type:kind==='photo'?'image/jpeg':'application/octet-stream'})}
+    try{return new Blob([clear],{type:kind==='photo'?'image/jpeg':manifest.objects.original!.mime})}
     finally{clear.fill(0)}
   }finally{raw.fill(0)}
 }

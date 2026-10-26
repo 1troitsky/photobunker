@@ -167,10 +167,18 @@ async function submit(item: Item) {
   form.set('file', new Blob([bytes], { type: 'application/octet-stream' }), 'ciphertext')
   // Replays transmit exact same bytes and manifest. Legacy v2 records had
   // just bytes and are always interpreted as card-only.
+  const objectBlob = (encoded: string) => {
+    const decoded = unb64(encoded)
+    const value = decoded.buffer.slice(
+      decoded.byteOffset,
+      decoded.byteOffset + decoded.byteLength,
+    ) as ArrayBuffer
+    return new Blob([value], { type: 'application/octet-stream' })
+  }
   if (item.objects?.photo)
-    form.set('photo', new Blob([unb64(item.objects.photo)],{type:'application/octet-stream'}), 'photo-ciphertext')
+    form.set('photo', objectBlob(item.objects.photo), 'photo-ciphertext')
   if (item.objects?.original)
-    form.set('original', new Blob([unb64(item.objects.original)],{type:'application/octet-stream'}), 'original-ciphertext')
+    form.set('original', objectBlob(item.objects.original), 'original-ciphertext')
   await request('/photos/' + item.photoId + '/cards', 'POST', form)
 }
 async function flushScope(scope: string) {

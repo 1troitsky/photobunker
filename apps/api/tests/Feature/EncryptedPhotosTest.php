@@ -477,7 +477,7 @@ final class EncryptedPhotosTest extends TestCase
             'object' => $descriptor('card', $card),
             'objects' => [
                 'photo' => [...$descriptor('photo', $safe), 'versionId' => $versionId],
-                'original' => $descriptor('original', $original),
+                'original' => [...$descriptor('original', $original), 'mime' => 'image/png'],
             ],
         ];
         $make = fn (array $manifest) => [

@@ -102,7 +102,7 @@ describe('R1-03C / independent encrypted image objects', () => {
     const p=await encryptCardBundle(card(),scopes,Date.now()+60_000,3600,{
       photo:{versionId:'687ced2f-cd6e-4bb9-81e6-6c5f86d6bccb',
         blob:new Blob(['synthetic flattened pixels'],{type:'image/jpeg'})},
-      original:new Blob(['synthetic immutable original']),
+      original:new Blob(['synthetic immutable original'], { type: 'image/png' }),
     })
     const m=p.manifest
     expect(m.objects?.photo?.iv).not.toBe(m.object.iv)
@@ -112,6 +112,7 @@ describe('R1-03C / independent encrypted image objects', () => {
       .toBe('synthetic flattened pixels')
     expect(await (await decryptCardObject(p.objects.original!,m,p.secret,'original')).text())
       .toBe('synthetic immutable original')
+    expect((await decryptCardObject(p.objects.original!,m,p.secret,'original')).type).toBe('image/png')
     expect((await decryptCard(p.objects.card!,m,p.secret)).title).toBe('Synthetic title')
     await expect(decryptCardObject(p.objects.original!,m,p.secret,'photo')).rejects.toThrow()
     await expect(decryptCardObject(p.objects.photo!,{...m,scopes:{...scopes,photo:false}},

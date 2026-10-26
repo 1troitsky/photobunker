@@ -4,7 +4,8 @@ import { chromium, expect } from '@playwright/test'
 import assert from 'node:assert/strict'
 import { origin, button, monitorRuntime } from './account-qa.mjs'
 
-const browser = await chromium.launch({ headless: true })
+const browser = await chromium.launch({ headless: true,
+  ...(process.env.APP_CHROME_CHANNEL ? { channel: process.env.APP_CHROME_CHANNEL } : {}) })
 const context = await browser.newContext({ locale: 'ru-RU' })
 const page = await context.newPage()
 const errors = [], diagnostics = { nativePhotoPoll: 0 }
@@ -86,6 +87,56 @@ try {
   assert.equal(new URL(retryPage.url()).hash, '')
   await button(retryPage, 'Повторить').click()
   await expect(retryPage.getByRole('heading', { name: 'QA protected card' })).toBeVisible()
+
+  stage = 'independent-image-scopes'
+  const imageFixture = await page.evaluate(async () => {
+    const { encryptCardBundle, CARD_ONLY } = await import('/src/crypto/card-shares.ts')
+    const image = async (color, type) => {
+      const canvas = document.createElement('canvas')
+      canvas.width = canvas.height = 32
+      const context = canvas.getContext('2d')
+      context.fillStyle = color
+      context.fillRect(0, 0, 32, 32)
+      return await new Promise((resolve, reject) => canvas.toBlob(
+        blob => blob ? resolve(blob) : reject(new Error('encode')), type, .95))
+    }
+    const expiresAt = Date.now() + 3600_000
+    const encrypted = await encryptCardBundle({
+      id: crypto.randomUUID(), title: 'QA image card', nameId: 'CARD0002',
+      namePending: false, expiresAt,
+    }, { ...CARD_ONLY, photo: true, original: true, download: true }, expiresAt, 3600, {
+      photo: { versionId: crypto.randomUUID(), blob: await image('#000000', 'image/jpeg') },
+      original: await image('#00ff00', 'image/png'),
+    })
+    const objects = {}
+    for (const [kind, blob] of Object.entries(encrypted.objects))
+      objects[kind] = Array.from(new Uint8Array(await blob.arrayBuffer()))
+    return { manifest: encrypted.manifest, secret: encrypted.secret, objects }
+  })
+  const imageId = imageFixture.manifest.id
+  const imagePaths = []
+  await context.route(`**/api/v1/cards/${imageId}`, route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify(imageFixture.manifest),
+  }))
+  for (const kind of ['card', 'photo', 'original']) {
+    const suffix = kind === 'card' ? 'content' : `content/${kind}`
+    await context.route(`**/api/v1/cards/${imageId}/${suffix}`, route => route.fulfill({
+      status: 200, contentType: 'application/octet-stream', body: Buffer.from(imageFixture.objects[kind]),
+    }))
+  }
+  const imagePage = await context.newPage()
+  imagePage.on('request', request => imagePaths.push(new URL(request.url()).pathname))
+  await monitorRuntime(imagePage, 'chromium', errors, diagnostics)
+  await imagePage.goto(`${origin}/c/${imageId}#${imageFixture.secret}`)
+  await expect(imagePage.getByRole('heading', { name: 'QA image card' })).toBeVisible()
+  await expect(imagePage.locator('img')).toHaveCount(1)
+  assert.ok(!imagePaths.some(path => path.endsWith('/content/original')))
+  await expect(button(imagePage, 'Скачать фотографию')).toBeVisible()
+  await button(imagePage, 'Открыть оригинал (небезопасно)').click()
+  await expect(imagePage.locator('img')).toHaveCount(2)
+  await expect(button(imagePage, 'Скачать оригинал')).toBeVisible()
+  assert.ok(imagePaths.some(path => path.endsWith('/content/original')))
+  assert.ok(imagePaths.every(path => !path.includes(imageFixture.secret)))
 
   stage = 'revoke'
   revoked = true
