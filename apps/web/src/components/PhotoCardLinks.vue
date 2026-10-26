@@ -68,8 +68,10 @@ async function create() {
       download:downloadScope.value,
     }
     const expiresAt = Math.min(Date.now() + duration.value * 1000, props.card.expiresAt ?? 0)
-    const files=await shareCardImages(props.card.id,
-      photoScope.value ? selectedVersion.value : null, originalScope.value)
+    const files=photoScope.value || originalScope.value
+      ? await shareCardImages(props.card.id,
+          photoScope.value ? selectedVersion.value : null, originalScope.value)
+      : {}
     if (token!==generation || owner!==account.value?.id) return
     const created = await commitCardShare(props.card.id, props.card, scopes, expiresAt,
       duration.value as 3600 | 86400 | 604800, files)
