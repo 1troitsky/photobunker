@@ -41,7 +41,8 @@ async function create() {
   try {
     const scopes: CardScopes = { ...CARD_ONLY, metadata: metadata.value }
     const expiresAt = Math.min(Date.now() + duration.value * 1000, props.card.expiresAt ?? 0)
-    const created = await commitCardShare(props.card.id, props.card, scopes, expiresAt)
+    const created = await commitCardShare(props.card.id, props.card, scopes, expiresAt,
+      duration.value as 3600 | 86400 | 604800)
     if (token !== generation || owner !== account.value?.id) return
     rows.value = [created, ...rows.value]
   } catch {
