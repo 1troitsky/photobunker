@@ -9,8 +9,10 @@ import {
 } from './app/lock'
 import { hardLock, resumeTrustedPhotos } from './crypto/store'
 import { pt, pinError } from './app/pin-text'
-import { deviceId, sessionState, offlineCaptureIdentity, hasConfirmedIdentity, loadIdentity } from './identity/store'
+import { deviceId, sessionState, offlineCaptureIdentity, hasConfirmedIdentity, loadIdentity, startIdentityBootstrap } from './identity/store'
 import { q } from './crypto/text'
+import { deletionBlocked, deletionFailure, deletionPhase, resumeLocalDeletion } from './app/local-delete-run'
+import { localDeleteText } from './app/local-delete-text'
 import AccountPhotoAccess from './components/AccountPhotoAccess.vue'
 import {
   startProtection,
@@ -422,7 +424,7 @@ watch(
       </header>
 
       <nav
-        v-if="account && (sessionState === 'authenticated' || sessionState === 'offline') && appLockReady && !appLocked && !editor && !hidden"
+        v-if="!deletionBlocked && account && (sessionState === 'authenticated' || sessionState === 'offline') && appLockReady && !appLocked && !editor && !hidden"
         class="navigation"
         :aria-label="t('navigation')"
       >
@@ -533,7 +535,17 @@ watch(
             {{ q('Фотографии и резервная копия') }}
           </button>
         </div>
-        <section v-if="privatePending" class="native-screen" aria-live="polite">
+        <section v-if="deletionBlocked" class="native-screen" aria-live="assertive">
+          <div class="screen-body native-form">
+            <h1>{{ localDeleteText('blocked') }}</h1>
+            <p>{{ localDeleteText('journal') }}</p>
+            <p v-if="deletionPhase" role="status">{{ localDeleteText('phase') }}: {{ deletionPhase }}</p>
+            <p v-if="deletionFailure" role="alert">{{ localDeleteText('retryNotice') }}</p>
+            <button type="button" class="primary-button" @click="resumeLocalDeletion().then(ok => { if(ok) startIdentityBootstrap() })">
+              {{ localDeleteText('retry') }}</button>
+          </div>
+        </section>
+        <section v-else-if="privatePending" class="native-screen" aria-live="polite">
           <div class="screen-body">
             <p role="status">{{ privateMessage }}</p>
             <button v-if="sessionState === 'unavailable' || sessionState === 'offline'"
