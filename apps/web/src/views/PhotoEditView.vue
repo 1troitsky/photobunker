@@ -342,11 +342,26 @@ function move(event: PointerEvent) {
 }
 function up(event: PointerEvent, cancel = false) {
   if (!pointer || pointer.id !== event.pointerId) return
-  if (cancel) edits.value = pointer.before
+  const gesture = pointer
+  if (cancel) edits.value = gesture.before
+  else {
+    // Pointerup can be the only delivered movement on slow touch devices.
+    const final = point(event)
+    if (gesture.shape) gesture.shape.to = final
+    else if (gesture.stroke && gesture.stroke.points.length < 4096) {
+      const last = gesture.stroke.points.at(-1)!
+      if (last.x !== final.x || last.y !== final.y)
+        gesture.stroke.points.push(final)
+    } else if (gesture.offset && activeText.value) {
+      activeText.value.x = final.x - gesture.offset.x
+      activeText.value.y = final.y - gesture.offset.y
+    }
+  }
   pointer = undefined
   if (preview.value?.hasPointerCapture(event.pointerId))
     preview.value.releasePointerCapture(event.pointerId)
   checkpoint()
+  if (!cancel && gesture.offset) void nextTick(focusText)
 }
 function setPosition(axis: 'x' | 'y', value: number) {
   if (!activeText.value || !Number.isFinite(value)) return
