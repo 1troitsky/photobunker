@@ -119,11 +119,12 @@ onBeforeUnmount(() => {
         @click="create"><AppIcon name="share" />{{ t('create') }}</button>
       <p v-if="error" role="alert" class="form-error">{{ error }}</p>
       <article v-for="item in rows" :key="item.id" class="photo-card-share-row">
-        <p class="field-hint">{{ t(item.state) }}</p>
+        <p class="field-hint" role="status">{{ t(item.state) }}</p>
+        <p v-if="item.lastError" class="form-error" role="alert">{{ t(item.lastError) }}</p>
         <template v-if="item.state !== 'revoking' && item.state !== 'revoked'">
           <textarea readonly rows="2" :value="item.url" :aria-label="t('share')" />
           <div class="photo-card-share-actions">
-            <button type="button" class="secondary-button" @click="copy(item)">
+            <button type="button" class="secondary-button" :disabled="!!item.lastError" @click="copy(item)">
               <AppIcon name="copy" />{{ copied === item.id ? t('copied') : t('copy') }}</button>
             <button type="button" class="quiet-button subtle-danger" @click="revoke(item.id)">{{ t('revoke') }}</button>
           </div>
