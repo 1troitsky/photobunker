@@ -224,6 +224,10 @@ export function loadIdentity(force = false): Promise<void> {
     sessionState.value = 'signed-out'
     identityReady.value = true
     identityUnavailable.value = false
+    // R1-07 wiped ONLY a single account/device with its own durable journal.
+    // Broad legacy logout cleanup here would erase another account's keys.
+    if (localStorage.getItem('pb-local-delete-signed-out') === 'true')
+      return Promise.resolve()
     return forgetLocalAccountAccess()
   }
   if (loading) {
@@ -294,6 +298,7 @@ export function loadIdentity(force = false): Promise<void> {
 }
 
 function authenticated(result: Session) {
+  localStorage.removeItem('pb-local-delete-signed-out')
   localStorage.removeItem('pb-signed-out')
   profileSaved.value = false
   sessionNotice.value = false
