@@ -16,6 +16,7 @@ export const saveInactivity = (inactivityDays: number) => identityRequest<Pick<S
 export async function purgeAccountFromDevice(owner: string) {
   await (await import('../messages/durable-outbox')).eraseDurableOutbox(owner)
   await (await import('../workspace/team-local')).eraseTeamCache(owner)
+  await (await import('../photo-browser/cache')).eraseBrowsersForAccount(owner)
   await (await import('../local/photo-names')).purgeNames(owner)
   await (await import('../crypto/card-share-outbox')).purgeCardShareIntents(owner)
   await (await import('../profiles/presence')).erasePresencePreferences(owner)

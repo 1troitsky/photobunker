@@ -161,6 +161,11 @@ onMounted(() => {
         {{ w('discussionPending') }}
       </p>
     </div>
+    <div v-if="task.accountId" class="screen-body">
+      <RouterLink :to="{ path: '/browser', query: { assignment: task.id } }"
+        class="secondary-button full-button">
+        <AppIcon name="folder" />{{ s('photoBrowser') }}</RouterLink>
+    </div>
     <FormTabs v-model="tab" :items="tabs" />
     <div class="screen-body"><button v-if="account" class="secondary-button" @click="router.push({path:'/profile/photos-security',query:{assignment:String(route.params.id)}})">Защита задания</button>
       <p v-if="failed" class="form-error" role="alert">{{ s('failed') }}</p>

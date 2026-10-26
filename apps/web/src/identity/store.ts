@@ -425,6 +425,8 @@ export async function logout() {
           .then(outbox => outbox.eraseDurableOutbox(previousAccount, previousDevice)))
         cleanup.push(import('../workspace/team-local')
           .then(local => local.eraseTeamCache(previousAccount, previousDevice)).catch(() => {}))
+        cleanup.push(import('../photo-browser/cache')
+          .then(cache => cache.eraseBrowsersForAccount(previousAccount, previousDevice)).catch(() => {}))
         cleanup.push(import('../local/photo-names')
           .then(names => names.purgeNames(previousAccount, previousDevice)).catch(() => {}))
         cleanup.push(import('../crypto/card-share-outbox')

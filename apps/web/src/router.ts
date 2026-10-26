@@ -15,6 +15,8 @@ import SettingsView from './views/SettingsView.vue'
 import DataStorageView from './views/DataStorageView.vue'
 import PhotoView from './views/PhotoView.vue'
 import PhotoCardView from './views/PhotoCardView.vue'
+import PhotoBrowserIndexView from './views/PhotoBrowserIndexView.vue'
+import PhotoBrowserView from './views/PhotoBrowserView.vue'
 import ProfilesView from './views/ProfilesView.vue'
 import ProfileEditView from './views/ProfileEditView.vue'
 import TeamView from './views/TeamView.vue'
@@ -104,6 +106,8 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
         name: 'profile-edit',
         component: ProfileEditView,
       },
+      { path: '/browser', name: 'photo-browser-new', component: PhotoBrowserIndexView },
+      { path: '/browser/:id', name: 'photo-browser', component: PhotoBrowserView },
       { path: '/gallery', name: 'gallery', component: GalleryView },
       {
         path: '/gallery/:id/edit',

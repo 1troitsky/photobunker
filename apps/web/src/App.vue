@@ -77,7 +77,7 @@ const openRoute = computed(() =>
 const offlineLocalRoute = computed(() =>
   // A known non-extractable device may display its own encrypted outbox, but
   // this offline scope NEVER grants an API/Matrix session or bypasses PIN.
-  ['camera', 'gallery', 'photo', 'photo-card', 'photo-editor', 'profiles', 'profile-edit', 'messages', 'team-profile', 'settings'].includes(String(route.name)),
+  ['camera', 'gallery', 'photo', 'photo-card', 'photo-editor', 'photo-browser', 'photo-browser-new', 'profiles', 'profile-edit', 'messages', 'team-profile', 'settings'].includes(String(route.name)),
 )
 const privatePending = computed(() =>
   !openRoute.value && !hasConfirmedIdentity() &&
@@ -252,6 +252,8 @@ const title = computed(
         ? s('teams')
         : route.name === 'photo-editor'
           ? s('editor')
+          : ['photo-browser', 'photo-browser-new'].includes(String(route.name))
+            ? s('photoBrowser')
           : route.name === 'team'
             ? c('team')
             : route.name === 'join'
@@ -299,7 +301,7 @@ function isActive(name: string) {
         'account-auth',
         'account-edit',
       ].includes(String(route.name))) ||
-    (name === 'assignments' && route.name === 'assignment')
+    (name === 'assignments' && ['assignment', 'photo-browser', 'photo-browser-new'].includes(String(route.name)))
   )
 }
 onMounted(() => {
