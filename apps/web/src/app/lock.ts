@@ -77,12 +77,12 @@ async function calibrate(): Promise<number> {
   const elapsed = Math.max(1, performance.now() - start)
   return Math.max(100000, Math.min(600000, Math.round(100000 * (300 / elapsed) / 10000) * 10000))
 }
-async function makeRecord(pin: string): Promise<PinV2> {
-  if (!/^(?:\d{6}|\d{8})$/.test(pin)) throw new Error('pin.length')
+async function makeRecord(pin: string, legacyFour = false): Promise<PinV2> {
+  if (!(legacyFour && /^\d{4}$/.test(pin)) && !/^(?:\d{6}|\d{8})$/.test(pin)) throw new Error('pin.length')
   const salt = hex(crypto.getRandomValues(new Uint8Array(16)))
   const iterations = await calibrate()
   return {
-    version: 2, salt, iterations, length: pin.length as 6 | 8,
+    version: 2, salt, iterations, length: pin.length as 4 | 6 | 8,
     verifier: await derive(pin, salt, iterations),
     failures: 0, until: 0, lastWall: Date.now(),
   }
@@ -198,7 +198,7 @@ export async function unlockApp(pin: string) {
   if (isLegacy(verified)) {
     // Existing 4-digit PIN accepted until this successful unlock. Only then
     // replace its fast SHA-256 record; never rewrite failed legacy attempts.
-    const migrated = await makeRecord(pin.length === 4 ? pin.padStart(6, '0') : pin)
+    const migrated = await makeRecord(pin, pin.length === 4)
     try {
       await writePin(id, previous => {
         if (!previous || !sameVerifier(previous, verified)) throw new Error('pin.changed')
@@ -278,12 +278,8 @@ export async function resetAppPinAfterRecovery(confirmedOwner: string, formerDev
   } catch (error) { storageFailure(error) }
   if (scope() === id) {
     guardEpoch++
-    current = { version: 0 }
-    appPinEnabled.value = false
-    appPinLegacy.value = false
-    appLocked.value = false
-    appLockFailure.value = false
-    appLockReady.value = true
+    // Keep the screen locked until the successful PB1 flow switches to its
+    // newly proven device. The PIN verifier is removed, not the account key.
     changed('record')
   }
 }
