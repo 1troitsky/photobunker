@@ -158,8 +158,14 @@ export function chooseZipDestination(): Promise<FileWriter | undefined> {
   }).then(handle => handle.createWritable())
 }
 
+const temporaryDownloads = new Set<string>()
+export function releaseTemporaryDownloads() {
+  for (const url of temporaryDownloads) URL.revokeObjectURL(url)
+  temporaryDownloads.clear()
+}
 function browserDownload(file: Blob, name: string) {
   const url = URL.createObjectURL(file)
+  temporaryDownloads.add(url)
   const link = document.createElement('a')
   link.href = url
   link.download = name
@@ -168,7 +174,9 @@ function browserDownload(file: Blob, name: string) {
   try { link.click() }
   finally {
     link.remove()
-    window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    window.setTimeout(() => {
+      if (temporaryDownloads.delete(url)) URL.revokeObjectURL(url)
+    }, 10_000)
   }
 }
 /**
@@ -177,14 +185,17 @@ function browserDownload(file: Blob, name: string) {
  */
 export async function downloadBrowser(run: ExportRun, destination?: Promise<FileWriter | undefined>):
   Promise<'written' | 'dispatched'> {
-  checkExport(run)
-  const items = [...new Map(run.selected.map(p => [p.id, p])).values()]
-  if (run.mode === 'single' && items.length !== 1) throw new Error('browser.selection_required')
-  if (!items.length || items.length > MAX_FILES ||
-    items.some(p => !run.collection.assignments.some(task => task.id === p.assignmentId)))
-    throw new Error('browser.selection_required')
   let writer: FileWriter | undefined
   try {
+    // Await the user-activated picker inside the cleanup boundary; if the
+    // account changed while it was open, abort the writer rather than leak it.
+    if (run.mode === 'zip') writer = await destination
+    checkExport(run)
+    const items = [...new Map(run.selected.map(p => [p.id, p])).values()]
+    if (run.mode === 'single' && items.length !== 1) throw new Error('browser.selection_required')
+    if (!items.length || items.length > MAX_FILES ||
+      items.some(p => !run.collection.assignments.some(task => task.id === p.assignmentId)))
+      throw new Error('browser.selection_required')
     if (run.mode === 'single') {
       const file = await approvedFile(run, items[0]!)
       checkExport(run)
@@ -192,7 +203,6 @@ export async function downloadBrowser(run: ExportRun, destination?: Promise<File
       run.onProgress(1, 1)
       return 'dispatched'
     }
-    writer = await destination
     checkExport(run)
     if (!writer && items.length > MAX_FALLBACK_FILES) throw new Error('browser.zip_limit')
     const maximum = writer ? MAX_STREAM_BYTES : MAX_FALLBACK_BYTES
