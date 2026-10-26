@@ -35,7 +35,7 @@ final class PhotoCardShareController
 
     private function manifest(object $share): array
     {
-        $m = Protocol::decode($share->manifest, 3000);
+        $m = Protocol::decode($share->manifest, 5000);
         if (($m['type'] ?? null) !== 'photo-card' || ($m['version'] ?? null) !== 2) {
             abort(404);
         }
@@ -50,7 +50,7 @@ final class PhotoCardShareController
 
     private function validateManifest(array $m): void
     {
-        Protocol::fields($m, ['type', 'version', 'id', 'scopes', 'expiresAt', 'durationSeconds', 'object']);
+        Protocol::fields($m, ['type', 'version', 'id', 'scopes', 'expiresAt', 'durationSeconds', 'object'], ['objects']);
         Validator::make($m, [
             'type' => 'required|in:photo-card', 'version' => 'required|integer|in:2',
             'id' => 'required|uuid', 'expiresAt' => 'required|integer|min:1|max:9007199254740991',
@@ -66,12 +66,38 @@ final class PhotoCardShareController
             'object.iv' => 'required|string|size:16',
             'object.ciphertextHash' => 'required|string|size:43',
             'object.ciphertextBytes' => 'required|integer|min:17|max:32784',
+            'objects' => 'sometimes|array:photo,original|min:1|max:2',
+            'objects.photo' => 'required_if:scopes.photo,true|array:type,version,iv,ciphertextHash,ciphertextBytes,versionId',
+            'objects.photo.type' => 'required_with:objects.photo|in:photo',
+            'objects.photo.version' => 'required_with:objects.photo|integer|in:1',
+            'objects.photo.iv' => 'required_with:objects.photo|string|size:16',
+            'objects.photo.ciphertextHash' => 'required_with:objects.photo|string|size:43',
+            'objects.photo.ciphertextBytes' => 'required_with:objects.photo|integer|min:17|max:67108880',
+            'objects.photo.versionId' => 'required_with:objects.photo|uuid',
+            'objects.original' => 'required_if:scopes.original,true|array:type,version,iv,ciphertextHash,ciphertextBytes',
+            'objects.original.type' => 'required_with:objects.original|in:original',
+            'objects.original.version' => 'required_with:objects.original|integer|in:1',
+            'objects.original.iv' => 'required_with:objects.original|string|size:16',
+            'objects.original.ciphertextHash' => 'required_with:objects.original|string|size:43',
+            'objects.original.ciphertextBytes' => 'required_with:objects.original|integer|min:17|max:67108880',
         ])->validate();
-        // No accidental extra scopes, and never let download grant an image.
-        abort_unless($m['scopes']['card'] === true &&
-            $m['scopes']['photo'] === false && $m['scopes']['original'] === false &&
-            $m['scopes']['download'] === false && is_bool($m['scopes']['metadata']), 422);
+        // A share cannot gain an image by merely asking for download.
+        $s = $m['scopes'];
+        abort_unless($s['card'] === true && is_bool($s['photo']) &&
+            is_bool($s['original']) && is_bool($s['download']) &&
+            is_bool($s['metadata']) &&
+            (! $s['download'] || $s['photo'] || $s['original']), 422);
+        $objects = $m['objects'] ?? [];
+        abort_unless($s['photo'] === isset($objects['photo']) &&
+            $s['original'] === isset($objects['original']) &&
+            (count($objects) > 0) === ($s['photo'] || $s['original']), 422);
         Protocol::bytes($m['object']['iv'], 12);
+        $ivs = [$m['object']['iv']];
+        foreach ($objects as $o) {
+            Protocol::bytes($o['iv'], 12);
+            $ivs[] = $o['iv'];
+        }
+        abort_unless(count(array_unique($ivs)) === count($ivs), 422);
     }
 
     private function effectiveRead(string $actor, object $row): array
