@@ -742,6 +742,50 @@ async function metadata(remote: Remote): Promise<Photo> {
   }
 }
 
+/**
+ * Metadata-only local read for the private card. Reads the EXISTING encrypted
+ * photo job (never image/original bytes) and requires current E2EE read gate.
+ * On receipt we retain only the small encrypted metadata objects for offline
+ * local display; no parallel photo/card records or plaintext storage.
+ */
+export async function readLocalCardMetadata(id: string): Promise<Photo | undefined> {
+  const { id: owner, generation } = readGuard()
+  const value = await job(id)
+  if (!value || value.accountId !== owner || value.submission.creatorId !== owner ||
+      value.deleted || value.expiresAt <= now()) return undefined
+  const full = !!value.objects.metadata?.packet.envelopes.some(e => e.accountId === owner)
+  const kind: 'metadata' | 'restricted-metadata' = full ? 'metadata' : 'restricted-metadata'
+  const object = value.objects[kind]
+  const grant = pendingGrant(value, full)
+  if (!grant.thumbnail || !object?.bytes.byteLength ||
+      !object.packet.envelopes.some(e => e.accountId === owner)) return undefined
+  const data = decodePhoto(JSON.parse(await (
+    await decrypt(object, { asset_id: id, kind })
+  ).text()), id)
+  let photo: Photo = data
+  if (full && value.draft?.bytes.byteLength) {
+    const draft = decodePhoto(JSON.parse(await (
+      await decrypt(value.draft, { asset_id: id, kind: 'metadata' })
+    ).text()), id)
+    photo = { ...photo, ...draft }
+  }
+  const name = value.needsName
+    ? await localName(id).catch(() => undefined) ?? value.nameCode : undefined
+  guard(owner, generation)
+  return {
+    ...photo,
+    ...(name ? { shortId: name, title: photo.title || name } : {}),
+    encrypted: true,
+    accountId: owner,
+    workspaceAssignmentId: value.assignmentId,
+    workspaceAccess: grant,
+    thumbnailOnly: !grant.read,
+    uploadOnly: !grant.thumbnail,
+    expiresAt: value.expiresAt,
+    remoteRevision: undefined,
+  }
+}
+
 export async function read(id: string) {
   const { id: owner, generation } = readGuard()
   const pending = await job(id)
@@ -870,7 +914,10 @@ async function send(id: string) {
     current.received = true
     for (const object of Object.values(current.objects)) {
       delete object.pending
-      object.bytes = new ArrayBuffer(0)
+      // Keep only local E2EE metadata ciphertext for offline Photo Card after
+      // reload. Original/preview/thumbnail bytes are still released after ACK.
+      if (!['metadata', 'restricted-metadata'].includes(object.packet.statement.descriptor.kind))
+        object.bytes = new ArrayBuffer(0)
     }
     return current
   })
