@@ -571,4 +571,71 @@ final class WorkspaceTest extends TestCase
         $this->upload($owner, null, $id)->assertGone();
         $this->assertDatabaseCount('workspace_photos', 1);
     }
+
+    public function test_photo_browser_link_never_grants_membership_or_original_access(): void
+    {
+        $owner = $this->fixture();
+        $viewer = $this->fixture();
+        $stranger = $this->fixture();
+        $this->contact($owner, $viewer);
+        $task = $this->saveTask($owner, $this->task([$this->participant($viewer, 'viewer', 'thumbnails')]));
+        $this->accept($viewer, $task);
+        $photo = $this->upload($owner, $task)->assertOk()->json('photo');
+        $id = (string) Str::uuid();
+        $expires = Retention::milliseconds() + 3600_000;
+        $url = '/api/v1/identity/workspace/browser/'.$id;
+        $body = ['assignmentIds' => [$task['id']], 'expiresAt' => $expires];
+        $this->actor($owner)->putJson($url, $body)->assertOk()
+            ->assertJsonPath('assignments.0.id', $task['id'])
+            ->assertJsonPath('canRevoke', true);
+        $response = $this->actor($viewer)->getJson($url)->assertOk()
+            ->assertJsonPath('canRevoke', false)
+            ->assertJsonMissingPath('photos')
+            ->assertJsonMissingPath('original')
+            ->assertJsonMissingPath('metadata');
+        $this->assertStringNotContainsString($photo['id'], $response->getContent());
+        $this->actor($viewer)->get('/api/v1/identity/workspace/photos/'.$photo['id'].'/original')->assertForbidden();
+        // Guessing or copying a browser URL never grants assignment rights.
+        $this->actor($stranger)->getJson($url)->assertNotFound();
+        $this->actor($owner)->deleteJson($url)->assertOk()->assertJsonPath('revoked', true);
+        $this->actor($owner)->deleteJson($url)->assertOk();
+        $this->actor($viewer)->getJson($url)->assertStatus(410);
+    }
+
+    public function test_browser_collection_is_idempotent_and_all_assignments_require_access(): void
+    {
+        $owner = $this->fixture();
+        $viewer = $this->fixture();
+        $this->contact($owner, $viewer);
+        $first = $this->saveTask($owner, $this->task([$this->participant($viewer, 'viewer', 'all')]));
+        $this->accept($viewer, $first);
+        $second = $this->saveTask($owner, $this->task());
+        $url = '/api/v1/identity/workspace/browser/'.Str::uuid();
+        $expires = Retention::milliseconds() + 120_000;
+        $body = ['assignmentIds' => [$first['id'], $second['id']], 'expiresAt' => $expires];
+        $this->actor($owner)->putJson($url, $body)->assertOk();
+        $this->actor($owner)->putJson($url, $body)->assertOk(); // lost ACK replay
+        $this->assertDatabaseCount('workspace_photo_browsers', 1);
+        $this->actor($owner)->putJson($url, [...$body, 'expiresAt' => $expires + 1000])
+            ->assertConflict();
+        // Cannot reveal even a partial list of otherwise authorized tasks.
+        $this->actor($viewer)->getJson($url)->assertNotFound();
+        DB::table('workspace_photo_browsers')->update(['expires_at' => Retention::milliseconds() - 1]);
+        $this->actor($owner)->getJson($url)->assertStatus(410);
+        $this->actor($owner)->putJson($url, $body)->assertStatus(410);
+    }
+
+    public function test_browser_creator_requires_owner_or_curator(): void
+    {
+        $owner = $this->fixture();
+        $contributor = $this->fixture();
+        $this->contact($owner, $contributor);
+        $task = $this->saveTask($owner, $this->task([$this->participant($contributor)]));
+        $this->accept($contributor, $task);
+        $url = '/api/v1/identity/workspace/browser/'.Str::uuid();
+        $body = ['assignmentIds' => [$task['id']], 'expiresAt' => Retention::milliseconds() + 120_000];
+        $this->actor($contributor)->putJson($url, $body)->assertForbidden();
+        $this->assertDatabaseCount('workspace_photo_browsers', 0);
+    }
+
 }
