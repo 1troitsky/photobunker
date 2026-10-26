@@ -58,6 +58,9 @@ import { flushCardShares } from './crypto/card-share-outbox'
 // private Photo Card page. Only a confirmed session and open photo PIN gate
 // permit contacting the server.
 function reconnectCardShares() {
+  // The guest /c route must never initiate the previous account's private
+  // cache/outbox workflow.
+  if (route.name === 'shared-card') return
   if (hasConfirmedIdentity() && photoReadAllowed() && !appLocked.value &&
       navigator.onLine) void flushCardShares().catch(() => {})
 }
