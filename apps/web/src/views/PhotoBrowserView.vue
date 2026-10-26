@@ -74,7 +74,14 @@ async function load() {
   if (!owner || !device || !gate()) { status.value = 'locked'; return }
   status.value = 'loading'
   try {
-    const cached = await readBrowser(owner, device, collectionId)
+    let cached: BrowserSnapshot | undefined
+    try { cached = await readBrowser(owner, device, collectionId) }
+    catch {
+      // Corrupted or stale local ciphertext must not permanently block
+      // reauthorization online; it never becomes a source of permission.
+      if (online.value) await eraseBrowser(owner, device, collectionId).catch(() => {})
+      else throw new Error('browser.offline_cache_unavailable')
+    }
     if (!alive(epoch, owner, device, collectionId)) return
     if (!online.value) {
       if (cached && !cached.pending &&
