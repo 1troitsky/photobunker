@@ -39,7 +39,7 @@ export async function generateEmergencyKey(pin:string,keyId:string):Promise<Seal
   const before=performance.now()
   await encryptionKey('000000',salt,100000)
   const elapsed=Math.max(1,performance.now()-before)
-  const iterations=Math.max(100000,Math.min(600000,Math.round(30000/elapsed)*10000))
+  const iterations=Math.max(100000,Math.min(600000,Math.round(3000/elapsed)*10000))
   try{
     const key=await encryptionKey(pin,salt,iterations)
     const ciphertext=b64(await crypto.subtle.encrypt({
