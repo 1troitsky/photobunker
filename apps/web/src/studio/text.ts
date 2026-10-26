@@ -140,6 +140,8 @@ const copy = {
     'Draw with your finger, mouse or stylus. The eraser affects drawings only.',
   ],
   addText: ['Добавить текст', 'Add text'],
+  editText: ['Ввести текст', 'Edit text'],
+  fill: ['Заливка', 'Fill'],
   textSize: ['Размер текста', 'Text size'],
   textHint: [
     'Коснитесь снимка, чтобы поставить текст. Перетащите его или задайте положение ниже.',
