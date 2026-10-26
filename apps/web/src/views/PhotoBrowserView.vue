@@ -77,8 +77,8 @@ async function load() {
     const cached = await readBrowser(owner, device, collectionId)
     if (!alive(epoch, owner, device, collectionId)) return
     if (!online.value) {
-      if (cached && !cached.pending && sessionState.value === 'offline' &&
-        offlineCaptureIdentity.value) {
+      if (cached && !cached.pending &&
+        (hasConfirmedIdentity() || (sessionState.value === 'offline' && offlineCaptureIdentity.value))) {
         snapshot.value = cached
         status.value = 'offline'
       } else status.value = cached?.pending ? 'pending' : 'unavailable'
