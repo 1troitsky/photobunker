@@ -284,3 +284,25 @@ export async function resetAppPinAfterRecovery(confirmedOwner: string, formerDev
     changed('record')
   }
 }
+
+/** D4: app-PIN confirmation is independent of local-delete attempt counters. */
+export async function confirmAppPinForLocalDelete(pin: string): Promise<void> {
+  if (!appLockReady.value || appLocked.value || appLockFailure.value)
+    throw new Error('pin.locked')
+  if (!appPinEnabled.value) return
+  await verify(pin, scope(), loadEpoch, guardEpoch)
+}
+export async function matchesAppPinForLocalDelete(pin: string): Promise<boolean> {
+  if (!appLockReady.value || appLocked.value || appLockFailure.value)
+    throw new Error('pin.locked')
+  if (!appPinEnabled.value) return false
+  const id = scope(), epoch = loadEpoch, mutation = guardEpoch
+  const value = await readPin(id)
+  guard(id, epoch, mutation)
+  if (!value || !valid(value) || 'version' in value && value.version === 0)
+    throw new Error('pin.storage_failed')
+  const candidate = isLegacy(value) ? await legacyHash(pin, value.salt)
+    : await derive(pin, value.salt, value.iterations)
+  guard(id, epoch, mutation)
+  return equal(candidate, isLegacy(value) ? value.digest : value.verifier)
+}
