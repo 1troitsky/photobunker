@@ -129,6 +129,7 @@ const copy = {
     'Save the photo details first',
   ],
   dataSaved: ['Данные снимка сохранены', 'Photo details saved'],
+  photoBrowser: ['Фото Browser', 'Photo Browser'],
   drawing: ['Рисунок', 'Draw'],
   brush: ['Кисть', 'Brush'],
   pencil: ['Карандаш', 'Pencil'],
