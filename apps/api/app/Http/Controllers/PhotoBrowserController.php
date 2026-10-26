@@ -8,7 +8,6 @@ use App\Workspace\Workspace;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 /**
  * Identity-only collections: the opaque URL is a locator, never a grant.
