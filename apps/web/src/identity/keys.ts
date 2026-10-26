@@ -1,11 +1,13 @@
-import { localPrototype } from '../local/photos'
 import { identityRequest } from './api'
 export type DeviceCredential = {id:string; publicId:string; publicKey:string; privateKey:CryptoKey; name:string}
 export const b64 = (bytes:ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')
 export function unb64(value:string):Uint8Array<ArrayBuffer> { if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new Error('identity.invalid_key'); return Uint8Array.from(atob(value.replace(/-/g,'+').replace(/_/g,'/') + '='.repeat((4-value.length%4)%4)), char=>char.charCodeAt(0)) }
 const algorithm = {name:'ECDSA', namedCurve:'P-256'}
 async function database() {
-  if (!localPrototype || !globalThis.indexedDB || !globalThis.crypto?.subtle) throw new Error('identity.storage_unavailable')
+  // Identity credentials are encrypted/non-extractable browser state and are
+  // required in production. Only the legacy plaintext photo prototype is
+  // guarded by VITE_LOCAL_PROTOTYPE.
+  if (!globalThis.indexedDB || !globalThis.crypto?.subtle) throw new Error('identity.storage_unavailable')
   return new Promise<IDBDatabase>((resolve,reject)=>{ const request=indexedDB.open('photobunker-identity-devices-v1',2); request.onupgradeneeded=()=>{if(!request.result.objectStoreNames.contains('devices'))request.result.createObjectStore('devices',{keyPath:'id'});if(!request.result.objectStoreNames.contains('pending'))request.result.createObjectStore('pending')}; request.onerror=()=>reject(request.error); request.onsuccess=()=>{request.result.onversionchange=()=>request.result.close();resolve(request.result)}; request.onblocked=()=>reject(new Error('identity.storage_blocked')) })
 }
 export async function saveCredential(value:DeviceCredential) {

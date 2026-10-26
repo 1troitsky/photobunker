@@ -1,10 +1,10 @@
 // Separate ciphertext queue. Never open the plaintext prototype database here.
 export const ENCRYPTED_DATABASE = 'photobunker-encrypted-queue-v1'
 async function open(): Promise<IDBDatabase> {
-  if (
-    !(import.meta.env.DEV || import.meta.env.VITE_LOCAL_PROTOTYPE === 'true') ||
-    !globalThis.indexedDB
-  )
+  // This database contains encrypted queues, wrapped account keys and
+  // recovery state. It is the production-safe replacement for the separately
+  // guarded plaintext local prototype database.
+  if (!globalThis.indexedDB)
     return Promise.reject(new Error('crypto.storage_unavailable'))
   return new Promise((resolve, reject) => {
     const r = indexedDB.open(ENCRYPTED_DATABASE, 1)
