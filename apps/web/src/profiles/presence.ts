@@ -1,5 +1,5 @@
 import { ref, watch, onBeforeUnmount, type Ref } from 'vue'
-import { account, deviceId, hasConfirmedIdentity } from '../identity/store'
+import { account, deviceId, hasConfirmedIdentity, sessionState, offlineCaptureIdentity } from '../identity/store'
 import { identityRequest, IdentityError } from '../identity/api'
 import { appLocked } from '../app/lock'
 
@@ -69,6 +69,11 @@ async function exclusive<T>(s:string,fn:()=>Promise<T>):Promise<T>{
   if(!navigator.locks?.request)throw new Error('presence.lock_unavailable')
   return navigator.locks.request('presence-preference:'+s,fn)
 }
+function canChangeLocally(){
+  return !!account.value?.id && !!deviceId.value && !appLocked.value &&
+    (hasConfirmedIdentity() ||
+      (sessionState.value==='offline' && offlineCaptureIdentity.value))
+}
 function canSync() {
   return hasConfirmedIdentity()&&!appLocked.value&&navigator.onLine&&
     document.visibilityState==='visible'
@@ -112,7 +117,7 @@ export async function initializePresencePreference(){
   }
 }
 export async function setPresenceVisibility(value:PresenceVisibility):Promise<void>{
-  if(!['all','contacts','nobody'].includes(value)||!hasConfirmedIdentity()||appLocked.value)
+  if(!['all','contacts','nobody'].includes(value)||!canChangeLocally())
     throw new Error('presence.locked')
   const s=scope(),epoch=changeGeneration
   await exclusive(s,async()=>{
