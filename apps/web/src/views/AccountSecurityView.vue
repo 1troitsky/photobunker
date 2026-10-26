@@ -7,8 +7,29 @@ import { localDeleteText as ld, localDeleteError } from '../app/local-delete-tex
 import { freshLocalDeletePreflight, type DeleteScope } from '../app/local-delete-preflight'
 import { commitLocalDeletion, deletionBlocked } from '../app/local-delete-run'
 import AppSheet from '../components/AppSheet.vue'
+import { emergencyReady,emergencyActive,emergencyFailure,emergencyBusy,loadEmergencyRegistration,clearEmergencyView,configureEmergencyPin,disableEmergencyPin } from '../app/emergency'
+import { et,emergencyError } from '../app/emergency-text'
 import { appLocked, appLockReady } from '../app/lock'
 const appPin = ref(''), oldPin = ref(''), pinNotice = ref(''), pinBusy = ref(false)
+const emergencyNew=ref(''),emergencyRepeat=ref(''),emergencyOld=ref(''),
+  emergencyApp=ref(''),emergencyPB1=ref(''),emergencyNotice=ref('')
+async function saveEmergency() {
+  if(emergencyBusy.value)return
+  const next=emergencyNew.value,repeat=emergencyRepeat.value,
+    pb1=emergencyPB1.value,app=emergencyApp.value,old=emergencyOld.value
+  emergencyNew.value='';emergencyRepeat.value='';emergencyPB1.value=''
+  emergencyNotice.value=''
+  try{await configureEmergencyPin(next,repeat,pb1,app,old);emergencyNotice.value=et('saved')}
+  catch(e){emergencyNotice.value=emergencyError(e)}
+  finally{emergencyApp.value='';emergencyOld.value=''}
+}
+async function removeEmergency() {
+  if(emergencyBusy.value)return
+  const old=emergencyOld.value,pb1=emergencyPB1.value,app=emergencyApp.value
+  emergencyOld.value='';emergencyPB1.value='';emergencyApp.value='';emergencyNotice.value=''
+  try{await disableEmergencyPin(old,pb1,app);emergencyNotice.value=et('revoked')}
+  catch(e){emergencyNotice.value=emergencyError(e)}
+}
 async function savePin() {
   if (pinBusy.value) return
   const value = appPin.value, old = oldPin.value
@@ -76,11 +97,19 @@ watch([() => account.value?.id, deviceId, appLocked, appLockReady], () => {
   destructiveSheet.value = false; exactScope.value = undefined; finalConfirm.value = false
   deletePinNew.value = ''; deletePinRepeat.value = ''; deletePinOld.value = ''
   deletePinApp.value = ''; recoveryPb1.value = ''; actionPin.value = ''
-  if (account.value?.id && !appLocked.value && appLockReady.value) void loadLocalDeletePin()
+  clearEmergencyView()
+  emergencyNew.value='';emergencyRepeat.value='';emergencyOld.value=''
+  emergencyApp.value='';emergencyPB1.value='';emergencyNotice.value=''
+  if (account.value?.id && !appLocked.value && appLockReady.value) {
+    void loadLocalDeletePin()
+    void loadEmergencyRegistration()
+  }
 }, { immediate: true, flush: 'sync' })
 onBeforeUnmount(() => {
   deletePinNew.value = ''; deletePinRepeat.value = ''; deletePinOld.value = ''
   deletePinApp.value = ''; recoveryPb1.value = ''; actionPin.value = ''
+  emergencyNew.value='';emergencyRepeat.value='';emergencyOld.value=''
+  emergencyApp.value='';emergencyPB1.value=''
 })
 async function configureDeletePin() {
   if (deletePinBusy.value) return
@@ -248,6 +277,42 @@ async function claim() {
             </div>
           </template>
           <p v-if="deletePinNotice" role="status">{{ deletePinNotice }}</p>
+        </section>
+        <section class="native-form form-card" aria-labelledby="emergency-setup-title">
+          <h2 id="emergency-setup-title">{{ et('title') }}</h2>
+          <p class="field-hint">{{ et('hint') }}</p>
+          <p class="field-hint">{{ et('warning') }}</p>
+          <p v-if="emergencyFailure" role="alert">{{ et('offline') }}</p>
+          <button v-if="emergencyFailure" type="button" class="secondary-button"
+            :disabled="emergencyBusy" @click="loadEmergencyRegistration">{{ et('retry') }}</button>
+          <template v-if="emergencyReady && !emergencyFailure && !deletionBlocked">
+            <label v-if="emergencyActive">{{ et('old') }}
+              <input v-model="emergencyOld" type="password" inputmode="numeric"
+                autocomplete="off" maxlength="8" :disabled="emergencyBusy" />
+            </label>
+            <label>{{ et('app') }}
+              <input v-model="emergencyApp" type="password" inputmode="numeric"
+                autocomplete="off" maxlength="8" :disabled="emergencyBusy" />
+            </label>
+            <label>{{ et('next') }}
+              <input v-model="emergencyNew" type="password" inputmode="numeric"
+                autocomplete="new-password" maxlength="8" :disabled="emergencyBusy" />
+            </label>
+            <label>{{ et('repeat') }}
+              <input v-model="emergencyRepeat" type="password" inputmode="numeric"
+                autocomplete="new-password" maxlength="8" :disabled="emergencyBusy" />
+            </label>
+            <label>{{ et('root') }}
+              <textarea v-model="emergencyPB1" autocomplete="off" spellcheck="false"
+                rows="2" :disabled="emergencyBusy" />
+            </label>
+            <button class="secondary-button" type="button" :disabled="emergencyBusy"
+              @click="saveEmergency">{{ et(emergencyActive ? 'change' : 'enable') }}</button>
+            <button v-if="emergencyActive" class="quiet-button" type="button"
+              :disabled="emergencyBusy || !emergencyOld || !emergencyPB1"
+              @click="removeEmergency">{{ et('disable') }}</button>
+          </template>
+          <p v-if="emergencyNotice" role="status">{{ emergencyNotice }}</p>
         </section>
         <button
           class="secondary-button"
