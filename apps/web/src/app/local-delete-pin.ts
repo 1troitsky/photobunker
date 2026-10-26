@@ -156,6 +156,17 @@ export async function configureLocalDeletePin(
   localDeletePinEnabled.value = true
   channel?.postMessage({ owner, device })
 }
+/** Prevent enabling/changing the normal app PIN to an existing local-delete PIN. */
+export async function matchesLocalDeletePin(candidate: string): Promise<boolean> {
+  const { owner, device } = scope(), epoch = generation
+  if (!owner || !device) return false
+  const record = await readVerifier(owner,device)
+  if (!record) return false
+  if (!valid(record)) throw new Error('localDelete.storage')
+  const hash=await derive(candidate,record.salt,record.iterations)
+  assertScope(owner,device,epoch)
+  return equal(hash,record.digest)
+}
 export async function disableLocalDeletePin(pin: string, appPin: string) {
   const { owner, device } = scope(), epoch = generation
   assertScope(owner, device, epoch)
@@ -163,10 +174,12 @@ export async function disableLocalDeletePin(pin: string, appPin: string) {
     if (!appPin) throw new Error('localDelete.appPin')
     await confirmAppPinForLocalDelete(appPin)
   }
+  const previousRecord=await readVerifier(owner,device)
   await verifyLocalDeletePin(pin)
   assertScope(owner, device, epoch)
   await updateVerifier(owner, device, previous => {
-    if (!previous || !valid(previous)) throw new Error('localDelete.changed')
+    if (!previous || !valid(previous) || previous.digest !== previousRecord?.digest ||
+      previous.salt !== previousRecord?.salt) throw new Error('localDelete.changed')
     return undefined
   })
   assertScope(owner, device, epoch)
