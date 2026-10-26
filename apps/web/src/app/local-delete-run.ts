@@ -33,8 +33,13 @@ const lockState = () => {
 }
 channel?.addEventListener('message', () => lockState())
 function signedOutMarker() {
+  // Distinguish a scoped D4 wipe from regular logout, whose legacy cleanup
+  // wipes global credential stores (and therefore potentially account B).
+  localStorage.setItem('pb-local-delete-signed-out', 'true')
   localStorage.setItem('pb-signed-out', 'true')
-  if (localStorage.getItem('pb-signed-out') !== 'true') throw new Error('localDelete.storage')
+  if (localStorage.getItem('pb-signed-out') !== 'true' ||
+    localStorage.getItem('pb-local-delete-signed-out') !== 'true')
+    throw new Error('localDelete.storage')
 }
 async function stage(operationId: string, from: LocalDeleteJournal['phase'], to: LocalDeleteJournal['phase']) {
   await mutateJournal(row => {
