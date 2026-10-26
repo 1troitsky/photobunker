@@ -245,12 +245,15 @@ const tick = setInterval(() => {
     stopExport(); snapshot.value = undefined; status.value = 'unavailable'
   }
 }, 5000)
+function exportVisibility() { if (document.hidden) stopExport() }
+document.addEventListener('visibilitychange', exportVisibility)
 window.addEventListener('online', onlineChanged)
 window.addEventListener('offline', onlineChanged)
 onBeforeRouteLeave(() => { stopExport() })
 onBeforeUnmount(() => {
   clear()
   clearInterval(tick)
+  document.removeEventListener('visibilitychange', exportVisibility)
   window.removeEventListener('online', onlineChanged)
   window.removeEventListener('offline', onlineChanged)
 })
