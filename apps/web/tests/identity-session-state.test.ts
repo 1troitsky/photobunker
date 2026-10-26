@@ -5,7 +5,7 @@ import type { DeviceCredential } from '../src/identity/keys'
 
 const fake = vi.hoisted(() => ({
   rows: new Map<string, unknown>(), devices: [] as DeviceCredential[],
-  request: vi.fn(), proof: vi.fn(), bind: vi.fn(), reserve: vi.fn(),
+  request: vi.fn(), proof: vi.fn(), bind: vi.fn(), reserve: vi.fn(), resetPin: vi.fn(),
 }))
 vi.mock('../src/identity/api', () => ({
   identityRequest: fake.request, bindIdentity: fake.bind,
@@ -29,6 +29,7 @@ vi.mock('../src/messages/keys', () => ({ forgetMessageStorage: async () => {} })
 vi.mock('../src/messages/durable-outbox', () => ({ eraseDurableOutbox: async () => {} }))
 vi.mock('../src/crypto/store', () => ({ hardLock: vi.fn() }))
 vi.mock('../src/server/api', () => ({ forgetLegacyLibraryAccess: vi.fn() }))
+vi.mock('../src/app/lock', () => ({ resetAppPinAfterRecovery: fake.resetPin }))
 
 type Store = typeof import('../src/identity/store')
 let store: Store
@@ -59,6 +60,7 @@ beforeEach(async () => {
   fake.request.mockReset()
   fake.proof.mockReset()
   fake.reserve.mockReset()
+  fake.resetPin.mockReset()
   vi.stubGlobal('BroadcastChannel', class { addEventListener() {} postMessage() {} })
   ;({ IdentityError } = await import('../src/identity/api'))
   store = await import('../src/identity/store')
@@ -137,6 +139,21 @@ it('does not replace a newly recovered account with an old pending session respo
   await check
   expect(store.account.value?.id).toBe('b')
   expect(store.sessionState.value).toBe('authenticated')
+})
+
+it('resets only the former device PIN after a fresh PB1 proof creates a new session', async () => {
+  fake.request.mockResolvedValueOnce(session('a'))
+  await store.loadIdentity()
+  const recovered = { ...session('a'), deviceId: 'device-recovered' }
+  fake.reserve.mockResolvedValue({ ...device('recovered'), publicId: 'pb_a' })
+  fake.proof.mockResolvedValue(recovered)
+  await store.recover('synthetic-root-a', undefined, true)
+  expect(fake.proof).toHaveBeenCalledWith(
+    expect.objectContaining({ purpose: 'recover', rootKey: 'root-b' }),
+    expect.anything(),
+  )
+  expect(fake.resetPin).toHaveBeenCalledExactlyOnceWith('a', 'device-a')
+  expect(store.deviceId.value).toBe('device-recovered')
 })
 
 it('does not let a late guest 401 cancel a new sign-in whose device proof is pending', async () => {
