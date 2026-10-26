@@ -5,6 +5,7 @@ import ScreenHeader from '../components/ScreenHeader.vue'
 import AppIcon from '../components/AppIcon.vue'
 import { account, deviceId, hasConfirmedIdentity } from '../identity/store'
 import { appLockReady, appLocked } from '../app/lock'
+import { protectionReady, protectionEnabled, photoReadAllowed } from '../crypto/store'
 import { localTasks, loadStudio } from '../studio/store'
 import { saveBrowser } from '../photo-browser/cache'
 import { bt } from '../photo-browser/text'
@@ -19,6 +20,7 @@ const available = computed(() => localTasks.value.filter(task =>
 ))
 const ready = computed(() =>
   appLockReady.value && !appLocked.value && hasConfirmedIdentity() &&
+  protectionReady.value && (!protectionEnabled.value || photoReadAllowed()) &&
   !!deviceId.value,
 )
 watch([() => account.value?.id, deviceId, appLocked], () => {
