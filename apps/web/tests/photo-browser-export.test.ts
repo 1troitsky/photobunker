@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
+import { Blob as NodeBlob } from 'node:buffer'
 import { ZipWriter, distinctPath, safePart } from '../src/photo-browser/zip'
 import { permittedSource, fileName } from '../src/photo-browser/download'
 import type { Photo } from '../src/local/photos'
@@ -40,10 +41,10 @@ describe('R1-13 safe ZIP32 writer', () => {
   it('streams a minimal UTF-8 ZIP without metadata, with CRC32 and valid central directory', async () => {
     const chunks: Uint8Array[] = []
     const zip = new ZipWriter(async c => { chunks.push(new Uint8Array(c)) }, new AbortController().signal)
-    await zip.add('Задание/ABCD0001.jpg', new Blob(['123456789']))
-    await zip.add('Other/EFGH0002.jpg', new Blob(['safe']))
+    await zip.add('Задание/ABCD0001.jpg', new NodeBlob(['123456789']) as unknown as Blob)
+    await zip.add('Other/EFGH0002.jpg', new NodeBlob(['safe']) as unknown as Blob)
     await zip.finish()
-    const output = new Uint8Array(await new Blob(chunks).arrayBuffer())
+    const output = new Uint8Array(await new NodeBlob(chunks).arrayBuffer())
     const view = new DataView(output.buffer)
     expect(view.getUint32(0, true)).toBe(0x04034b50)
     expect(view.getUint16(6, true)).toBe(0x0808)
@@ -68,7 +69,7 @@ describe('R1-13 safe ZIP32 writer', () => {
       written++
       if (written === 2) controller.abort()
     }, controller.signal)
-    await expect(zip.add('t/file.jpg', new Blob(['secret']))).rejects.toMatchObject({ name: 'AbortError' })
+    await expect(zip.add('t/file.jpg', new NodeBlob(['secret']) as unknown as Blob)).rejects.toMatchObject({ name: 'AbortError' })
     await expect(zip.add('t/other.jpg', new Blob(['secret']))).rejects.toMatchObject({ name: 'AbortError' })
     expect(written).toBe(2)
   })
