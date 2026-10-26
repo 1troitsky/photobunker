@@ -1,7 +1,6 @@
 import { account, deviceId, hasConfirmedIdentity } from '../identity/store'
 import { appLockReady, appLocked } from '../app/lock'
 import { protectionEnabled, photoReadAllowed } from '../crypto/store'
-import { lockGeneration } from '../crypto/state'
 import { photo as currentPhoto, request } from '../workspace/api'
 import { readThumbnail } from '../server/photos'
 import { fetchVersions } from '../crypto/version-cloud'
@@ -119,7 +118,7 @@ async function approvedFile(run: ExportRun, item: ExportItem) {
     // layers and the immutable original are never export candidates.
     const versions = photo.encrypted
       ? await fetchVersions(photo, true)
-      : photo.workspaceAccess.role === 'owner'
+      : photo.workspaceAccess?.role === 'owner'
         ? await listPhotoVersions(photo) : []
     checkExport(run)
     const version = versions
