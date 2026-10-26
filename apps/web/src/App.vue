@@ -60,7 +60,7 @@ const openRoute = computed(() =>
 const offlineLocalRoute = computed(() =>
   // A known non-extractable device may display its own encrypted outbox, but
   // this offline scope NEVER grants an API/Matrix session or bypasses PIN.
-  ['camera', 'gallery', 'photo', 'photo-editor', 'profiles', 'profile-edit', 'messages', 'team-profile'].includes(String(route.name)),
+  ['camera', 'gallery', 'photo', 'photo-card', 'photo-editor', 'profiles', 'profile-edit', 'messages', 'team-profile'].includes(String(route.name)),
 )
 const privatePending = computed(() =>
   !openRoute.value && !hasConfirmedIdentity() &&
@@ -156,6 +156,7 @@ const native = computed(() =>
     'camera',
     'gallery',
     'photo',
+    'photo-card',
     'photo-editor',
     'profiles',
     'profile-edit',

@@ -366,3 +366,45 @@
   .team-profile-body { padding-inline: 14px; }
   .team-profile-hero > .inline-actions { display: grid; grid-template-columns: 1fr; }
 }
+
+/* R1-03A: metadata-only Photo Card; no remote map tiles or media previews. */
+.photo-card-screen { max-width: 980px; }
+.photo-card-body { width: min(760px, 100%); margin: 0 auto; padding-bottom: calc(36px + env(safe-area-inset-bottom)); }
+.photo-card-private-label { display: inline-flex; gap: 7px; align-items: center; font-size: 12px; color: var(--secondary); }
+.photo-card-private-label svg { width: 16px; height: 16px; }
+.photo-card-intro { padding: 22px 0; }
+.photo-card-kicker { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--secondary); }
+.photo-card-intro h2 { font-size: clamp(22px, 3vw, 32px); font-weight: 600; line-height: 1.25; margin: 10px 0 14px; overflow-wrap: anywhere; }
+.photo-card-description { max-width: 65ch; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin-top: 16px; }
+.photo-card-name-id { display: inline-flex; gap: 10px; align-items: baseline; font-size: 13px; color: var(--secondary); }
+.photo-card-name-id strong { color: var(--text); letter-spacing: .06em; }
+.photo-card-content { display: grid; gap: 14px; }
+.photo-card-section { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 18px; min-width: 0; }
+.photo-card-section h3 { font-size: 15px; margin: 0 0 14px; font-weight: 600; }
+.photo-card-section .native-facts { margin: 0; }
+.photo-card-section .native-facts dd { overflow-wrap: anywhere; }
+.photo-card-gallery { margin-top: 15px; min-height: 44px; text-decoration: none; display: inline-flex; align-items: center; gap: 9px; padding: 0 16px; }
+.photo-card-gallery svg { width: 18px; height: 18px; }
+.photo-card-coordinate-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.photo-card-coordinate-row code { font-size: 14px; overflow-wrap: anywhere; }
+.photo-card-coordinate-row button { min-height: 44px; display: inline-flex; gap: 8px; align-items: center; }
+.photo-card-coordinate-row button svg { width: 17px; height: 17px; }
+.photo-card-local-map { margin: 0; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.photo-card-map-surface { position: relative; height: clamp(140px, 25vw, 230px); overflow: hidden; background: var(--background); background-image: linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px); background-size: 24px 24px; }
+.photo-card-map-axis { position: absolute; background: var(--secondary); opacity: .45; }
+.photo-card-map-axis-x { width: 100%; height: 1px; top: 50%; }
+.photo-card-map-axis-y { height: 100%; width: 1px; left: 50%; }
+.photo-card-map-pin { position: absolute; top: 50%; left: 50%; width: 16px; height: 16px; transform: translate(-50%,-50%); background: var(--accent); border: 3px solid var(--background); border-radius: 50%; box-shadow: 0 1px 8px #0003; }
+.photo-card-local-map figcaption { display: grid; gap: 6px; padding: 10px 12px; }
+.photo-card-map-coordinates { font-size: 12px; font-variant-numeric: tabular-nums; }
+.photo-card-local-map figcaption small { color: var(--secondary); font-size: 11px; line-height: 1.5; }
+.photo-card-expand { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: none; color: var(--text); border: 0; min-height: 44px; font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.photo-card-expand svg { width: 16px; height: 16px; color: var(--secondary); }
+.photo-card-technical { margin-top: 14px !important; }
+@media (max-width: 480px) {
+  .photo-card-body { padding: 14px 14px calc(24px + env(safe-area-inset-bottom)); }
+  .photo-card-section { padding: 14px; }
+  .photo-card-coordinate-row > button { width: 100%; justify-content: center; }
+  .photo-card-private-label { font-size: 0; gap: 0; }
+  .photo-card-private-label svg { width: 20px; height: 20px; }
+}

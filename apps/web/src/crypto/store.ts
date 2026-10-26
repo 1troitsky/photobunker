@@ -1,11 +1,13 @@
 import { appLockReady, appLocked, appPinEnabled } from '../app/lock'
 import { rememberKit, rememberedKit } from './trusted'
 import { accountKey, readAccountSecrets, saveAccountSecrets } from '../identity/vault'
-import { observe } from './time'
+import { observe, rememberClock, restoreClock } from './time'
 import { ref, shallowRef, watch, nextTick } from 'vue'
 import {
   account,
   deviceId,
+  offlineCaptureIdentity,
+  sessionState,
   loadIdentity,
   restorePublicCaptureIdentity,
 } from '../identity/store'
@@ -296,7 +298,7 @@ async function authenticateRead() {
   )
   still(id, generation)
   setReadToken(token.token, token.expiresAt)
-  if (photoReadAllowed()) observe(time)
+  if (photoReadAllowed()) await rememberClock(id, time)
   return time
 }
 async function captureDevice() {
@@ -363,6 +365,18 @@ async function opened(id: string, generation: number) {
   touch()
   changed()
 }
+async function openedOffline(id: string, generation: number) {
+  await restoreClock(id)
+  still(id, generation)
+  strongUnlocked.value = true
+  warmLocked.value = false
+  baseWall = Date.now()
+  baseMono = performance.now()
+  cryptoError.value = ''
+  failures = 0
+  touch()
+  changed()
+}
 export async function unlock(kit: string) {
   const id = scope(),
     generation = lockGeneration.value
@@ -375,7 +389,10 @@ export async function unlock(kit: string) {
     document: value.document,
   })
   try {
-    await opened(id, generation)
+    if (!navigator.onLine && offlineCaptureIdentity.value &&
+        ['offline', 'checking'].includes(sessionState.value))
+      await openedOffline(id, generation)
+    else await opened(id, generation)
     await rememberKit(kit)
     trusted = true
     autoAttempt.add(`${id}:${deviceId.value}`)
@@ -537,6 +554,7 @@ export async function prepareContext(
       ownerFingerprint: hash(unb64(plan.authority.record.authorityKey, 32)),
       anchor,
     }
+  await rememberClock(id, anchor.issuedAt)
   await db.put(`context:${id}:${assignmentId ?? 'personal'}`, readyContext)
   planReview.value = undefined
   untrustedKeys.value = []

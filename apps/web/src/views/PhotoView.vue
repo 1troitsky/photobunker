@@ -54,6 +54,8 @@ import {
 } from '../studio/disclosure'
 import { downloadFile, externalPhotoFile, shareFile } from '../studio/export'
 import { nameText } from '../local/photo-name-text'
+import { photoCardText } from '../studio/photo-card-text'
+import { photoCardPath } from '../studio/private-photo-card'
 import { listPhotoVersions, type PhotoVersion } from '../studio/versions'
 const infoOpen = ref(false),
   editDataOpen = ref(false),
@@ -630,6 +632,9 @@ onBeforeUnmount(() => {
         {{ t(status) }}
       </p>
       <div class="photo-action-bar">
+        <button v-if="photo" type="button" @click="router.push(photoCardPath(photo.id))">
+          <AppIcon name="profiles" /><span>{{ photoCardText('card') }}</span>
+        </button>
         <button
           v-if="canEdit"
           :disabled="busy"
