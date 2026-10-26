@@ -221,19 +221,35 @@ export async function ensureName(photoId: string, assignmentId: string | null, e
   return result.code
 }
 export async function purgeNames(owner: string, device?: string): Promise<void> {
-  const db = await open()
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction('scopes', 'readwrite')
-    const request = tx.objectStore('scopes').openCursor()
-    request.onsuccess = () => {
-      const cursor = request.result
-      if (!cursor) return
-      const id = String(cursor.key)
-      if (id.startsWith('photo-names:' + owner + ':') &&
-          (!device || id === 'photo-names:' + owner + ':' + device)) cursor.delete()
-      cursor.continue()
+  const prefix = 'photo-names:' + owner + ':'
+  const remove = async (key: string) => {
+    const db = await open()
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('scopes', 'readwrite', { durability: 'strict' })
+      tx.objectStore('scopes').delete(key)
+      tx.oncomplete = () => { db.close(); resolve() }
+      tx.onabort = () => { db.close(); reject(tx.error) }
+    })
+  }
+  const task = async () => {
+    const keys = device ? [prefix + device] : await (async () => {
+      const db = await open()
+      return new Promise<string[]>((resolve, reject) => {
+        const tx = db.transaction('scopes', 'readonly')
+        const request = tx.objectStore('scopes').getAllKeys()
+        tx.oncomplete = () => {
+          db.close()
+          resolve(request.result.map(String).filter(key => key.startsWith(prefix)))
+        }
+        tx.onabort = () => { db.close(); reject(tx.error) }
+      })
+    })()
+    for (const key of keys) {
+      if (navigator.locks) await navigator.locks.request('pb-photo-names:' + key, () => remove(key))
+      else await remove(key)
     }
-    tx.oncomplete = () => { db.close(); resolve() }
-    tx.onabort = () => { db.close(); reject(tx.error) }
-  })
+  }
+  const operation = serial.then(task, task)
+  serial = operation.catch(() => {})
+  return operation
 }

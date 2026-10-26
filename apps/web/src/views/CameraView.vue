@@ -91,7 +91,11 @@ const route = useRoute()
 const connectionOffline = ref(!navigator.onLine)
 function connectionChanged() {
   connectionOffline.value = !navigator.onLine
-  if (navigator.onLine && account.value && !offlineCaptureReady.value) void prepareCamera()
+  if (navigator.onLine && account.value) {
+    void warmNames(studioSession.value?.taskId && studioSession.value.rules.useAssignmentPhotoId !== false
+      ? studioSession.value.taskId : null).catch(() => {})
+    if (!offlineCaptureReady.value) void prepareCamera()
+  }
 }
 const hardware = ref<CameraFeatures>(),
   hardwareOpen = ref(false),

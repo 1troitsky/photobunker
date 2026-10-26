@@ -142,10 +142,14 @@ watch(
 )
 // Warm the next NAME-ID lease before Camera is opened. This never requests
 // permission and never blocks normal capture or the Welcome screen.
-watch([() => account.value?.id, deviceId, sessionState, appLocked], () => {
+watch([() => account.value?.id, deviceId, sessionState, appLockReady, appLocked], () => {
   if (hasConfirmedIdentity() && !appLocked.value)
     void warmNames().catch(() => {})
 }, { immediate: true })
+function reconnectPhotoNames() {
+  if (hasConfirmedIdentity() && !appLocked.value)
+    void warmNames().catch(() => {})
+}
 const native = computed(() =>
   [
     'welcome',
@@ -282,6 +286,7 @@ onMounted(() => {
   if (deletedOwner) void purgeAccountFromDevice(deletedOwner).then(() => localStorage.removeItem('pb-deleted-account-cleanup')).catch(() => {})
   void refreshProfiles()
   window.addEventListener('online', updateConnection)
+  window.addEventListener('online', reconnectPhotoNames)
   window.addEventListener('offline', updateConnection)
   window.addEventListener('photobunker-privacy-screen', privacy)
 })
@@ -300,6 +305,7 @@ onBeforeUnmount(() => {
   stopWorkspace?.()
   stopActivity?.()
   window.removeEventListener('online', updateConnection)
+  window.removeEventListener('online', reconnectPhotoNames)
   window.removeEventListener('offline', updateConnection)
   window.removeEventListener('photobunker-privacy-screen', privacy)
 })

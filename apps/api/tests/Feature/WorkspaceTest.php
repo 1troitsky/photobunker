@@ -222,11 +222,19 @@ final class WorkspaceTest extends TestCase
         ])->assertOk()->json('code');
 
         $this->upload($owner, null, $id, 'name-id-photo', [
-            'needsName' => true, 'shortId' => $code,
+            'needsName' => true, 'shortId' => $code, 'title' => '',
         ])->assertOk()->assertJsonPath('photo.shortId', $code)
           ->assertJsonPath('photo.title', $code);
         $this->getJson('/api/v1/identity/workspace/photos/'.$id)
             ->assertOk()->assertJsonPath('photo.shortId', $code);
+
+        $editedId = (string) Str::uuid();
+        $editedCode = $this->postJson('/api/v1/identity/photo-names/claim', [
+            'photoId' => $editedId, 'assignmentId' => null,
+        ])->assertOk()->json('code');
+        $this->upload($owner, null, $editedId, 'custom-title-photo', [
+            'needsName' => true, 'shortId' => $editedCode, 'title' => 'Synthetic photo',
+        ])->assertOk()->assertJsonPath('photo.title', 'Synthetic photo');
 
         $legacyId = (string) Str::uuid();
         $legacy = $this->upload($owner, null, $legacyId)->assertOk()->json('photo.shortId');
