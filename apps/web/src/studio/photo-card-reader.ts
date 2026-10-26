@@ -1,7 +1,7 @@
 import { account, hasConfirmedIdentity, offlineCaptureIdentity, sessionState } from '../identity/store'
 import { appLockReady, appLocked } from '../app/lock'
 import { protectionEnabled, photoReadAllowed } from '../crypto/store'
-import { readLocalCardMetadata } from '../crypto/photos'
+import { readLocalCardMetadata, remote as encryptedRemote, getMetadata as encryptedMetadata } from '../crypto/photos'
 import { readMetadata } from '../local/photos'
 import { localVisible } from '../collaboration/access'
 import { pendingAccess, pendingGrant } from '../workspace/access'
@@ -45,7 +45,11 @@ export async function readPrivateCardPhoto(id: string): Promise<Photo> {
   // Offline session is a local-data gate, NEVER a server authorization.
   if (!navigator.onLine) throw new Error('photo_card.offline')
   if (!hasConfirmedIdentity()) throw new Error('photo_card.offline')
-  const remote = await serverMetadata(id)
+  // Encrypted cloud photos are NOT Workspace Photo rows. Fetch only the
+  // verified E2EE metadata envelope, never an original or preview blob.
+  const remote = protectionEnabled.value
+    ? await encryptedRemote(id).then(encryptedMetadata)
+    : await serverMetadata(id)
   if (owner !== account.value?.id || !privateCardScopeAllowed())
     throw new Error('photo_card.locked')
   if (remote.deleteRequested || isExpired(remote)) throw new Error('photo_card.unavailable')
