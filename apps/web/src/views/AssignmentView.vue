@@ -162,7 +162,8 @@ onMounted(() => {
       </p>
     </div>
     <div v-if="task.accountId" class="screen-body">
-      <RouterLink to="/browser" class="secondary-button full-button">
+      <RouterLink :to="{ path: '/browser', query: { assignment: task.id } }"
+        class="secondary-button full-button">
         <AppIcon name="folder" />{{ s('photoBrowser') }}</RouterLink>
     </div>
     <FormTabs v-model="tab" :items="tabs" />
