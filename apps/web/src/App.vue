@@ -50,7 +50,16 @@ import { selected as selectedConversation, pendingConversationUi } from './messa
 import { purgeAccountFromDevice } from './identity/storage'
 import { locationEnabled, startGrantedLocation, stopLocation } from './profiles/location'
 import { warmNames } from './local/photo-names'
+import { flushCardShares } from './crypto/card-share-outbox'
 
+// Card intents are replayed by the app shell even if the owner has left the
+// private Photo Card page. Only a confirmed session and open photo PIN gate
+// permit contacting the server.
+function reconnectCardShares() {
+  if (hasConfirmedIdentity() && photoReadAllowed() && !appLocked.value &&
+      navigator.onLine) void flushCardShares().catch(() => {})
+}
+watch([sessionState, appLocked, protectionReady], reconnectCardShares)
 const route = useRoute(),
   router = useRouter()
 const privatePhotoRoute = computed(() => route.path.startsWith('/gallery'))
@@ -288,6 +297,7 @@ onMounted(() => {
   void refreshProfiles()
   window.addEventListener('online', updateConnection)
   window.addEventListener('online', reconnectPhotoNames)
+  window.addEventListener('online', reconnectCardShares)
   window.addEventListener('offline', updateConnection)
   window.addEventListener('photobunker-privacy-screen', privacy)
 })
@@ -307,6 +317,7 @@ onBeforeUnmount(() => {
   stopActivity?.()
   window.removeEventListener('online', updateConnection)
   window.removeEventListener('online', reconnectPhotoNames)
+  window.removeEventListener('online', reconnectCardShares)
   window.removeEventListener('offline', updateConnection)
   window.removeEventListener('photobunker-privacy-screen', privacy)
 })
