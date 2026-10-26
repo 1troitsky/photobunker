@@ -110,7 +110,12 @@ export async function listCardShareIntents(photoId: string): Promise<ShareRow[]>
   const scope = ownerScope(), ids = await all(scope), values: ShareRow[] = []
   for (const key of ids) {
     const item = await decrypt(scope, key.slice(scope.length + 1))
-    if (item?.photoId === photoId) values.push(row(item))
+    if (item?.photoId === photoId) {
+      const projected = row(item)
+      if (projected.expiresAt <= Date.now() && !['revoked','revoking'].includes(item.state))
+        projected.lastError = 'expired'
+      values.push(projected)
+    }
   }
   current(scope)
   return values
