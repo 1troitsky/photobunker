@@ -112,6 +112,10 @@ async function retry() {
     if (token === generation && owner === account.value?.id) error.value = t('failed')
   }
 }
+watch([photoScope, originalScope], () => {
+  if (!photoScope.value && !originalScope.value) downloadScope.value=false
+  if (!originalScope.value) originalConfirmed.value=false
+})
 watch([() => props.card.id, () => props.shareAllowed, () => account.value?.id,
   deviceId, sessionState, appLocked, strongUnlocked, warmLocked],
   () => { reset(); if (eligible.value) { void load(); void loadVersions() } }, { immediate: true, flush: 'sync' })
