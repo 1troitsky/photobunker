@@ -148,6 +148,7 @@ function payloadValid(x: unknown, scopes: CardScopes, expiry: number): x is Publ
 export async function encryptCard(card: PrivatePhotoCard, scopes: CardScopes, expiresAt: number,
   durationSeconds: 3600 | 86400 | 604800) {
   await ready()
+  if (scopes.photo || scopes.original) throw new Error('card_share.objects_required')
   if (expiresAt > Date.now() + durationSeconds * 1000)
     throw new Error('card_share.invalid_duration')
   const payload = publicCardPayload(card, scopes, expiresAt)
