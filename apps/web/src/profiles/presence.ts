@@ -230,6 +230,14 @@ export function stopPresencePreference(){
   privacyPending.value=false;privacyError.value=''
   if(retryTimer)clearTimeout(retryTimer)
 }
+export async function assertPresenceQueueEmptyForDelete(owner: string, device: string): Promise<void> {
+  const s = owner + ':' + device
+  if (s !== scope() || s !== activeScope || privacyPending.value || flushing.size)
+    throw new Error('localDelete.unsynced')
+  const record = await read(s)
+  if (record?.pending || record?.queued) throw new Error('localDelete.unsynced')
+  check(s)
+}
 export async function erasePresencePreferences(owner:string,device?:string){
   const scopes=await new Promise<string[]>((resolve,reject)=>{
     const r=indexedDB.open(DATABASE,1)

@@ -217,11 +217,14 @@ export async function setAppPin(pin: string, oldPin?: string) {
   const id = scope(), epoch = loadEpoch, mutation = guardEpoch
   if (!id || !appLockReady.value || appLockFailure.value || appLocked.value)
     throw new Error('pin.locked')
+  if (!/^(?:\d{6}|\d{8})$/.test(pin)) throw new Error('pin.length')
   const old = current
   if (appPinEnabled.value) {
     if (!oldPin) throw new Error('pin.confirm_required')
     await verify(oldPin, id, epoch, mutation)
   }
+  if (await (await import('./local-delete-pin')).matchesLocalDeletePin(pin))
+    throw new Error('localDelete.samePin')
   const next = await makeRecord(pin)
   guard(id, epoch, mutation)
   try {
@@ -283,4 +286,26 @@ export async function resetAppPinAfterRecovery(confirmedOwner: string, formerDev
     // newly proven device. The PIN verifier is removed, not the account key.
     changed('record')
   }
+}
+
+/** D4: app-PIN confirmation is independent of local-delete attempt counters. */
+export async function confirmAppPinForLocalDelete(pin: string): Promise<void> {
+  if (!appLockReady.value || appLocked.value || appLockFailure.value)
+    throw new Error('pin.locked')
+  if (!appPinEnabled.value) return
+  await verify(pin, scope(), loadEpoch, guardEpoch)
+}
+export async function matchesAppPinForLocalDelete(pin: string): Promise<boolean> {
+  if (!appLockReady.value || appLocked.value || appLockFailure.value)
+    throw new Error('pin.locked')
+  if (!appPinEnabled.value) return false
+  const id = scope(), epoch = loadEpoch, mutation = guardEpoch
+  const value = await readPin(id)
+  guard(id, epoch, mutation)
+  if (!value || !valid(value) || 'version' in value && value.version === 0)
+    throw new Error('pin.storage_failed')
+  const candidate = isLegacy(value) ? await legacyHash(pin, value.salt)
+    : await derive(pin, value.salt, value.iterations)
+  guard(id, epoch, mutation)
+  return equal(candidate, isLegacy(value) ? value.digest : value.verifier)
 }

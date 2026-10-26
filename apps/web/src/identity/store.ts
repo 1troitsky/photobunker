@@ -220,10 +220,16 @@ export function loadIdentity(force = false): Promise<void> {
   if (localStorage.getItem('pb-signed-out') === 'true') {
     if (sessionState.value === 'signed-out' && identityReady.value) return Promise.resolve()
     cancelRetry()
-    clear()
+    // A scoped local wipe owns capture-current cleanup. Do not schedule a
+    // delayed unscoped deletion that could hit a newly selected account B.
+    clear(true, localStorage.getItem('pb-local-delete-signed-out') !== 'true')
     sessionState.value = 'signed-out'
     identityReady.value = true
     identityUnavailable.value = false
+    // R1-07 wiped ONLY a single account/device with its own durable journal.
+    // Broad legacy logout cleanup here would erase another account's keys.
+    if (localStorage.getItem('pb-local-delete-signed-out') === 'true')
+      return Promise.resolve()
     return forgetLocalAccountAccess()
   }
   if (loading) {
@@ -294,6 +300,7 @@ export function loadIdentity(force = false): Promise<void> {
 }
 
 function authenticated(result: Session) {
+  localStorage.removeItem('pb-local-delete-signed-out')
   localStorage.removeItem('pb-signed-out')
   profileSaved.value = false
   sessionNotice.value = false
@@ -528,3 +535,19 @@ if (typeof window !== 'undefined')
     if (sessionState.value === 'offline' || sessionState.value === 'unavailable')
       void loadIdentity(true)
   })
+/** D4 local-device wipe: invalidate reactive login without touching any
+ * other account's credentials, cloud objects, or remote devices.
+ * Called only after the durable journal and signed-out marker are committed.
+ */
+export function invalidateLocalDeleteSession(owner: string, device: string) {
+  if(account.value?.id !== owner || deviceId.value !== device) return
+  cancelRetry()
+  // Do not let a delayed, unscoped capture-current deletion erase account B.
+  // D4's journal-owned cleanup examines the captured account/device explicitly.
+  clear(true, false)
+  sessionState.value='signed-out'
+  identityReady.value=true
+  identityUnavailable.value=false
+  // The separate local-delete channel locks sibling tabs without starting
+  // the generic logout's global credential-cleanup path.
+}

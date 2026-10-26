@@ -107,6 +107,17 @@ function row(item: Item): ShareRow {
     url: location.origin + '/c/' + encodeURIComponent(item.id) + '#' + item.secret,
     state: item.state, expiresAt: item.manifest.expiresAt, lastError: item.lastError }
 }
+export async function assertCardShareQueueEmptyForDelete(owner: string, device: string): Promise<void> {
+  const scope = ownerScope()
+  if (scope !== owner + ':' + device) throw new Error('localDelete.scope')
+  const ids = await all(scope)
+  for (const key of ids) {
+    const item = await decrypt(scope, key.slice(scope.length + 1))
+    if (!item || !['sent','revoked'].includes(item.state))
+      throw new Error('localDelete.unsynced')
+  }
+  current(scope)
+}
 export async function listCardShareIntents(photoId: string): Promise<ShareRow[]> {
   const scope = ownerScope(), ids = await all(scope), values: ShareRow[] = []
   for (const key of ids) {

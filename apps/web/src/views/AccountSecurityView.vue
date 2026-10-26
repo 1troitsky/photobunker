@@ -1,7 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { appPinEnabled, appPinLegacy, setAppPin, removeAppPin, lockApp } from '../app/lock'
 import { pt, pinError } from '../app/pin-text'
+import { localDeletePinEnabled,localDeletePinReady,localDeletePinFailure,loadLocalDeletePin,configureLocalDeletePin,disableLocalDeletePin } from '../app/local-delete-pin'
+import { localDeleteText as ld, localDeleteError } from '../app/local-delete-text'
+import { freshLocalDeletePreflight, type DeleteScope } from '../app/local-delete-preflight'
+import { commitLocalDeletion, deletionBlocked } from '../app/local-delete-run'
+import AppSheet from '../components/AppSheet.vue'
+import { appLocked, appLockReady } from '../app/lock'
 const appPin = ref(''), oldPin = ref(''), pinNotice = ref(''), pinBusy = ref(false)
 async function savePin() {
   if (pinBusy.value) return
@@ -44,6 +50,10 @@ type Device = {
   matrix_revoke_pending: boolean
   last_seen_at: string | null
 }
+const deletePinNew = ref(''), deletePinRepeat = ref(''), deletePinOld = ref(''),
+  deletePinApp = ref(''), recoveryPb1 = ref(''), actionPin = ref(''),
+  deletePinNotice = ref(''), deletePinBusy = ref(false), destructiveSheet = ref(false),
+  exactScope = ref<DeleteScope>(), finalConfirm = ref(false)
 const router = useRouter(),
   devices = ref<Device[]>([]),
   busy = ref(false),
@@ -61,6 +71,64 @@ async function refresh() {
   } catch {
     matrixReady.value = false
   }
+}
+watch([() => account.value?.id, deviceId, appLocked, appLockReady], () => {
+  destructiveSheet.value = false; exactScope.value = undefined; finalConfirm.value = false
+  deletePinNew.value = ''; deletePinRepeat.value = ''; deletePinOld.value = ''
+  deletePinApp.value = ''; recoveryPb1.value = ''; actionPin.value = ''
+  if (account.value?.id && !appLocked.value && appLockReady.value) void loadLocalDeletePin()
+}, { immediate: true, flush: 'sync' })
+onBeforeUnmount(() => {
+  deletePinNew.value = ''; deletePinRepeat.value = ''; deletePinOld.value = ''
+  deletePinApp.value = ''; recoveryPb1.value = ''; actionPin.value = ''
+})
+async function configureDeletePin() {
+  if (deletePinBusy.value) return
+  const next = deletePinNew.value, repeated = deletePinRepeat.value,
+    pb1 = recoveryPb1.value, app = deletePinApp.value, old = deletePinOld.value
+  // Clear PB1 and inputs before any async work (JS strings cannot be securely zeroed).
+  recoveryPb1.value = ''; deletePinNew.value = ''; deletePinRepeat.value = ''
+  deletePinBusy.value = true; deletePinNotice.value = ''
+  try {
+    await configureLocalDeletePin(next,repeated,pb1,app,old)
+    deletePinNotice.value = ld('save')
+  } catch(error) { deletePinNotice.value = localDeleteError(error) }
+  finally { deletePinOld.value = ''; deletePinApp.value = ''; deletePinBusy.value = false }
+}
+async function disableDeletePin() {
+  if (deletePinBusy.value) return
+  deletePinBusy.value = true; deletePinNotice.value = ''
+  try { await disableLocalDeletePin(deletePinOld.value,deletePinApp.value);deletePinNotice.value=ld('disabled') }
+  catch(error) { deletePinNotice.value=localDeleteError(error) }
+  finally { deletePinOld.value='';deletePinApp.value='';deletePinBusy.value=false }
+}
+async function checkDeleteReadiness() {
+  if(deletePinBusy.value || !actionPin.value || !localDeletePinEnabled.value) return
+  deletePinBusy.value=true;deletePinNotice.value='';exactScope.value=undefined;finalConfirm.value=false
+  try {
+    const inspected=await freshLocalDeletePreflight(actionPin.value)
+    exactScope.value=inspected.scope
+    destructiveSheet.value=true
+  } catch(error) { deletePinNotice.value=localDeleteError(error);actionPin.value='' }
+  finally {deletePinBusy.value=false}
+}
+async function clearThisDevice() {
+  if(deletePinBusy.value || !finalConfirm.value || !exactScope.value)return
+  deletePinBusy.value=true;deletePinNotice.value=''
+  const pin=actionPin.value,scope=exactScope.value
+  actionPin.value='';destructiveSheet.value=false;exactScope.value=undefined;finalConfirm.value=false
+  try {
+    const ok=await commitLocalDeletion(pin,scope)
+    deletePinNotice.value=ok?ld('finished'):ld('retryNotice')
+    if(ok) await router.replace('/welcome')
+  } catch(error) {deletePinNotice.value=localDeleteError(error)}
+  finally {deletePinBusy.value=false}
+}
+async function importPB1(event: Event) {
+  const input=event.target as HTMLInputElement, file=input.files?.[0]
+  try {if(!file || file.size>8192) throw new Error('localDelete.recovery');recoveryPb1.value=await file.text()}
+  catch {deletePinNotice.value=ld('recovery')}
+  finally {input.value=''}
 }
 onMounted(async () => {
   await loadIdentity(true)
@@ -141,6 +209,46 @@ async function claim() {
             :disabled="pinBusy" @click="lockApp">{{ pt('lock') }}</button>
           <p v-if="pinNotice" role="status">{{ pinNotice }}</p>
         </form>
+        <section class="native-form form-card" aria-labelledby="local-delete-title">
+          <h2 id="local-delete-title">{{ ld('heading') }}</h2>
+          <p class="field-hint">{{ ld('boundary') }}</p>
+          <p v-if="localDeletePinFailure" role="alert">{{ ld('storage') }}</p>
+          <template v-if="localDeletePinReady && !localDeletePinFailure && !deletionBlocked">
+            <label v-if="localDeletePinEnabled">{{ ld('current') }}
+              <input v-model="deletePinOld" type="password" inputmode="numeric"
+                autocomplete="off" maxlength="8" :disabled="deletePinBusy" />
+            </label>
+            <label>{{ ld('appPin') }}
+              <input v-model="deletePinApp" type="password" inputmode="numeric"
+                autocomplete="off" maxlength="8" :disabled="deletePinBusy" />
+            </label>
+            <label>{{ ld('next') }}
+              <input v-model="deletePinNew" type="password" inputmode="numeric"
+                autocomplete="new-password" maxlength="8" :disabled="deletePinBusy" />
+            </label>
+            <label>{{ ld('repeat') }}
+              <input v-model="deletePinRepeat" type="password" inputmode="numeric"
+                autocomplete="new-password" maxlength="8" :disabled="deletePinBusy" />
+            </label>
+            <label>{{ ld('pb1') }}
+              <textarea v-model="recoveryPb1" rows="2" autocomplete="off" spellcheck="false"
+                :disabled="deletePinBusy" />
+              <input type="file" accept=".txt,text/plain" :disabled="deletePinBusy" @change="importPB1" />
+            </label>
+            <button type="button" class="secondary-button" :disabled="deletePinBusy"
+              @click="configureDeletePin">{{ ld(localDeletePinEnabled ? 'change' : 'enable') }}</button>
+            <button v-if="localDeletePinEnabled" type="button" class="quiet-button"
+              :disabled="deletePinBusy || !deletePinOld" @click="disableDeletePin">{{ ld('disable') }}</button>
+            <div v-if="localDeletePinEnabled" class="native-form">
+              <h3>{{ ld('clear') }}</h3>
+              <label>{{ ld('current') }}<input v-model="actionPin" type="password"
+                inputmode="numeric" autocomplete="off" maxlength="8" :disabled="deletePinBusy" /></label>
+              <button class="danger-button" type="button" :disabled="deletePinBusy || !actionPin"
+                @click="checkDeleteReadiness">{{ ld('preflight') }}</button>
+            </div>
+          </template>
+          <p v-if="deletePinNotice" role="status">{{ deletePinNotice }}</p>
+        </section>
         <button
           class="secondary-button"
           @click="router.push('/profile/photos-security')"
@@ -201,5 +309,19 @@ async function claim() {
       <p v-else class="field-hint">{{ a('noAccount') }}</p>
       <p v-if="error" class="form-error" role="alert">{{ error }}</p>
     </div>
+  <AppSheet :open="destructiveSheet" :busy="deletePinBusy" :title="ld('confirmTitle')"
+      @close="destructiveSheet=false;exactScope=undefined;actionPin='';finalConfirm=false">
+      <p>{{ ld('ready') }}</p>
+      <p v-if="exactScope"><strong>Account:</strong> <code>{{ exactScope.owner }}</code>
+        <strong>Device:</strong> <code>{{ exactScope.device }}</code></p>
+      <p>{{ ld('boundary') }}</p>
+      <label class="check-row"><input v-model="finalConfirm" type="checkbox"
+        :disabled="deletePinBusy" />{{ ld('confirm') }}</label>
+      <button type="button" class="secondary-button"
+        @click="destructiveSheet=false;exactScope=undefined;actionPin='';finalConfirm=false">
+        {{ ld('cancel') }}</button>
+      <button type="button" class="danger-button" :disabled="!finalConfirm || deletePinBusy"
+        @click="clearThisDevice">{{ ld('clear') }}</button>
+    </AppSheet>
   </section>
 </template>

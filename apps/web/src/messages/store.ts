@@ -2380,3 +2380,32 @@ export async function searchMessages(query: string) {
     if (version === generation && searchVersion === searchGeneration) searchBusy.value = false
   }
 }
+
+/** D4: live Matrix/Rust confirmation, not the visible security card counter alone.
+ * Any unknown or unbacked-up state must block local deletion.
+ */
+export async function assertMatrixRecoveryForLocalDelete(ownerId: string, localDeviceId: string) {
+  const expected = ownerId + ':' + localDeviceId
+  const current = client, sequence = generation
+  if (!current || owner !== expected || connection.value !== 'ready' ||
+    outboxDraining || outboxError.value || messageBackupWarning.value ||
+    pendingDirectTexts.value.length || optimisticText.size ||
+    joiningIncoming.size || initialHistoryPending.size ||
+    recoveryBusy.value) throw new Error('localDelete.unsynced')
+  const crypto = current.getCrypto()
+  if (!crypto) throw new Error('localDelete.recovery')
+  const [storage, backup, deviceTrust, remaining] = await Promise.all([
+    current.secretStorage.getDefaultKeyId(),
+    crypto.getActiveSessionBackupVersion(),
+    crypto.getDeviceVerificationStatus(current.getUserId()!, current.getDeviceId()!),
+    crypto.getKeyBackupInfo(),
+  ])
+  // A configured backup is not proof that every available key is backed up.
+  // The existing UI's remaining count is advisory and may be stale.
+  if (!storage || !backup || !deviceTrust?.signedByOwner ||
+    !security.value.verified || security.value.remaining !== 0 ||
+    !remaining || current.getRooms().some(room => room.getPendingEvents().length))
+    throw new Error('localDelete.recovery')
+  if (current !== client || sequence !== generation || owner !== expected ||
+    connection.value !== 'ready') throw new Error('localDelete.scope')
+}

@@ -96,6 +96,18 @@ export function cleanFolders(value: unknown): PrivateFolder[] {
   })
 }
 export function clearPrivateFolders() { privateFolders.value = [] }
+/** R1-07 explicit account/device cleanup, never clears another user's folders. */
+export async function eraseLocalDeleteFolders(owner: string, device: string) {
+  const db = await open()
+  await new Promise<void>((resolve,reject) => {
+    const tx = db.transaction('private', 'readwrite', {durability:'strict'})
+    tx.objectStore('private').delete('key:' + owner + ':' + device)
+    tx.objectStore('private').delete('data:' + owner + ':' + device)
+    tx.oncomplete = () => { db.close(); resolve() }
+    tx.onabort = () => { db.close(); reject(new Error('localDelete.storage')) }
+  })
+  if (account.value?.id === owner && deviceId.value === device) clearPrivateFolders()
+}
 export async function loadPrivateFolders() {
   const owner = scope()
   const row = await get<Sealed>('data:' + owner)
