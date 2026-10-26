@@ -219,6 +219,45 @@ export async function matchesConfiguredEmergencyPin(candidate:string) {
 /** R1-08A crypto primitive only. R1-08B alone will wire emergency trigger,
  * journal, offline delivery and local credential destruction.
  */
+/** R1-08B: the ONLY signing route from the LOCKED app PIN screen.
+ * Valid on known offline A/device but DOES NOT unlock PhotoBunker.
+ * The caller must hold the same navigator.locks scope as setup/rotation
+ * through signing AND durable command commit, to prevent key rotation races.
+ */
+export async function signFromLockedScreen(pin:string,operationId:string) {
+  const s=scope()
+  if(!s.owner||!s.device||!appLockReady.value||!appLocked.value)
+    throw new Error('emergency.scope')
+  const row=good(await readEmergency(s.owner,s.device),s)
+  if(!row?.confirmed||row.pending)throw new Error('emergency.unavailable')
+  const key=row.confirmed
+  const now=Date.now(), before=row.attempts
+  if(before&&(now<before.lastWall||now<before.cooldownUntil))
+    throw new Error('emergency.cooldown')
+  let matched=false
+  try{await openEmergencyKey(pin,key.sealed);matched=true}
+  catch(error){if(!(error instanceof Error)||error.message!=='emergency.wrong')throw error}
+  if(s.owner!==account.value?.id||s.device!==deviceId.value||!appLocked.value)
+    throw new Error('emergency.scope')
+  await changeEmergency(s.owner,s.device,current=>{
+    if(!current||current.pending||current.confirmed?.keyId!==key.keyId||
+      current.confirmed.revision!==key.revision)throw new Error('emergency.scope')
+    const state=current.attempts??{failures:0,cooldownUntil:0,lastWall:0},wall=Date.now()
+    if(wall<state.lastWall||wall<state.cooldownUntil)throw new Error('emergency.cooldown')
+    const failures=matched?0:Math.min(100,state.failures+1)
+    return {...current,attempts:{failures,lastWall:wall,
+      cooldownUntil:matched?0:wall+(failures<3?0:Math.min(60000,2000*2**Math.min(5,failures-3)))}}
+  })
+  if(!matched)throw new Error('emergency.wrong')
+  if(s.owner!==account.value?.id||s.device!==deviceId.value||!appLocked.value)
+    throw new Error('emergency.scope')
+  const intent:EmergencyIntent={version:1,operationId,accountId:s.owner,
+    keyId:key.keyId,revision:key.revision,action:'emergency-delete'}
+  const signed=await signEmergencyIntent(pin,key.sealed,intent)
+  if(s.owner!==account.value?.id||s.device!==deviceId.value||!appLocked.value)
+    throw new Error('emergency.scope')
+  return {signed,scope:s}
+}
 export async function makeSignedEmergencyIntent(pin:string,operationId:string) {
   const s=scope(),generation=epoch
   assertScope(s,generation)
