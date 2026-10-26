@@ -528,3 +528,16 @@ if (typeof window !== 'undefined')
     if (sessionState.value === 'offline' || sessionState.value === 'unavailable')
       void loadIdentity(true)
   })
+/** D4 local-device wipe: invalidate reactive login without touching any
+ * other account's credentials, cloud objects, or remote devices.
+ * Called only after the durable journal and signed-out marker are committed.
+ */
+export function invalidateLocalDeleteSession(owner: string, device: string) {
+  if(account.value?.id !== owner || deviceId.value !== device) return
+  cancelRetry()
+  clear()
+  sessionState.value='signed-out'
+  identityReady.value=true
+  identityUnavailable.value=false
+  channel?.postMessage({kind:'logout',accountId:owner})
+}
