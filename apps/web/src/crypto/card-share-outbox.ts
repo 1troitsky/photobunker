@@ -114,10 +114,11 @@ export async function listCardShareIntents(photoId: string): Promise<ShareRow[]>
   return values
 }
 export async function commitCardShare(photoId: string, card: PrivatePhotoCard,
-  scopes: CardScopes, expiresAt: number): Promise<ShareRow> {
+  scopes: CardScopes, expiresAt: number,
+  durationSeconds: 3600 | 86400 | 604800): Promise<ShareRow> {
   const scope = ownerScope()
   if (!photoId || photoId !== card.id) throw new Error('card_share.invalid_photo')
-  const encrypted = await encryptCard(card, scopes, expiresAt)
+  const encrypted = await encryptCard(card, scopes, expiresAt, durationSeconds)
   current(scope)
   const item: Item = {
     id: encrypted.manifest.id, photoId, manifest: encrypted.manifest,
