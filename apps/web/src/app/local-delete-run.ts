@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { replayLocalDeletion } from './local-delete-phases'
 import { invalidateLocalDeleteSession } from '../identity/store'
 import { identityRequest, IdentityError } from '../identity/api'
-import { appLocked, appLockReady, lockApp } from './lock'
+import { lockApp } from './lock'
 import { hardLock } from '../crypto/store'
 import { stopMessaging } from '../messages/store'
 import { listPhotos, deletePhoto } from '../local/photos'
@@ -157,7 +157,7 @@ export async function runJournalWithSteps(initial: LocalDeleteJournal) {
     },
     purge:purgeLocalDeleteScope,
     serverLogout:sessionFor,
-    advance:stage,
+    advance:(from,to,operationId)=>stage(operationId,from,to),
     finish:async operationId => {
       await mutateJournal(current=>{
         if(!current || current.operationId!==operationId || current.phase!=='server-logout')
