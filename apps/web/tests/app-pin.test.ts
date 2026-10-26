@@ -1,15 +1,16 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ref } from 'vue'
 import { webcrypto } from 'node:crypto'
 
 const fixtures = vi.hoisted(() => ({
   data: new Map<string, unknown>(),
   legacy: new Map<string, unknown>(),
   fails: false,
+  owner: { value: { id: 'alice' } as { id: string } | undefined },
+  device: { value: 'device-1' },
 }))
-const owner = ref<{ id: string } | undefined>({ id: 'alice' })
-const device = ref('device-1')
+const owner = fixtures.owner
+const device = fixtures.device
 vi.mock('../src/identity/store', () => ({
   account: owner, deviceId: device,
 }))
