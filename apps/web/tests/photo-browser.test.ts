@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
 import type { Photo } from '../src/local/photos'
 import { visibleBrowserPhotos, type BrowserCollection } from '../src/photo-browser/model'
