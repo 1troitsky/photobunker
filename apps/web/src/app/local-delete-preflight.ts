@@ -132,6 +132,13 @@ export async function freshLocalDeletePreflight(pin: string): Promise<{scope: De
       throw new PreflightDenied('storage')
   }
   if (rows.some(row => isPendingRow(row, scope))) throw new PreflightDenied('unsynced')
+  // Private folders are intentionally device-only and cannot be recovered
+  // from PB1. Never silently describe them as safely cloud-backed.
+  if (rows.some(row => row.database==='photobunker-private-messenger-folders-v1' &&
+    String(row.key)==='data:'+scope.owner+':'+scope.device))
+    throw new PreflightDenied('cloud')
+  await (await import('../local/photo-names'))
+    .assertPhotoNamesSafeForLocalDelete(scope.owner,scope.device)
   if ((await readDurableText()).length) throw new PreflightDenied('unsynced')
   const team = await readTeamCache(scope.owner + ':' + scope.device)
   if (team.pending.length) throw new PreflightDenied('unsynced')
@@ -185,12 +192,16 @@ export async function freshLocalDeletePreflight(pin: string): Promise<{scope: De
   checkPreflightScope(scope)
   const remoteIds = new Map(existing?.photos.map(p => [p.id,p]) ?? [])
   for (const p of photos) {
-    const server = p.encrypted ? await secureRemote(p.id) : undefined
-    const known = p.encrypted ? server : remoteIds.get(p.id)
-    if (!known || known.expiresAt === undefined || known.expiresAt <= Date.now() ||
-      (p.encrypted ? server!.revision < p.remoteRevision! ||
-        !server!.objects.original : (known.remoteRevision ?? -1) < p.remoteRevision!))
-      throw new PreflightDenied('cloud')
+    if(p.encrypted) {
+      const remote=await secureRemote(p.id)
+      if(remote.expiresAt<=Date.now() || remote.revision<p.remoteRevision! ||
+        !remote.objects.original) throw new PreflightDenied('cloud')
+    } else {
+      const remote=remoteIds.get(p.id)
+      if(!remote || remote.expiresAt===undefined || remote.expiresAt<=Date.now() ||
+        (remote.remoteRevision ?? -1)<p.remoteRevision!)
+        throw new PreflightDenied('cloud')
+    }
     checkPreflightScope(scope)
   }
   // Require an authenticated photo recovery bundle; not just a local cached key.
