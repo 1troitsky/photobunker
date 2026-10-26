@@ -76,6 +76,10 @@ describe('R1-03A / private Photo Card', () => {
     expect(card.namePending).toBe(true)
     expect(card.title).toBe('')
   })
+  it('uses NAME-ID as the title fallback without replacing a user title', () => {
+    expect(privatePhotoCard(photo({ title: '' })).title).toBe('ABCD0001')
+    expect(privatePhotoCard(photo({ title: 'Facade' })).title).toBe('Facade')
+  })
   it('rejects invalid GPS even with full read, and never reveals invalid authors', () => {
     const card = privatePhotoCard(photo({
       captureContext: { standard: true, presetName: 'Camera',

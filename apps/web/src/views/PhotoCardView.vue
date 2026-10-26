@@ -20,7 +20,7 @@ const ownerOfCard = ref('')
 const loading = ref(false)
 const error = ref<'offline' | 'denied' | 'locked' | 'unavailable'>()
 const expanded = ref(false)
-const copied = ref(false)
+const copyState = ref<'idle' | 'copied' | 'failed'>('idle')
 const now = ref(Date.now())
 const id = computed(() => String(route.params.id ?? ''))
 const galleryLink = computed(() => '/gallery/' + encodeURIComponent(id.value))
@@ -28,6 +28,7 @@ const inGallery = computed(() => photos.value.some(item =>
   item.id === id.value && item.accountId === account.value?.id &&
   !item.deleteRequested &&
   (item.expiresAt === undefined || item.expiresAt > now.value)))
+const backLink = computed(() => inGallery.value ? galleryLink.value : '/gallery')
 const visible = computed(() =>
   privateCardScopeAllowed() && ownerOfCard.value === account.value?.id &&
   !!card.value && (card.value.expiresAt === undefined || card.value.expiresAt > now.value)
@@ -47,14 +48,14 @@ function invalidate() {
   loading.value = false
   error.value = undefined
   expanded.value = false
-  copied.value = false
+  copyState.value = 'idle'
 }
 async function load() {
   const token = ++generation, owner = account.value?.id, photoId = id.value
   card.value = undefined
   ownerOfCard.value = ''
   error.value = undefined
-  copied.value = false
+  copyState.value = 'idle'
   expanded.value = false
   loading.value = true
   try {
@@ -92,9 +93,9 @@ async function copyCoordinates() {
   try {
     await navigator.clipboard.writeText(text)
     if (token === generation && currentOwner === account.value?.id &&
-        coordinates.value === text && visible.value?.location) copied.value = true
+        coordinates.value === text && visible.value?.location) copyState.value = 'copied'
   } catch {
-    if (token === generation) copied.value = false
+    if (token === generation && currentOwner === account.value?.id) copyState.value = 'failed'
   }
 }
 const expiry = setInterval(() => {
@@ -109,7 +110,7 @@ onBeforeUnmount(() => { invalidate(); clearInterval(expiry) })
 
 <template>
   <section class="native-screen photo-card-screen">
-    <ScreenHeader :title="t('photoCard')" :back="galleryLink">
+    <ScreenHeader :title="t('photoCard')" :back="backLink">
       <span class="photo-card-private-label"><AppIcon name="lock" />{{ t('private') }}</span>
     </ScreenHeader>
     <div class="screen-body photo-card-body">
@@ -126,11 +127,8 @@ onBeforeUnmount(() => { invalidate(); clearInterval(expiry) })
       <template v-else>
         <div class="photo-card-intro">
           <span class="photo-card-kicker">{{ t('private') }}</span>
-          <h2>{{ visible.title || t('noTitle') }}</h2>
-          <p v-if="visible.nameId" class="photo-card-name-id">
-            <span>{{ t('nameId') }}</span><strong>{{ visible.nameId }}</strong>
-          </p>
-          <p v-else-if="visible.namePending" class="field-hint" role="status">{{ t('pendingId') }}</p>
+          <h2>{{ visible.title || visible.nameId || t('noTitle') }}</h2>
+          <p v-if="visible.namePending" class="field-hint" role="status">{{ t('pendingId') }}</p>
           <p v-if="visible.description" class="photo-card-description">{{ visible.description }}</p>
         </div>
         <div class="photo-card-content">
@@ -161,9 +159,10 @@ onBeforeUnmount(() => { invalidate(); clearInterval(expiry) })
               <code>{{ coordinates }}</code>
               <button type="button" class="secondary-button" :aria-label="t('copy')"
                 @click="copyCoordinates">
-                <AppIcon name="copy" />{{ copied ? t('copied') : t('copy') }}
+                <AppIcon name="copy" />{{ copyState === 'copied' ? t('copied') : t('copy') }}
               </button>
             </div>
+            <p v-if="copyState === 'failed'" class="field-error" role="alert">{{ t('copyError') }}</p>
             <PrivateLocationMap :latitude="visible.location.latitude" :longitude="visible.location.longitude" />
           </section>
           <section v-if="visible.metadata" class="photo-card-section">

@@ -1,4 +1,4 @@
-import { observe as clock, trustedNow as now } from './time'
+import { observe as clock, rememberClock, trustedNow as now } from './time'
 export { observe as clock } from './time'
 import { IdentityError } from '../identity/api'
 import { account } from '../identity/store'
@@ -77,6 +77,8 @@ type Sidecar = {
   signature: string
 }
 export type Job = {
+  cardMetadata?: StoredObject
+  cardGps?: StoredObject
   edit?: Sidecar
   editSource?: string
   draft?: StoredObject
@@ -362,7 +364,7 @@ export async function index() {
     deleted: string[]
     serverTime: number
   }>('/photos')
-  clock(response.serverTime)
+  await rememberClock(id, response.serverTime)
   for (const deleted of response.deleted) {
     await tombstone(deleted)
     await db.remove(key(deleted))
@@ -755,7 +757,9 @@ export async function readLocalCardMetadata(id: string): Promise<Photo | undefin
       value.deleted || value.expiresAt <= now()) return undefined
   const full = !!value.objects.metadata?.packet.envelopes.some(e => e.accountId === owner)
   const kind: 'metadata' | 'restricted-metadata' = full ? 'metadata' : 'restricted-metadata'
-  const object = value.objects[kind]
+  const object = full
+    ? value.draft ?? value.cardMetadata ?? value.objects.metadata
+    : value.objects[kind]
   const grant = pendingGrant(value, full)
   if (!grant.thumbnail || !object?.bytes.byteLength ||
       !object.packet.envelopes.some(e => e.accountId === owner)) return undefined
@@ -769,10 +773,11 @@ export async function readLocalCardMetadata(id: string): Promise<Photo | undefin
     ).text()), id)
     photo = { ...photo, ...draft }
   }
-  if (full && value.gps?.object.bytes.byteLength) {
+  const gpsObject = value.gps?.object ?? value.cardGps
+  if (full && gpsObject?.bytes.byteLength) {
     // Pending late GPS is E2EE as well. Only full metadata readers may see it.
     const gps = JSON.parse(await (
-      await decrypt(value.gps.object, { asset_id: id, kind: 'gps' })
+      await decrypt(gpsObject, { asset_id: id, kind: 'gps' })
     ).text()) as Photo['metadata']
     if (gps?.location && !photo.metadata?.locationEditedAt &&
         photo.metadata?.location?.source !== 'manual') {
@@ -1083,9 +1088,16 @@ async function sendDraft(id: string) {
     result = await sendSidecar(id, edit)
   await db.update<Job>(key(id), (latest) => {
     if (latest.edit?.event.id === edit.event.id) {
+      const draft = latest.draft
+      if (draft && draft.packet.statement.descriptor.object_id === source) {
+        delete draft.pending
+        latest.cardMetadata = draft
+      }
+      if (typeof edit.event.expiresAt === 'number')
+        latest.expiresAt = Math.min(latest.expiresAt, edit.event.expiresAt)
       delete latest.edit
       delete latest.editSource
-      if (latest.draft?.packet.statement.descriptor.object_id === source) {
+      if (draft?.packet.statement.descriptor.object_id === source) {
         delete latest.draft
         delete latest.draftBaseRevision
       } else latest.draftBaseRevision = result.revision
@@ -1189,7 +1201,18 @@ export async function append(
     expectedRevision,
     reviewState,
   )
-  await sendSidecar(value.id, event)
+  const result = await sendSidecar(value.id, event)
+  if (kind === 'metadata') {
+    delete event.object.pending
+    await db.update<Job>(key(value.id), (latest) => {
+      if (!latest.received || latest.deleted) return latest
+      latest.cardMetadata = event.object
+      latest.revision = result.revision
+      if (typeof event.event.expiresAt === 'number')
+        latest.expiresAt = Math.min(latest.expiresAt, event.event.expiresAt)
+      return latest
+    })
+  }
   memo.delete(value.id)
 }
 
@@ -1541,7 +1564,10 @@ async function sendGps(value: Job) {
       form,
     )
     await db.update<Job>(key(value.id), (current) => {
-      if (current.gps?.event.id === sidecar.event.id) {
+      const gps = current.gps
+      if (gps && gps.event.id === sidecar.event.id) {
+        delete gps.object.pending
+        current.cardGps = gps.object
         delete current.gps
         if (current.draftBaseRevision === current.revision)
           current.draftBaseRevision = result.revision
