@@ -33,6 +33,8 @@ export type ShapeLayer = {
   to: Point
   color: string
   width: number
+  // Older stored shapes default to outline; redaction always remains solid.
+  filled?: boolean
 }
 export type EditDocument = {
   shapes?: ShapeLayer[]
