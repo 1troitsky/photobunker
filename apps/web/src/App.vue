@@ -53,6 +53,8 @@ import { purgeAccountFromDevice } from './identity/storage'
 import { locationEnabled, startGrantedLocation, stopLocation } from './profiles/location'
 import { warmNames } from './local/photo-names'
 import { flushCardShares } from './crypto/card-share-outbox'
+import { initializePresencePreference, refreshPresenceHeartbeat, stopPresenceHeartbeat,
+  stopPresencePreference } from './profiles/presence'
 
 const route = useRoute(),
   router = useRouter()
@@ -119,6 +121,12 @@ watch([appLockReady, appLocked], ([ready, locked]) => {
     appPin.value = ''
   } else if (ready) resumeTrustedPhotos()
 })
+function updatePrivatePresence() {
+  if (hasConfirmedIdentity() && appLockReady.value && !appLocked.value && !hidden.value &&
+      !['welcome','shared-photo','shared-card','account-auth'].includes(String(route.name)))
+    refreshPresenceHeartbeat()
+  else stopPresenceHeartbeat()
+}
 function backgroundLock() {
   if (document.hidden) lockApp()
 }
@@ -262,7 +270,16 @@ function updateConnection() {
 }
 function privacy(event: Event) {
   hidden.value = !!(event as CustomEvent<boolean>).detail
+  updatePrivatePresence()
 }
+watch([() => account.value?.id, deviceId, sessionState, appLockReady, appLocked,
+  hidden, () => route.name], updatePrivatePresence, { immediate: true })
+watch([() => account.value?.id, deviceId, sessionState, appLockReady, appLocked],
+  ([id,device]) => {
+    if (id && device && hasConfirmedIdentity() && appLockReady.value && !appLocked.value)
+      void initializePresencePreference()
+    else stopPresencePreference()
+  },{ immediate: true })
 function isActive(name: string) {
   return (
     route.name === name ||
@@ -288,6 +305,8 @@ onMounted(() => {
   if (location.pathname.startsWith('/s/')) return
   document.addEventListener('visibilitychange', backgroundLock)
   document.addEventListener('visibilitychange', locationVisibilityChanged)
+  document.addEventListener('visibilitychange', updatePrivatePresence)
+  window.addEventListener('pagehide', stopPresenceHeartbeat)
   window.addEventListener('pagehide', lockApp)
   window.addEventListener('pagehide', stopLocation)
   window.addEventListener('pageshow', locationPageShow)
@@ -303,14 +322,20 @@ onMounted(() => {
   void refreshProfiles()
   window.addEventListener('online', updateConnection)
   window.addEventListener('online', reconnectPhotoNames)
+  window.addEventListener('online', updatePrivatePresence)
   window.addEventListener('online', reconnectCardShares)
   window.addEventListener('offline', updateConnection)
+  window.addEventListener('offline', updatePrivatePresence)
   window.addEventListener('photobunker-privacy-screen', privacy)
 })
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', backgroundLock)
   document.removeEventListener('visibilitychange', locationVisibilityChanged)
+  document.removeEventListener('visibilitychange', updatePrivatePresence)
   stopLocation()
+  stopPresenceHeartbeat()
+  stopPresencePreference()
+  window.removeEventListener('pagehide', stopPresenceHeartbeat)
   window.removeEventListener('pagehide', lockApp)
   window.removeEventListener('pagehide', stopLocation)
   window.removeEventListener('pageshow', locationPageShow)
@@ -323,8 +348,10 @@ onBeforeUnmount(() => {
   stopActivity?.()
   window.removeEventListener('online', updateConnection)
   window.removeEventListener('online', reconnectPhotoNames)
+  window.removeEventListener('online', updatePrivatePresence)
   window.removeEventListener('online', reconnectCardShares)
   window.removeEventListener('offline', updateConnection)
+  window.removeEventListener('offline', updatePrivatePresence)
   window.removeEventListener('photobunker-privacy-screen', privacy)
 })
 watch(
