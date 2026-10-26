@@ -187,6 +187,7 @@ export async function encryptCardBundle(card: PrivatePhotoCard, scopes: CardScop
   expiresAt:number, durationSeconds:3600|86400|604800,
   files:{photo?:{blob:Blob;versionId:string}; original?:Blob},
 ) {
+  await ready()
   validateCardScopes(scopes)
   if (!!scopes.photo !== !!files.photo || !!scopes.original !== !!files.original ||
     (files.photo && (!uuid(files.photo.versionId) || files.photo.blob.type !== 'image/jpeg')))
