@@ -429,6 +429,8 @@ export async function logout() {
           .then(names => names.purgeNames(previousAccount, previousDevice)).catch(() => {}))
         cleanup.push(import('../crypto/card-share-outbox')
           .then(shares => shares.purgeCardShareIntents(previousAccount, previousDevice)).catch(() => {}))
+        cleanup.push(import('../profiles/presence')
+          .then(presence => presence.erasePresencePreferences(previousAccount, previousDevice)).catch(() => {}))
       }
       await Promise.all(cleanup)
     } finally {
