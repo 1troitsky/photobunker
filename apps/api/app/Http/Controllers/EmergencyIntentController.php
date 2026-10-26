@@ -34,6 +34,7 @@ final class EmergencyIntentController extends Controller
     {
         $owner = $accounts->current($request)->id;
         $device = $request->attributes->get('identity')->device_id;
+        Protocol::fields($request->all(), ['operationId', 'keyId', 'publicKey', 'expectedRevision']);
         $data = $request->validate([
             'operationId' => 'required|uuid', 'keyId' => 'required|uuid',
             'publicKey' => 'required|string|max:256', 'expectedRevision' => 'required|integer|min:0|max:1000000',
@@ -47,6 +48,7 @@ final class EmergencyIntentController extends Controller
 
         return DB::transaction(function () use ($owner, $device, $data, $fingerprint) {
             DB::table('identity_accounts')->where('id', $owner)->lockForUpdate()->first() ?? abort(410);
+            abort_unless(DB::table('identity_devices')->where('id', $device)->where('account_id', $owner)->whereNull('revoked_at')->exists(), 403);
             $prior = DB::table('identity_emergency_operations')->where('operation_id', $data['operationId'])->first();
             if ($prior) {
                 abort_unless($prior->account_id === $owner && $prior->device_id === $device &&
@@ -85,6 +87,7 @@ final class EmergencyIntentController extends Controller
     {
         $owner = $accounts->current($request)->id;
         $device = $request->attributes->get('identity')->device_id;
+        Protocol::fields($request->all(), ['operationId', 'keyId', 'revision']);
         $data = $request->validate([
             'operationId' => 'required|uuid', 'keyId' => 'required|uuid',
             'revision' => 'required|integer|min:1|max:1000000',
