@@ -44,6 +44,8 @@ import { ui, initials, avatarColor, dayLabel, chatTime } from '../messages/prese
 import { usePersonLookup } from '../messages/lookup'
 import { decideChatEntry, canAutoOpenChat } from '../messages/chat-entry'
 import { personText } from '../identity/person-text'
+import { usePeerPresence } from '../profiles/presence'
+import { presenceLabel } from '../profiles/presence-text'
 import type { Message } from '../messages/store'
 import {
   accountRecoveryReady,
@@ -520,6 +522,8 @@ const pendingEntryPeer = computed(() => {
   // previously dismissed conversation simply because a queued row exists.
   return routePeer || pendingPeer.value || ''
 })
+const conversationPresence = usePeerPresence(computed(() =>
+  directPeer.value?.id || pendingEntryPeer.value || ''))
 watch(pendingEntryPeer, value => { pendingConversationUi.value = !!value }, { immediate: true })
 watch(
   [() => account.value?.id, () => identityDeviceId.value, sessionState, appLocked],
@@ -1027,7 +1031,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
           <template v-if="activeChat">
             <ThreadHeader
               :name="selecting ? selectedMessages.length + ' ' + ui('messageSelected').toLocaleLowerCase() : activeChat.name"
-              :subtitle="connection === 'offline' ? ui('offlineShort') : activeChat.direct ? ui('direct') : activeChat.members.length + ' ' + ui('members')"
+              :subtitle="connection === 'offline' ? ui('offlineShort') : activeChat.direct ? presenceLabel(conversationPresence) : activeChat.members.length + ' ' + ui('members')"
               :avatar-class="avatarColor(activeChat.id)"
               :initials="initials(activeChat.name)"
               :group="!activeChat.direct"

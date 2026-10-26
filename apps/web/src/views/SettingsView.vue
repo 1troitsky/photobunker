@@ -5,12 +5,20 @@ import AppIcon from '../components/AppIcon.vue'
 import { locale, setLocale, t, type Locale } from '../i18n'
 import { q } from '../crypto/text'
 import { a } from '../identity/text'
-import { account, deviceId } from '../identity/store'
+import { account, deviceId, sessionState, offlineCaptureIdentity } from '../identity/store'
 import { appLockReady, appLocked } from '../app/lock'
 import { locationEnabled, locationPreferenceSaved, locationState, requestLocation, setLocationEnabled } from '../profiles/location'
 import { locationText } from '../profiles/location-text'
+import { visibility, privacyPending, privacyError, setPresenceVisibility,
+  flushPresencePreference, type PresenceVisibility } from '../profiles/presence'
+import { presenceText, visibilityLabel } from '../profiles/presence-text'
 const languageSaved = ref(true)
 function changeLanguage(value: Locale) { languageSaved.value = setLocale(value) }
+async function changePrivacy(event:Event){
+  const field=event.target as HTMLSelectElement
+  try { await setPresenceVisibility(field.value as PresenceVisibility) }
+  catch { privacyError.value='save';field.value=visibility.value }
+}
 </script>
 
 <template>
@@ -41,6 +49,27 @@ function changeLanguage(value: Locale) { languageSaved.value = setLocale(value) 
         <button v-if="locationEnabled && locationState === 'permission' && account && deviceId && appLockReady && !appLocked"
           type="button" class="quiet-button"
           @click="requestLocation(account.id + ':' + deviceId)">{{ locationText('enable') }}</button>
+      </div>
+      <div class="settings-panel">
+        <div class="setting-row">
+          <span class="setting-icon"><AppIcon name="users" /></span>
+          <div class="setting-description">
+            <h2 id="presence-privacy-label">{{ presenceText('title') }}</h2>
+            <p>{{ presenceText('description') }}</p>
+            <p>{{ presenceText('hint') }}</p>
+          </div>
+          <select class="presence-visibility-select" :value="visibility"
+            :aria-label="presenceText('title')" :disabled="!account || appLocked ||
+              (sessionState !== 'authenticated' && !(sessionState === 'offline' && offlineCaptureIdentity))"
+            @change="changePrivacy">
+            <option v-for="choice in (['all','contacts','nobody'] as PresenceVisibility[])"
+              :key="choice" :value="choice">{{ visibilityLabel(choice) }}</option>
+          </select>
+        </div>
+        <p v-if="privacyPending" class="preference-notice" role="status">{{ presenceText('pending') }}</p>
+        <p v-if="privacyError" class="preference-notice" role="status">{{ presenceText(privacyError) }}</p>
+        <button v-if="privacyPending" class="quiet-button" type="button"
+          @click="flushPresencePreference">{{ presenceText('retry') }}</button>
       </div>
       <div class="settings-panel">
         <div class="setting-row">

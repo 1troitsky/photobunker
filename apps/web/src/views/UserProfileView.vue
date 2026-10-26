@@ -38,6 +38,10 @@ import {
 } from '../app/preferences'
 import { u } from '../app/text'
 import { s } from '../studio/text'
+import { computed } from 'vue'
+import { usePeerPresence } from '../profiles/presence'
+import { presenceLabel } from '../profiles/presence-text'
+const ownPresence=usePeerPresence(computed(()=>account.value?.publicId||''))
 const router = useRouter(), route = useRoute(),
   authBusy = ref(false),
   authError = ref(''),
@@ -102,6 +106,7 @@ const sections = [
             {{ account.fields.name || account.fields.username || a('account') }}
           </h2>
           <p class="identity-public-id">{{ account.publicId }}</p>
+          <p class="field-hint presence-label" role="status">{{ presenceLabel(ownPresence) }}</p>
           <div class="inline-actions">
             <button class="quiet-button" @click="copyId">
               {{ a(copied ? 'copied' : 'copy') }}</button

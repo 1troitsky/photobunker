@@ -7,6 +7,7 @@ use App\Identity\Accounts;
 use App\Identity\MatrixBridge;
 use App\Identity\MatrixFailure;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -71,6 +72,137 @@ final class IdentityTest extends TestCase
         $result = $this->authenticate(['purpose' => 'register', 'rootKey' => $root['public'], 'deviceKey' => $device['public'], 'deviceId' => $id, 'name' => 'Synthetic browser'], $root);
 
         return [...$result, 'root' => $root, 'device' => $device];
+    }
+
+    public function test_private_presence_never_exposes_activity_to_unilateral_or_blocked_viewers(): void
+    {
+        $alice = $this->create();
+        $bob = $this->create();
+        $a = $alice['account']['id'];
+        $b = $bob['account']['id'];
+        $handle = $alice['account']['publicId'];
+        $route = '/api/v1/identity/presence/'.$handle;
+        $instance = (string) Str::uuid();
+
+        $this->getJson('/api/v1/identity/presence/privacy')
+            ->assertOk()->assertExactJson(['visibility' => 'contacts', 'revision' => 0]);
+        $this->withUnencryptedCookie('pb_identity', $alice['token']);
+        $this->postJson('/api/v1/identity/presence/pulse', [
+            'instanceId' => $instance, 'sequence' => 1, 'active' => true,
+        ])->assertOk();
+        $this->withUnencryptedCookie('pb_identity', $bob['token'])
+            ->getJson($route)->assertOk()->assertExactJson(['state' => 'hidden']);
+        // A unilateral address-book entry or unaccepted invite is NOT mutual.
+        DB::table('identity_address_book')->insert([
+            'id' => (string) Str::uuid(), 'account_id' => $b,
+            'contact_id' => $a, 'created_at' => now(),
+        ]);
+        $this->getJson($route)->assertExactJson(['state' => 'hidden']);
+        DB::table('identity_address_book')->insert([
+            'id' => (string) Str::uuid(), 'account_id' => $a,
+            'contact_id' => $b, 'created_at' => now(),
+        ]);
+        $this->getJson($route)->assertExactJson(['state' => 'online'])
+            ->assertJsonMissingPath('lastActiveAt')->assertJsonMissingPath('deviceId');
+
+        $this->withUnencryptedCookie('pb_identity', $alice['token']);
+        $op = (string) Str::uuid();
+        $this->putJson('/api/v1/identity/presence/privacy', [
+            'visibility' => 'nobody', 'expectedRevision' => 0, 'operationId' => $op,
+        ])->assertOk()->assertJsonPath('revision', 1);
+        $this->putJson('/api/v1/identity/presence/privacy', [
+            'visibility' => 'nobody', 'expectedRevision' => 0, 'operationId' => $op,
+        ])->assertOk()->assertJsonPath('revision', 1);
+        $this->putJson('/api/v1/identity/presence/privacy', [
+            'visibility' => 'all', 'expectedRevision' => 0, 'operationId' => (string) Str::uuid(),
+        ])->assertConflict();
+        $this->withUnencryptedCookie('pb_identity', $bob['token'])
+            ->getJson($route)->assertExactJson(['state' => 'hidden']);
+
+        $this->withUnencryptedCookie('pb_identity', $alice['token']);
+        $this->putJson('/api/v1/identity/presence/privacy', [
+            'visibility' => 'all', 'expectedRevision' => 1, 'operationId' => (string) Str::uuid(),
+        ])->assertOk();
+        // Either direction of an active block always suppresses activity.
+        $this->withUnencryptedCookie('pb_identity', $bob['token']);
+        $this->postJson('/api/v1/identity/blocks/'.$handle)->assertOk();
+        $this->getJson($route)->assertExactJson(['state' => 'hidden']);
+    }
+
+    public function test_presence_lease_requires_living_session_and_timeout_and_never_resurrects(): void
+    {
+        $alice = $this->create();
+        $bob = $this->create();
+        $url = '/api/v1/identity/presence/'.$alice['account']['publicId'];
+        $this->withUnencryptedCookie('pb_identity', $alice['token']);
+        $instanceA = (string) Str::uuid();
+        $instanceB = (string) Str::uuid();
+        $pulse = fn ($instance, $sequence, $active) => [
+            'instanceId' => $instance, 'sequence' => $sequence, 'active' => $active,
+        ];
+        $this->postJson('/api/v1/identity/presence/pulse', $pulse($instanceA, 1, true))->assertOk();
+        $this->postJson('/api/v1/identity/presence/pulse', $pulse($instanceB, 1, true))->assertOk();
+        $this->postJson('/api/v1/identity/presence/pulse', $pulse($instanceA, 3, false))->assertOk();
+        $this->postJson('/api/v1/identity/presence/pulse', $pulse($instanceA, 2, true))->assertOk();
+        $this->getJson($url)->assertExactJson(['state' => 'online']); // second tab still alive
+        $this->postJson('/api/v1/identity/presence/pulse', $pulse($instanceB, 2, false))->assertOk();
+        $this->getJson($url)->assertExactJson(['state' => 'recent']);
+        $this->postJson('/api/v1/identity/presence/pulse', $pulse($instanceA, 4, true))->assertOk();
+        $this->getJson($url)->assertExactJson(['state' => 'recent']); // closed tab cannot reopen
+
+        $new = (string) Str::uuid();
+        $this->postJson('/api/v1/identity/presence/pulse', $pulse($new, 1, true))->assertOk();
+        try {
+            Carbon::setTestNow(now()->addSeconds(90));
+            $this->getJson($url)->assertExactJson(['state' => 'recent']);
+            Carbon::setTestNow(now()->addHours(25));
+            $this->getJson($url)->assertExactJson(['state' => 'longAgo']);
+        } finally {
+            Carbon::setTestNow();
+        }
+        // Logout kills server session; lease can no longer create online.
+        $this->deleteJson('/api/v1/identity/session')->assertOk();
+        $this->withUnencryptedCookie('pb_identity', $bob['token']);
+        $this->getJson($url)->assertExactJson(['state' => 'hidden']); // contacts-only default
+        $this->withUnencryptedCookie('pb_identity', $alice['token']);
+        $this->postJson('/api/v1/identity/presence/pulse', $pulse((string) Str::uuid(), 1, true))
+            ->assertUnauthorized();
+    }
+
+    public function test_presence_multiple_devices_survives_one_revoke_but_not_final_logout(): void
+    {
+        $alice = $this->create();
+        $secondKey = $this->key();
+        $secondDeviceId = (string) Str::uuid();
+        $second = $this->authenticate([
+            'purpose' => 'recover', 'rootKey' => $alice['root']['public'],
+            'deviceKey' => $secondKey['public'], 'deviceId' => $secondDeviceId,
+            'name' => 'Other synthetic device',
+        ], $alice['root']);
+        $bob = $this->create();
+        $peerUrl = '/api/v1/identity/presence/'.$alice['account']['publicId'];
+        $this->withUnencryptedCookie('pb_identity', $second['token']);
+        $this->putJson('/api/v1/identity/presence/privacy', [
+            'visibility' => 'all', 'expectedRevision' => 0, 'operationId' => (string) Str::uuid(),
+        ])->assertOk();
+        $this->withUnencryptedCookie('pb_identity', $alice['token']);
+        $this->postJson('/api/v1/identity/presence/pulse', [
+            'instanceId' => (string) Str::uuid(), 'sequence' => 1, 'active' => true,
+        ])->assertOk();
+        $this->withUnencryptedCookie('pb_identity', $second['token']);
+        $this->postJson('/api/v1/identity/presence/pulse', [
+            'instanceId' => (string) Str::uuid(), 'sequence' => 1, 'active' => true,
+        ])->assertOk();
+        $this->withUnencryptedCookie('pb_identity', $bob['token'])
+            ->getJson($peerUrl)->assertExactJson(['state' => 'online']);
+        $this->withUnencryptedCookie('pb_identity', $second['token'])
+            ->deleteJson('/api/v1/identity/devices/'.$alice['deviceId'])->assertOk();
+        $this->withUnencryptedCookie('pb_identity', $bob['token'])
+            ->getJson($peerUrl)->assertExactJson(['state' => 'online']);
+        $this->withUnencryptedCookie('pb_identity', $second['token'])
+            ->deleteJson('/api/v1/identity/session')->assertOk();
+        $this->withUnencryptedCookie('pb_identity', $bob['token'])
+            ->getJson($peerUrl)->assertExactJson(['state' => 'recent']);
     }
 
     public function test_signed_registration_replay_expiry_and_device_binding(): void

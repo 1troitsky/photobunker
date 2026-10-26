@@ -13,6 +13,7 @@ use App\Http\Controllers\PhotoMigrationController;
 use App\Http\Controllers\PhotoNameController;
 use App\Http\Controllers\PhotoShareController;
 use App\Http\Controllers\PhotoVersionController;
+use App\Http\Controllers\PresenceController;
 use App\Http\Controllers\PrototypeAssignmentController;
 use App\Http\Controllers\PrototypeLibraryController;
 use App\Http\Controllers\PrototypeProfileController;
@@ -44,6 +45,11 @@ Route::prefix('v1')->group(function (): void {
         Route::post('/challenges', [$controller, 'challenge']);
         Route::post('/sessions', [$controller, 'authenticate']);
         Route::get('/me', [$controller, 'me']);
+        Route::get('/presence/privacy', [PresenceController::class, 'privacy']);
+        Route::put('/presence/privacy', [PresenceController::class, 'savePrivacy']);
+        Route::post('/presence/pulse', [PresenceController::class, 'pulse']);
+        Route::get('/presence/{handle}', [PresenceController::class, 'show'])->where('handle', '[^/]+');
+
         Route::patch('/profile', [$controller, 'profile']);
         Route::delete('/session', [$controller, 'logout']);
         Route::get('/storage', [AccountStorageController::class, 'show']);
