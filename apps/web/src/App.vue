@@ -55,7 +55,7 @@ const route = useRoute(),
   router = useRouter()
 const privatePhotoRoute = computed(() => route.path.startsWith('/gallery'))
 const openRoute = computed(() =>
-  ['shared-photo', 'welcome', 'profile', 'account-auth', 'person-profile'].includes(String(route.name)),
+  ['shared-photo', 'shared-card', 'welcome', 'profile', 'account-auth', 'person-profile'].includes(String(route.name)),
 )
 const offlineLocalRoute = computed(() =>
   // A known non-extractable device may display its own encrypted outbox, but
@@ -129,7 +129,7 @@ watch(
     appLockReady, appLocked, locationEnabled, locationVisible, locationResumeEpoch,
     hidden, () => route.name],
   () => {
-    const privatePage = !['welcome', 'shared-photo', 'account-auth'].includes(String(route.name))
+    const privatePage = !['welcome', 'shared-photo', 'shared-card', 'account-auth'].includes(String(route.name))
     const scopedIdentity = hasConfirmedIdentity() ||
       (offlineCaptureIdentity.value && ['checking', 'offline'].includes(sessionState.value))
     if (privatePage && scopedIdentity && account.value?.id && deviceId.value &&
