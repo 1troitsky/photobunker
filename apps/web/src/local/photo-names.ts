@@ -220,6 +220,15 @@ export async function ensureName(photoId: string, assignmentId: string | null, e
   }
   return result.code
 }
+/** D4: read-only audit of unsent allocations on the current scope. */
+export async function assertPhotoNamesSafeForLocalDelete(owner: string, device: string) {
+  const s='photo-names:'+owner+':'+device
+  if(s!==scope()) throw new Error('localDelete.scope')
+  const snapshot=await read(s)
+  if(snapshot.state.photos.length || Object.keys(snapshot.state.requests).length)
+    throw new Error('localDelete.unsynced')
+  current(s)
+}
 export async function purgeNames(owner: string, device?: string): Promise<void> {
   const prefix = 'photo-names:' + owner + ':'
   const remove = async (key: string) => {
