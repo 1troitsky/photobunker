@@ -5,6 +5,7 @@ import PrivateLocationMap from '../components/PrivateLocationMap.vue'
 import { decryptCard, type CardManifest, type PublicCard } from '../crypto/card-shares'
 import { cardShareText as t } from '../studio/card-share-text'
 import { locale } from '../i18n'
+import { profilePath } from '../identity/person'
 
 const route = useRoute()
 const id = String(route.params.id)
@@ -14,9 +15,15 @@ let secret = location.hash.slice(1)
 history.replaceState(history.state, '', location.pathname + location.search)
 const card = ref<PublicCard>(), error = ref<'invalid'|'expired'|'unavailable'>()
 const loading = ref(true), details = ref(false), now = ref(Date.now())
+const copyState = ref<'idle'|'copied'|'failed'>('idle')
 let disposed = false, timer: ReturnType<typeof setInterval> | undefined
 let controller = new AbortController()
-function clear() { card.value = undefined; secret = ''; details.value = false }
+function clear(clearSecret = true) {
+  card.value = undefined
+  if (clearSecret) secret = ''
+  details.value = false
+  copyState.value = 'idle'
+}
 async function requestPart(url: string, format: 'json'|'blob') {
   const response = await fetch(url, { credentials: 'omit', cache: 'no-store',
     redirect: 'error', signal: controller.signal, referrerPolicy: 'no-referrer' })
@@ -44,8 +51,13 @@ async function load() {
     card.value = decrypted
     // The card is still constrained by its actual expiry in the browser.
   } catch (reason) {
-    if (!disposed) { clear(); const message = reason instanceof Error ? reason.message : ''
-      error.value = message === 'expired' ? 'expired' : message === 'unavailable' ? 'unavailable' : 'invalid'
+    if (!disposed) {
+      const message = reason instanceof Error ? reason.message : ''
+      const next = message === 'expired' ? 'expired' : message === 'unavailable' ? 'unavailable' : 'invalid'
+      // A temporary network/server failure can be retried in this page without
+      // putting the fragment secret back into the address bar or storage.
+      clear(next !== 'unavailable')
+      error.value = next
     }
   } finally { if (!disposed) loading.value = false }
 }
@@ -55,6 +67,17 @@ function hide() {
 }
 function date(value: number) {
   return new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium', timeStyle: 'short' }).format(value)
+}
+async function copyCoordinates() {
+  if (!card.value?.location) return
+  const value = card.value.location.latitude.toFixed(6) + ', ' +
+    card.value.location.longitude.toFixed(6)
+  try {
+    await navigator.clipboard.writeText(value)
+    if (!disposed && card.value?.location) copyState.value = 'copied'
+  } catch {
+    if (!disposed) copyState.value = 'failed'
+  }
 }
 onMounted(() => {
   void load()
@@ -66,7 +89,10 @@ onMounted(() => {
     // independent manifest endpoint; never fetch an image object.
     if (!navigator.onLine) return
     try { await verifyAlive() }
-    catch { if (!disposed) { clear(); error.value = 'expired' } }
+    catch (reason) {
+      const message = reason instanceof Error ? reason.message : ''
+      if (!disposed && message !== 'unavailable') { clear(); error.value = 'expired' }
+    }
   }, 10000)
   window.addEventListener('pagehide', hide)
 })
@@ -86,21 +112,29 @@ onBeforeUnmount(() => {
       <div v-else-if="error || !card" class="native-empty">
         <h2>{{ t(error || 'invalid') }}</h2>
         <p>{{ t('hint') }}</p>
+        <button v-if="error === 'unavailable'" class="primary-button" type="button"
+          :disabled="loading" @click="load">{{ t('retry') }}</button>
       </div>
       <template v-else>
         <div class="photo-card-intro">
           <span class="photo-card-kicker">{{ t('title') }}</span>
-          <h2>{{ card.title }}</h2>
+          <h2>{{ card.title || t(card.namePending ? 'pendingId' : 'noTitle') }}</h2>
           <p v-if="card.description" class="photo-card-description">{{ card.description }}</p>
         </div>
         <div class="photo-card-content">
           <section class="photo-card-section"><dl class="native-facts">
             <div><dt>{{ t('expiry') }}</dt><dd>{{ date(card.expiresAt) }}</dd></div>
             <div v-if="card.capturedAt"><dt>{{ t('capture') }}</dt><dd>{{ date(card.capturedAt) }}</dd></div>
-            <div v-if="card.author"><dt>{{ t('author') }}</dt><dd>{{ card.author.publicId }}</dd></div>
+            <div v-if="card.author"><dt>{{ t('author') }}</dt><dd>
+              <RouterLink :to="profilePath(card.author.publicId)">{{ card.author.publicId }}</RouterLink>
+            </dd></div>
           </dl></section>
           <section v-if="card.location" class="photo-card-section">
             <h3>{{ t('location') }}</h3>
+            <button type="button" class="secondary-button" @click="copyCoordinates">
+              {{ copyState === 'copied' ? t('coordinatesCopied') : t('copyCoordinates') }}
+            </button>
+            <p v-if="copyState === 'failed'" class="field-error" role="alert">{{ t('copyFailed') }}</p>
             <PrivateLocationMap :latitude="card.location.latitude" :longitude="card.location.longitude" />
           </section>
           <section v-if="card.metadata" class="photo-card-section">

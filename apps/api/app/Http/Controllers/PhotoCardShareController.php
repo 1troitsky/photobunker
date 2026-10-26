@@ -36,9 +36,15 @@ final class PhotoCardShareController
     private function manifest(object $share): array
     {
         $m = Protocol::decode($share->manifest, 3000);
-        if (($m['type'] ?? null) !== 'photo-card' || ($m['version'] ?? null) !== 2) abort(404);
-        try { $this->validateManifest($m); }
-        catch (\Throwable) { abort(410); }
+        if (($m['type'] ?? null) !== 'photo-card' || ($m['version'] ?? null) !== 2) {
+            abort(404);
+        }
+        try {
+            $this->validateManifest($m);
+        } catch (\Throwable) {
+            abort(410);
+        }
+
         return $m;
     }
 
@@ -74,6 +80,7 @@ final class PhotoCardShareController
         abort_unless($grant['shareExternal'] && $grant['read'] && $grant['thumbnail'], 403);
         $actual = $this->objects->serialize($actor, $row)['access'];
         abort_unless($actual['read'] && $actual['shareExternal'], 403);
+
         return $actual;
     }
 
@@ -87,10 +94,14 @@ final class PhotoCardShareController
             ->where('creator_id', $actor)->orderByDesc('created_at')->get()
             ->map(function ($row) {
                 $m = Protocol::decode($row->manifest);
-                if (($m['type'] ?? null) !== 'photo-card' || ($m['version'] ?? null) !== 2) return null;
+                if (($m['type'] ?? null) !== 'photo-card' || ($m['version'] ?? null) !== 2) {
+                    return null;
+                }
+
                 return ['id' => $row->id, 'expiresAt' => (int) $row->expires_at,
                     'scopes' => $m['scopes'], 'revoked' => (bool) $row->revoked_at];
             })->filter()->values();
+
         return response()->json(['shares' => $items], 200, ['Cache-Control' => 'no-store']);
     }
 
@@ -117,6 +128,7 @@ final class PhotoCardShareController
                 abort_if($existing->revoked_at, 410);
                 abort_unless($existing->creator_id === $actor && $existing->photo_id === $id &&
                     hash_equals($existing->manifest, $data['manifest']), 409);
+
                 return ['id' => $existing->id, 'expiresAt' => (int) $existing->expires_at];
             }
             $this->versions->quota($photo, $file->getSize());
@@ -128,8 +140,10 @@ final class PhotoCardShareController
                 'creator_id' => $actor, 'manifest' => $data['manifest'],
                 'expires_at' => $manifest['expiresAt'], 'created_at' => now(),
             ]);
+
             return ['id' => $manifest['id'], 'expiresAt' => $manifest['expiresAt']];
         }, 3);
+
         return response()->json($result, 200, ['Cache-Control' => 'no-store']);
     }
 
@@ -160,11 +174,14 @@ final class PhotoCardShareController
                 'id' => $shareId, 'photo_id' => $id, 'creator_id' => $share?->creator_id ?? $actor,
                 'created_at' => now(),
             ]);
-            if ($share && ! $share->revoked_at)
+            if ($share && ! $share->revoked_at) {
                 DB::table('encrypted_shares')->where('id', $shareId)->update(['revoked_at' => now()]);
+            }
+
             return $share;
         }, 3);
         $deleted = ! $share || $this->legacy->cleanup($share);
+
         return response()->json(['revoked' => true, 'deletion' => $deleted ? 'verified' : 'pending'],
             $deleted ? 200 : 202, ['Cache-Control' => 'no-store']);
     }
@@ -183,14 +200,18 @@ final class PhotoCardShareController
         try {
             $grant = $this->workspace->grant($share->creator_id, $photo);
             $actual = $this->objects->serialize($share->creator_id, $photo)['access'];
-        } catch (HttpException) { abort(410); }
+        } catch (HttpException) {
+            abort(410);
+        }
         abort_unless($grant['shareExternal'] && $actual['shareExternal'] && $actual['read'], 410);
+
         return $share;
     }
 
     public function show(Request $request, string $id)
     {
         $share = $this->publicCard($request, $id);
+
         return response()->json($this->manifest($share), 200,
             ['Cache-Control' => 'no-store', 'Referrer-Policy' => 'no-referrer']);
     }
@@ -202,10 +223,17 @@ final class PhotoCardShareController
         abort_unless($object && $object->kind === 'share-export' && $object->bytes > 16, 410);
         try {
             $stream = Storage::disk(config('prototype.disk'))->readStream($object->object_key);
-        } catch (\Throwable) { abort(503); }
+        } catch (\Throwable) {
+            abort(503);
+        }
         abort_unless(is_resource($stream), 503);
+
         return response()->stream(function () use ($stream) {
-            try { fpassthru($stream); } finally { fclose($stream); }
+            try {
+                fpassthru($stream);
+            } finally {
+                fclose($stream);
+            }
         }, 200, ['Content-Type' => 'application/octet-stream',
             'Content-Length' => (string) $object->bytes,
             'Cache-Control' => 'no-store', 'Referrer-Policy' => 'no-referrer']);

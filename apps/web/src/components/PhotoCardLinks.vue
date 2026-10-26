@@ -24,7 +24,7 @@ function reset() {
   metadata.value = false
 }
 async function load() {
-  const token = ++generation, owner = account.value?.id, id = props.card.id
+  const token = generation, owner = account.value?.id, id = props.card.id
   try {
     const result = await listCardShareIntents(id)
     if (token === generation && owner === account.value?.id && id === props.card.id)
@@ -44,7 +44,7 @@ async function create() {
     const created = await commitCardShare(props.card.id, props.card, scopes, expiresAt,
       duration.value as 3600 | 86400 | 604800)
     if (token !== generation || owner !== account.value?.id) return
-    rows.value = [created, ...rows.value]
+    rows.value = [created, ...rows.value.filter(item => item.id !== created.id)]
   } catch {
     if (token === generation && owner === account.value?.id) error.value = t('failed')
   } finally {

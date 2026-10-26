@@ -152,7 +152,12 @@ export async function revokeCardShare(id: string): Promise<void> {
 async function submit(item: Item) {
   const form = new FormData()
   form.set('manifest', canonical(item.manifest))
-  form.set('file', new Blob([unb64(item.bytes)], { type: 'application/octet-stream' }), 'ciphertext')
+  const decoded = unb64(item.bytes)
+  const bytes = decoded.buffer.slice(
+    decoded.byteOffset,
+    decoded.byteOffset + decoded.byteLength,
+  ) as ArrayBuffer
+  form.set('file', new Blob([bytes], { type: 'application/octet-stream' }), 'ciphertext')
   await request('/photos/' + item.photoId + '/cards', 'POST', form)
 }
 async function flushScope(scope: string) {

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { beforeAll, describe, expect, it } from 'vitest'
 import { webcrypto } from 'node:crypto'
 import { Blob as NodeBlob } from 'node:buffer'
@@ -45,6 +46,12 @@ describe('R1-03B / card-only E2EE without JPEG', () => {
     })
     expect(JSON.stringify(clean)).not.toContain('41.721')
     expect(JSON.stringify(clean)).not.toContain('SECRET NOTE')
+  })
+  it('preserves an honest pending NAME-ID state instead of publishing an empty heading', () => {
+    const pending = { ...card(), title: '', nameId: undefined, namePending: true }
+    expect(publicCardPayload(pending, CARD_ONLY, Date.now() + 10_000).namePending).toBe(true)
+    expect(() => publicCardPayload({ ...pending, namePending: false }, CARD_ONLY,
+      Date.now() + 10_000)).toThrow()
   })
   it('encrypts content with new link secret, type/version, scopes, TTL, and hashes', async () => {
     const expiry = Date.now() + 60_000

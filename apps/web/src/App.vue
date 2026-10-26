@@ -54,6 +54,9 @@ import { locationEnabled, startGrantedLocation, stopLocation } from './profiles/
 import { warmNames } from './local/photo-names'
 import { flushCardShares } from './crypto/card-share-outbox'
 
+const route = useRoute(),
+  router = useRouter()
+
 // Card intents are replayed by the app shell even if the owner has left the
 // private Photo Card page. Only a confirmed session and open photo PIN gate
 // permit contacting the server.
@@ -65,8 +68,6 @@ function reconnectCardShares() {
       navigator.onLine) void flushCardShares().catch(() => {})
 }
 watch([sessionState, appLocked, protectionReady, strongUnlocked, warmLocked], reconnectCardShares)
-const route = useRoute(),
-  router = useRouter()
 const privatePhotoRoute = computed(() => route.path.startsWith('/gallery'))
 const openRoute = computed(() =>
   ['shared-photo', 'shared-card', 'welcome', 'profile', 'account-auth', 'person-profile'].includes(String(route.name)),

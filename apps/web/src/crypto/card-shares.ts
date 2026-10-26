@@ -25,6 +25,7 @@ export type PublicCard = {
   type: 'photo-card-payload'
   version: 1
   title: string
+  namePending?: true
   description?: string
   expiresAt: number
   capturedAt?: number
@@ -73,10 +74,12 @@ export function publicCardPayload(card: PrivatePhotoCard, scopes: CardScopes, ex
   if (!card.expiresAt || expiresAt > card.expiresAt || expiresAt <= Date.now())
     throw new Error('card_share.expired')
   const title = (card.title || card.nameId || '').slice(0, 120)
+  if (!title && !card.namePending) throw new Error('card_share.invalid_photo')
   // Only R1-03A's allowlisted card is accepted; no source Photo spreads.
   return {
     type: 'photo-card-payload', version: 1,
-    title, ...(card.description ? { description: card.description.slice(0, 2000) } : {}),
+    title, ...(!title && card.namePending ? { namePending: true as const } : {}),
+    ...(card.description ? { description: card.description.slice(0, 2000) } : {}),
     expiresAt,
     ...(scopes.metadata ? {
       ...(card.capturedAt ? { capturedAt: card.capturedAt } : {}),
@@ -89,11 +92,13 @@ export function publicCardPayload(card: PrivatePhotoCard, scopes: CardScopes, ex
 function payloadValid(x: unknown, scopes: CardScopes, expiry: number): x is PublicCard {
   if (!x || typeof x !== 'object' || Array.isArray(x)) return false
   const v = x as Partial<PublicCard>
-  const allowed = ['type', 'version', 'title', 'description', 'expiresAt',
+  const allowed = ['type', 'version', 'title', 'namePending', 'description', 'expiresAt',
     ...(scopes.metadata ? ['capturedAt', 'location', 'metadata', 'author'] : [])]
   if (Object.keys(v).some(k => !allowed.includes(k)) ||
       v.type !== 'photo-card-payload' || v.version !== 1 ||
       typeof v.title !== 'string' || v.title.length > 120 ||
+      (v.namePending !== undefined && v.namePending !== true) ||
+      (!v.title && v.namePending !== true) ||
       (v.description !== undefined && (typeof v.description !== 'string' || v.description.length > 2000)) ||
       v.expiresAt !== expiry) return false
   if (v.capturedAt !== undefined && (!Number.isSafeInteger(v.capturedAt) || v.capturedAt <= 0)) return false

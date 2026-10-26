@@ -29,7 +29,10 @@ final class PhotoShareController
 
         return response()->json(['shares' => DB::table('encrypted_shares')->where('photo_id', $id)->where('creator_id', $actor)->orderByDesc('created_at')->get()->map(function ($s) use ($row) {
             $m = Protocol::decode($s->manifest);
-            if (($m['version'] ?? null) !== 1 || isset($m['type'])) return null;
+            if (($m['version'] ?? null) !== 1 || isset($m['type'])) {
+                return null;
+            }
+
             return ['id' => $s->id, 'scope' => $m['scope'], 'versionId' => $m['versionId'],
                 'expiresAt' => min((int) $s->expires_at, (int) $row->expires_at), 'revoked' => (bool) $s->revoked_at];
         })->filter()->values()]);
@@ -114,7 +117,7 @@ final class PhotoShareController
     {
         $s = $this->publicShare($r, $id);
         $manifest = Protocol::decode($s->manifest);
-        abort_unless(($manifest['version'] ?? null) === 1 && !isset($manifest['type']), 404);
+        abort_unless(($manifest['version'] ?? null) === 1 && ! isset($manifest['type']), 404);
 
         return response()->json($manifest, 200, ['Cache-Control' => 'no-store', 'Referrer-Policy' => 'no-referrer']);
     }
@@ -123,7 +126,7 @@ final class PhotoShareController
     {
         $s = $this->publicShare($r, $id);
         $manifest = Protocol::decode($s->manifest);
-        abort_unless(($manifest['version'] ?? null) === 1 && !isset($manifest['type']), 404);
+        abort_unless(($manifest['version'] ?? null) === 1 && ! isset($manifest['type']), 404);
         $o = DB::table('encrypted_objects')->find($s->object_id);
         try {
             $stream = Storage::disk(config('prototype.disk'))->readStream($o->object_key);
