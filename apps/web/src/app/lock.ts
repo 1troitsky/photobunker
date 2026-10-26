@@ -92,7 +92,7 @@ const sameVerifier = (a: PinRecord | undefined, b: PinRecord) =>
     ? a.salt === b.salt && a.verifier === b.verifier
     : isLegacy(a) && isLegacy(b) && a.salt === b.salt && a.digest === b.digest)
 function checkCooldown(value: LegacyPin | PinV2, now: number) {
-  if (isV2(value) && now < value.lastWall) throw new Error('pin.clock_rollback')
+  if (now < (value.lastWall ?? 0)) throw new Error('pin.clock_rollback')
   if (value.until > now) throw new Error('pin.cooldown')
 }
 function changed(kind: 'record' | 'lock' | 'attempt') {
@@ -136,7 +136,7 @@ export async function loadAppLock() {
     if (!valid(record)) throw new Error('pin.corrupt')
     current = record
     appPinEnabled.value = !!record && !('version' in record && record.version === 0)
-    appPinLegacy.value = !!record && isLegacy(record)
+    appPinLegacy.value = !!record && (isLegacy(record) || isV2(record) && record.length === 4)
     appLocked.value = appPinEnabled.value
     appLockReady.value = true
   } catch {
@@ -176,12 +176,12 @@ async function verify(pin: string, id: string, epoch: number, mutation: number) 
       if (correct) {
         allowed = true
         return { ...previousRecord, failures: 0, until: 0,
-          ...(isV2(previousRecord) ? { lastWall: Math.max(now, previousRecord.lastWall) } : {}) }
+          lastWall: Math.max(now, previousRecord.lastWall ?? 0) }
       }
       const failures = Math.min(100, previousRecord.failures + 1)
       const wait = failures < 3 ? 0 : Math.min(60000, 2000 * 2 ** Math.min(5, failures - 3))
       return { ...previousRecord, failures, until: Math.max(previousRecord.until, now + wait),
-        ...(isV2(previousRecord) ? { lastWall: Math.max(now, previousRecord.lastWall) } : {}) }
+        lastWall: Math.max(now, previousRecord.lastWall ?? 0) }
     })
   } catch (error) { storageFailure(error) }
   guard(id, epoch, mutation)
@@ -208,7 +208,7 @@ export async function unlockApp(pin: string) {
     } catch (error) { storageFailure(error) }
     guard(id, epoch, mutation)
     current = migrated
-    appPinLegacy.value = false
+    appPinLegacy.value = migrated.length === 4
     changed('record')
   }
   appLocked.value = false
