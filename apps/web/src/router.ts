@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouterHistory } from 'vue-router'
 import SharedPhotoView from './views/SharedPhotoView.vue'
+import SharedCardView from './views/SharedCardView.vue'
 import WelcomeView from './views/WelcomeView.vue'
 import AccountAuthView from './views/AccountAuthView.vue'
 import AccountEditView from './views/AccountEditView.vue'
@@ -35,6 +36,7 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
     history,
     routes: [
       { path: '/s/:id', name: 'shared-photo', component: SharedPhotoView },
+      { path: '/c/:id', name: 'shared-card', component: SharedCardView },
       { path: '/', redirect: () => hasConfirmedIdentity() ||
         (offlineCaptureIdentity.value && !!account.value) ? launchPath() : '/welcome' },
       { path: '/welcome', name: 'welcome', component: WelcomeView },
@@ -127,7 +129,7 @@ export function createAppRouter(history: RouterHistory = createWebHistory()) {
         return { path: launchPath(), replace: true }
       return
     }
-    if (['shared-photo', 'profile', 'account-auth', 'person-profile'].includes(String(to.name))) return
+    if (['shared-photo', 'shared-card', 'profile', 'account-auth', 'person-profile'].includes(String(to.name))) return
     if (sessionState.value === 'signed-out' || sessionState.value === 'revoked') {
       const intended = profileReturnTo(to.path)
       return { path: '/profile', query: intended === '/profile' ? {} : { returnTo: intended }, replace: true }
