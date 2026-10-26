@@ -478,7 +478,10 @@ async function save() {
     // Local encrypted version commit precedes any network synchronization.
     // A slow read of the remote photo must not block offline editing.
     const current = photo.value
-    canvas = renderEdits(image, edits.value)
+    // Snapshot pixels and metadata together. UI changes during JPEG encoding
+    // must never produce a version whose editable layers differ from its pixels.
+    const snapshot = clone(edits.value)
+    canvas = renderEdits(image, snapshot)
     const blob = await new Promise<Blob>((resolve, reject) =>
       canvas!.toBlob(
         (value) => (value ? resolve(value) : reject(new Error('encode'))),
@@ -491,14 +494,21 @@ async function save() {
       await stripEncodedMetadata(blob),
       canvas.width,
       canvas.height,
-      edits.value,
+      snapshot,
       typeof route.query.version === 'string' ? route.query.version : null,
     )
     saved = true
     if (version.sync === 'pending') {
       saved = false
-      initial.value = signature(edits.value)
+      initial.value = signature(snapshot)
       versionNotice.value = s('versionSavedLocal')
+      return
+    }
+    // A late user change must stay in the editor, not vanish on navigation.
+    if (signature(edits.value) !== signature(snapshot)) {
+      saved = false
+      initial.value = signature(snapshot)
+      versionNotice.value = s('versionSaved')
       return
     }
     await router.replace({
