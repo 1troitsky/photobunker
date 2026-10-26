@@ -253,6 +253,12 @@ final class PhotoCardShareController
             return $share;
         }, 3);
         $deleted = ! $share || $this->legacy->cleanup($share);
+        if ($share) {
+            foreach (DB::table('photo_card_share_objects')->where('share_id', $share->id)->get() as $extra) {
+                $item = (object) ['object_id' => $extra->object_id];
+                $deleted = $this->legacy->cleanup($item) && $deleted;
+            }
+        }
 
         return response()->json(['revoked' => true, 'deletion' => $deleted ? 'verified' : 'pending'],
             $deleted ? 200 : 202, ['Cache-Control' => 'no-store']);
@@ -276,7 +282,13 @@ final class PhotoCardShareController
             abort(410);
         }
         abort_unless($grant['shareExternal'] && $actual['shareExternal'] && $actual['read'], 410);
-
+        $m = $this->manifest($share);
+        if (isset($m['objects']['photo'])) {
+            // A removed/conflicted version invalidates every content endpoint.
+            abort_unless(DB::table('encrypted_versions')->where('photo_id', $photo->id)
+                ->where('id', $m['objects']['photo']['versionId'])
+                ->where('conflict', false)->exists(), 410);
+        }
         return $share;
     }
 
@@ -288,11 +300,26 @@ final class PhotoCardShareController
             ['Cache-Control' => 'no-store', 'Referrer-Policy' => 'no-referrer']);
     }
 
-    public function content(Request $request, string $id)
+    public function content(Request $request, string $id, string $kind = 'card')
     {
         $share = $this->publicCard($request, $id);
-        $object = DB::table('encrypted_objects')->find($share->object_id);
-        abort_unless($object && $object->kind === 'share-export' && $object->bytes > 16, 410);
+        $manifest = $this->manifest($share);
+        abort_unless(in_array($kind, ['card', 'photo', 'original'], true), 404);
+        abort_unless($kind === 'card' || $manifest['scopes'][$kind] === true, 403);
+        if ($kind === 'card') {
+            $objectId = $share->object_id;
+            $descriptor = $manifest['object'];
+        } else {
+            $descriptor = $manifest['objects'][$kind] ?? null;
+            abort_unless($descriptor, 403);
+            $objectId = DB::table('photo_card_share_objects')->where('share_id', $id)
+                ->where('kind', $kind)->value('object_id');
+        }
+        abort_unless($objectId, 410);
+        $object = DB::table('encrypted_objects')->find($objectId);
+        abort_unless($object && $object->photo_id === $share->photo_id &&
+            $object->kind === 'share-export' && $object->bytes > 16 &&
+            $object->bytes === $descriptor['ciphertextBytes'], 410);
         try {
             $stream = Storage::disk(config('prototype.disk'))->readStream($object->object_key);
         } catch (\Throwable) {
