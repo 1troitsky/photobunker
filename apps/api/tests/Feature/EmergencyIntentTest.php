@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Http\Client\Factory;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -24,6 +26,7 @@ final class EmergencyIntentTest extends TestCase
         config(['identity.enabled' => true]);
         Http::preventStrayRequests();
         Storage::fake(config('prototype.disk'));
+        RateLimiter::clear('identity:emergency:intent:'.hash('sha256', '127.0.0.1'));
         $this->withCredentials()->withHeaders(['X-PhotoBunker' => 'identity-v1', 'Origin' => 'http://localhost:8080']);
     }
 
@@ -216,6 +219,30 @@ final class EmergencyIntentTest extends TestCase
         $this->assertDatabaseHas('identity_emergency_receipts', [
             'operation_id' => $payload['operationId'], 'completed_at' => null,
         ]);
+    }
+
+    public function test_replay_remains_completed_after_synthetic_account_erasure(): void
+    {
+        $a = $this->identity();
+        [$private, $public] = $this->key();
+        $key = $this->register($a, $public);
+        $payload = $this->intent($a, $key);
+        $sig = $this->signature($private, $payload);
+        $this->send($payload, $sig)->assertJsonPath('state', 'accepted');
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Cache::put('matrix:'.hash('sha256', config('identity.matrix_url')).':admin:token',
+            Crypt::encryptString('synthetic-admin'), now()->addHour());
+        Http::fake(fn ($request) => str_ends_with($request->url(), '/account/whoami')
+            ? Http::response(['user_id' => '@service:fixture'])
+            : Http::response(['errcode' => 'M_NOT_FOUND'], 404));
+        $this->assertTrue(app(AccountLifecycle::class)->erase($a['accountId']));
+        $this->assertDatabaseMissing('identity_accounts', ['id' => $a['accountId']]);
+        $this->send($payload, $sig)->assertJsonPath('state', 'completed');
+        $this->assertDatabaseHas('identity_emergency_receipts', [
+            'operation_id' => $payload['operationId'],
+        ]);
+        $this->assertSame(1, DB::table('identity_emergency_receipts')->count());
     }
 
     public function test_intent_rejects_noncanonical_bytes_and_same_origin_header_is_mandatory(): void
