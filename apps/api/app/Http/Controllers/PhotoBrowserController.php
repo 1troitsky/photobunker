@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Identity\Accounts;
 use App\Identity\AccountLifecycle;
+use App\Identity\Accounts;
 use App\Prototype\Retention;
 use App\Workspace\Workspace;
 use Illuminate\Http\Request;

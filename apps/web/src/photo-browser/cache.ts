@@ -8,9 +8,11 @@ const name = (owner: string, device: string, id: string) =>
   'browser:' + owner + ':' + device + ':' + id
 const serial = new Map<string, Promise<unknown>>()
 async function ownerLock<T>(owner: string, job: () => Promise<T>): Promise<T> {
-  const run = () => navigator.locks?.request
-    ? navigator.locks.request('photobunker-browser:' + owner, job)
-    : job()
+  const run = async (): Promise<T> => {
+    if (navigator.locks?.request)
+      return await navigator.locks.request('photobunker-browser:' + owner, job)
+    return await job()
+  }
   const pending = serial.get(owner) ?? Promise.resolve()
   const current = pending.then(run, run)
   const tail = current.catch(() => {})

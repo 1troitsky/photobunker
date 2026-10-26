@@ -18,7 +18,7 @@ import { locale } from '../i18n'
 const route = useRoute()
 const id = computed(() => String(route.params.id ?? ''))
 const snapshot = ref<BrowserSnapshot>()
-const status = ref<'loading' | 'ready' | 'offline' | 'pending' | 'locked' | 'denied' | 'unavailable' | 'failed'>('loading')
+const status = ref<'loading' | 'ready' | 'offline' | 'pending' | 'locked' | 'denied' | 'revoked' | 'unavailable' | 'failed'>('loading')
 const selected = ref<string[]>([])
 const choosing = ref(false)
 const query = ref('')
@@ -155,8 +155,7 @@ async function revoke() {
     await eraseBrowser(owner, device, collectionId)
     if (alive(epoch, owner, device, collectionId)) {
       snapshot.value = undefined
-      status.value = 'unavailable'
-      copyStatus.value = bt('revoked')
+      status.value = 'revoked'
     }
   } catch { if (alive(epoch, owner, device, collectionId)) copyStatus.value = bt('loadFailed') }
   finally { busy.value = false }
@@ -191,6 +190,7 @@ onBeforeUnmount(() => {
         <AppIcon name="lock" />
         <p>{{ bt(status === 'pending' ? 'pending' :
           status === 'locked' ? 'locked' : status === 'denied' ? 'denied' :
+          status === 'revoked' ? 'revoked' :
           status === 'failed' ? 'loadFailed' : 'unavailable') }}</p>
         <button class="primary-button" type="button" @click="load">{{ bt('retry') }}</button>
       </div>

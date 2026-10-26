@@ -224,7 +224,7 @@ final class WorkspaceTest extends TestCase
         $this->upload($owner, null, $id, 'name-id-photo', [
             'needsName' => true, 'shortId' => $code, 'title' => '',
         ])->assertOk()->assertJsonPath('photo.shortId', $code)
-          ->assertJsonPath('photo.title', $code);
+            ->assertJsonPath('photo.title', $code);
         $this->getJson('/api/v1/identity/workspace/photos/'.$id)
             ->assertOk()->assertJsonPath('photo.shortId', $code);
 
@@ -319,7 +319,7 @@ final class WorkspaceTest extends TestCase
         $updated = $this->putJson($url, [
             ...$current, 'description' => 'Updated description',
         ])->assertOk()->assertJsonPath('revision', 3)
-          ->assertJsonPath('description', 'Updated description')->json();
+            ->assertJsonPath('description', 'Updated description')->json();
         $this->getJson($url)->assertOk()->assertJsonPath('description', 'Updated description');
         $this->putJson($url, [...$updated, 'description' => str_repeat('x', 1001)])
             ->assertUnprocessable();
@@ -637,5 +637,4 @@ final class WorkspaceTest extends TestCase
         $this->actor($contributor)->putJson($url, $body)->assertForbidden();
         $this->assertDatabaseCount('workspace_photo_browsers', 0);
     }
-
 }
