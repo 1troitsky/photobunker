@@ -81,6 +81,7 @@ final class IdentityController extends Controller
         DB::transaction(function () use ($id): void {
             DB::table('identity_devices')->where('id', $id)->lockForUpdate()->first();
             DB::table('identity_sessions')->where('device_id', $id)->delete();
+            DB::table('identity_presence_leases')->where('device_id', $id)->delete();
             DB::table('identity_devices')->where('id', $id)->update(['matrix_revoke_pending' => true]);
         });
         if (config('rtc.enabled')) {
@@ -109,6 +110,7 @@ final class IdentityController extends Controller
             abort_unless($device, 404);
             DB::table('identity_devices')->where('id', $id)->update(['revoked_at' => now(), 'matrix_revoke_pending' => true]);
             DB::table('identity_sessions')->where('device_id', $id)->delete();
+            DB::table('identity_presence_leases')->where('device_id', $id)->delete();
         });
         if (config('rtc.enabled')) {
             app(Admissions::class)->revokeDevice($id);
