@@ -142,6 +142,7 @@ function rowMatchesScope(row: {database:string;store:string;key:IDBValidKey}, s:
     case 'photobunker-photo-browser-cache-v1': return key.startsWith('browser:' + pair + ':')
     case 'photobunker-photo-names-v1': return key === 'photo-names:' + pair
     case 'photobunker-card-share-intents-v1': return key.startsWith(pair + ':')
+    case 'photobunker-emergency-v1': return key === pair
     default: return false
   }
 }
@@ -171,6 +172,7 @@ export async function purgeLocalDeleteScope(s: DeleteScope) {
   await eraseExactDeviceCredentials(s)
   await eraseAppPinForLocalDelete(s.owner,s.device)
   await updateVerifier(s.owner,s.device,() => undefined)
+  await (await import('./emergency-store')).changeEmergency(s.owner,s.device,()=>undefined)
   for(const key of Object.keys(localStorage))
     if(key.includes(s.owner) && !key.startsWith('pb-local-delete-'))
       localStorage.removeItem(key)
