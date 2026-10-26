@@ -3,13 +3,13 @@
 namespace App\Identity;
 
 use App\Encrypted\Objects;
-use Closure;
 use App\Http\Controllers\PhotoShareController;
 use App\Prototype\Library;
 use App\Prototype\Retention;
 use App\Rtc\Admissions;
 use App\Workspace\Photos;
 use Carbon\Carbon;
+use Closure;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;

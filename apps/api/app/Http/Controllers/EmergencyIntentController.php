@@ -134,10 +134,18 @@ final class EmergencyIntentController extends Controller
      */
     public function intent(Request $request, AccountLifecycle $lifecycle): JsonResponse
     {
-        $data = $request->validate(['intent' => 'required|string|max:1024',
-            'signature' => 'required|string|max:128']);
-        abort_unless(array_keys($request->all()) === ['intent', 'signature'] ||
-            array_keys($request->all()) === ['signature', 'intent'], 422);
+        // Laravel trims request strings before controllers run. Parse the raw body
+        // here so whitespace added to the signed canonical intent cannot be
+        // silently normalized into a valid destructive request.
+        try {
+            $data = json_decode($request->getContent(), true, 8, JSON_THROW_ON_ERROR);
+        } catch (\Throwable) {
+            abort(422);
+        }
+        abort_unless(is_array($data), 422);
+        Protocol::fields($data, ['intent', 'signature']);
+        abort_unless(is_string($data['intent']) && strlen($data['intent']) <= 1024 &&
+            is_string($data['signature']) && strlen($data['signature']) <= 128, 422);
         $intent = Protocol::decode($data['intent'], 1024);
         Protocol::fields($intent, ['version', 'operationId', 'accountId', 'keyId', 'revision', 'action']);
         abort_unless($intent['version'] === 1 && $intent['action'] === 'emergency-delete' &&

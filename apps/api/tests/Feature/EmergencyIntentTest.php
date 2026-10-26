@@ -3,14 +3,14 @@
 namespace Tests\Feature;
 
 use App\Encrypted\Protocol;
-use App\Identity\Accounts;
 use App\Identity\AccountLifecycle;
+use App\Identity\Accounts;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;

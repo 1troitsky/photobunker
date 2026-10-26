@@ -2,8 +2,8 @@
 
 use App\Http\Controllers\AccountRecoveryController;
 use App\Http\Controllers\AccountStorageController;
-use App\Http\Controllers\EncryptedPhotoController;
 use App\Http\Controllers\EmergencyIntentController;
+use App\Http\Controllers\EncryptedPhotoController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\IdentityController;
 use App\Http\Controllers\MessagingController;
@@ -24,8 +24,8 @@ use App\Http\Controllers\RtcController;
 use App\Http\Controllers\WorkspaceController;
 use App\Http\Controllers\WorkspaceImportController;
 use App\Http\Controllers\WorkspacePhotoController;
-use App\Http\Middleware\IdentityBoundary;
 use App\Http\Middleware\EmergencyIntentBoundary;
+use App\Http\Middleware\IdentityBoundary;
 use App\Http\Middleware\LocalPrototype;
 use Illuminate\Support\Facades\Route;
 
