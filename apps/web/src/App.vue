@@ -8,6 +8,7 @@ import {
   unlockApp,
 } from './app/lock'
 import { hardLock, resumeTrustedPhotos } from './crypto/store'
+import { pt, pinError } from './app/pin-text'
 import { deviceId, sessionState, offlineCaptureIdentity, hasConfirmedIdentity, loadIdentity } from './identity/store'
 import { q } from './crypto/text'
 import AccountPhotoAccess from './components/AccountPhotoAccess.vue'
@@ -48,7 +49,7 @@ import { deliver as workspaceDeliver } from './workspace/photos'
 import { w } from './workspace/text'
 import { startStudio } from './studio/store'
 import { startActivity } from './identity/activity'
-import { selected as selectedConversation, pendingConversationUi } from './messages/store'
+import { selected as selectedConversation, pendingConversationUi, stopMessaging } from './messages/store'
 import { purgeAccountFromDevice } from './identity/storage'
 import { locationEnabled, startGrantedLocation, stopLocation } from './profiles/location'
 import { warmNames } from './local/photo-names'
@@ -99,13 +100,14 @@ const privateMessage = computed(() =>
 const appPin = ref(''),
   appPinError = ref('')
 async function openApp() {
+  const pin = appPin.value
+  appPinError.value = ''
   try {
-    await unlockApp(appPin.value)
-    appPin.value = ''
-    appPinError.value = ''
+    await unlockApp(pin)
   } catch (error) {
-    appPinError.value =
-      error instanceof Error ? error.message : 'Не удалось открыть приложение'
+    appPinError.value = pinError(error)
+  } finally {
+    appPin.value = ''
   }
 }
 watch(
@@ -116,11 +118,13 @@ watch(
   { immediate: true },
 )
 watch([appLockReady, appLocked], ([ready, locked]) => {
-  if (locked) {
+  if (!ready || locked) {
+    // Synchronous cleanup before any protected Vue view can paint.
     hardLock()
+    stopMessaging()
     appPin.value = ''
-  } else if (ready) resumeTrustedPhotos()
-})
+  } else resumeTrustedPhotos()
+}, { flush: 'sync' })
 function updatePrivatePresence() {
   if (hasConfirmedIdentity() && appLockReady.value && !appLocked.value && !hidden.value &&
       !['welcome','shared-photo','shared-card','account-auth'].includes(String(route.name)))
@@ -547,32 +551,29 @@ watch(
         >
           <form class="native-form screen-body" @submit.prevent="openApp">
             <h1>
-              {{
-                appLockReady
-                  ? 'PhotoBunker заблокирован'
-                  : 'Открываем приложение…'
-              }}
+              {{ appLockReady ? pt('locked') : a('sessionChecking') }}
             </h1>
-            <template v-if="appLockFailure"><p role="alert">{{ a('sessionPinStorage') }}</p>
-              <button type="button" class="secondary-button" @click="loadAppLock()">{{ a('sessionRetry') }}</button>
+            <template v-if="appLockFailure"><p role="alert">{{ pt('storage') }}</p>
+              <button type="button" class="secondary-button" @click="loadAppLock()">{{ pt('retry') }}</button>
             </template>
             <template v-else-if="appLockReady"
               ><label
-                >PIN приложения<input
+                >{{ pt('title') }}<input
                   v-model="appPin"
                   type="password"
                   inputmode="numeric"
                   autocomplete="off"
                   maxlength="8"
                   required /></label
-              ><button class="primary-button">Открыть приложение</button
+              ><button class="primary-button">{{ pt('unlock') }}</button
               ><button
                 type="button"
                 class="quiet-button"
-                @click="router.push('/profile/account?mode=recover')"
+                @click="router.push('/profile/account?mode=recover&pinReset=1')"
               >
-                Забыли PIN? Восстановить с PB1
+                {{ pt('forgot') }}
               </button>
+              <p class="field-hint">{{ pt('recovery') }}</p>
               <p v-if="appPinError" role="alert">{{ appPinError }}</p></template
             >
           </form>
