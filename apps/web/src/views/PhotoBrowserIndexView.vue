@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import ScreenHeader from '../components/ScreenHeader.vue'
 import AppIcon from '../components/AppIcon.vue'
 import { account, deviceId, hasConfirmedIdentity } from '../identity/store'
@@ -10,7 +10,7 @@ import { localTasks, loadStudio } from '../studio/store'
 import { saveBrowser } from '../photo-browser/cache'
 import { bt } from '../photo-browser/text'
 
-const router = useRouter()
+const router = useRouter(), route = useRoute()
 const selected = ref<string[]>([])
 const working = ref(false)
 const failed = ref(false)
@@ -27,6 +27,14 @@ watch([() => account.value?.id, deviceId, appLocked], () => {
   selected.value = []
   failed.value = false
 }, { flush: 'sync' })
+let prefilled = false
+watch(available, tasks => {
+  if (prefilled) return
+  const id = typeof route.query.assignment === 'string' ? route.query.assignment : ''
+  if (!id || !tasks.some(task => task.id === id)) return
+  selected.value = [id]
+  prefilled = true
+}, { immediate: true })
 function toggle(id: string) {
   selected.value = selected.value.includes(id)
     ? selected.value.filter(x => x !== id) : [...selected.value, id]
