@@ -381,6 +381,78 @@ final class EncryptedPhotosTest extends TestCase
         }
     }
 
+    public function test_private_card_v2_is_ciphertext_only_scope_limited_and_isolated_from_legacy(): void
+    {
+        $f = $this->uploadFixture();
+        $id = $f['id'];
+        $this->post('/api/v1/identity/secure/photos', $f['body'])->assertOk();
+        $ciphertext = random_bytes(96);
+        $shareId = (string) Str::uuid();
+        $scopes = ['card' => true, 'photo' => false, 'original' => false,
+            'download' => false, 'metadata' => false];
+        $manifest = ['type' => 'photo-card', 'version' => 2, 'id' => $shareId,
+            'scopes' => $scopes, 'expiresAt' => $f['s']['expiresAt'],
+            'object' => ['type' => 'card', 'version' => 1,
+                'iv' => Protocol::b64(random_bytes(12)),
+                'ciphertextHash' => Protocol::digest($ciphertext),
+                'ciphertextBytes' => strlen($ciphertext)]];
+        $body = ['manifest' => Protocol::canonical($manifest),
+            'file' => UploadedFile::fake()->createWithContent('ciphertext', $ciphertext)];
+        $private = '/api/v1/identity/secure/photos/'.$id.'/cards';
+        $public = '/api/v1/cards/'.$shareId;
+        $this->post($private, $body)->assertOk()->assertJsonPath('id', $shareId);
+        $this->post($private, $body)->assertOk()->assertJsonPath('id', $shareId);
+        $this->assertDatabaseCount('encrypted_shares', 1);
+        $this->getJson($private)->assertOk()->assertJsonCount(1, 'shares');
+        $this->getJson('/api/v1/identity/secure/photos/'.$id.'/shares')->assertOk()->assertJsonCount(0, 'shares');
+        $this->getJson($public)->assertOk()->assertJsonPath('type', 'photo-card')
+            ->assertJsonPath('scopes.card', true)->assertJsonPath('scopes.photo', false);
+        $this->get($public.'/content')->assertOk();
+        $this->getJson('/api/v1/shares/'.$shareId)->assertNotFound();
+        $this->get('/api/v1/shares/'.$shareId.'/content')->assertNotFound();
+
+        $bad = $manifest;
+        $bad['id'] = (string) Str::uuid();
+        $bad['scopes']['download'] = true;
+        $body['manifest'] = Protocol::canonical($bad);
+        $this->post($private, $body)->assertUnprocessable();
+        $bad['scopes']['download'] = false;
+        $bad['scopes']['photo'] = true;
+        $body['manifest'] = Protocol::canonical($bad);
+        $this->post($private, $body)->assertUnprocessable();
+
+        $this->deleteJson($private.'/'.$shareId)->assertOk()->assertJsonPath('revoked', true);
+        $this->deleteJson($private.'/'.$shareId)->assertOk()->assertJsonPath('revoked', true);
+        $this->getJson($public)->assertGone();
+        $this->get($public.'/content')->assertGone();
+        $body['manifest'] = Protocol::canonical($manifest);
+        $this->post($private, $body)->assertGone();
+        $this->assertDatabaseHas('photo_card_share_tombstones', ['id' => $shareId, 'photo_id' => $id]);
+    }
+
+    public function test_card_pre_revoke_tombstone_defeats_lost_create_ack(): void
+    {
+        $f = $this->uploadFixture();
+        $id = $f['id'];
+        $this->post('/api/v1/identity/secure/photos', $f['body'])->assertOk();
+        $shareId = (string) Str::uuid();
+        $this->deleteJson('/api/v1/identity/secure/photos/'.$id.'/cards/'.$shareId)
+            ->assertOk()->assertJsonPath('revoked', true);
+        $this->assertDatabaseHas('photo_card_share_tombstones', ['id' => $shareId, 'photo_id' => $id]);
+        $bytes = random_bytes(80);
+        $manifest = ['type' => 'photo-card', 'version' => 2, 'id' => $shareId,
+            'scopes' => ['card' => true, 'photo' => false, 'original' => false,
+                'download' => false, 'metadata' => false], 'expiresAt' => $f['s']['expiresAt'],
+            'object' => ['type' => 'card', 'version' => 1,
+                'iv' => Protocol::b64(random_bytes(12)),
+                'ciphertextHash' => Protocol::digest($bytes), 'ciphertextBytes' => strlen($bytes)]];
+        $this->post('/api/v1/identity/secure/photos/'.$id.'/cards', [
+            'manifest' => Protocol::canonical($manifest),
+            'file' => UploadedFile::fake()->createWithContent('ciphertext', $bytes),
+        ])->assertGone();
+        $this->getJson('/api/v1/cards/'.$shareId)->assertNotFound();
+    }
+
     public function test_version_pair_storage_failure_does_not_publish_and_exact_retry_keeps_original(): void
     {
         $f = $this->uploadFixture();
