@@ -425,3 +425,10 @@
   .photo-card-share-actions { flex-direction: column; }
   .photo-card-share-actions > button { width: 100%; justify-content: center; }
 }
+
+/* R1-03C responsive privacy-safe image display. */
+.photo-card-safe-image { display:block; max-width:100%; max-height:66dvh; width:auto; height:auto; object-fit:contain; margin-inline:auto; border-radius:8px; }
+.photo-card-warning { border:1px solid var(--border); border-radius:10px; padding:12px; }
+.photo-card-share-action:disabled { opacity:.5; cursor:not-allowed; }
+.photo-card-share select, .photo-card-share button { min-height:44px; }
+@media (max-width:480px) { .photo-card-safe-image { max-height:52dvh; } }
