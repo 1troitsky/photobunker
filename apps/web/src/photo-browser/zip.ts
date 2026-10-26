@@ -7,7 +7,7 @@ export type ZipSink = (chunk: Uint8Array<ArrayBuffer>) => Promise<void>
 type Entry = { name: Uint8Array<ArrayBuffer>; crc: number; size: number; offset: number }
 const encoder = new TextEncoder()
 const LE = (size: number) => new DataView(new ArrayBuffer(size))
-const data = (view: DataView): Uint8Array<ArrayBuffer> => new Uint8Array(view.buffer)
+const data = (view: DataView): Uint8Array<ArrayBuffer> => new Uint8Array(view.buffer as ArrayBuffer)
 let crcTable: Uint32Array | undefined
 function crc32(previous: number, bytes: Uint8Array): number {
   if (!crcTable) {
