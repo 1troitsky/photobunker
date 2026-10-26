@@ -9,10 +9,8 @@ const fixtures = vi.hoisted(() => ({
   owner: { value: { id: 'alice' } as { id: string } | undefined },
   device: { value: 'device-1' },
 }))
-const owner = fixtures.owner
-const device = fixtures.device
 vi.mock('../src/identity/store', () => ({
-  account: owner, deviceId: device,
+  account: fixtures.owner, deviceId: fixtures.device,
 }))
 vi.mock('../src/app/pin-store', () => ({
   readPin: vi.fn(async (id: string) => {
@@ -34,11 +32,11 @@ import {
   loadAppLock, setAppPin, unlockApp, lockApp, removeAppPin,
 } from '../src/app/lock'
 
-const pinScope = () => `app-pin:${owner.value!.id}:${device.value}`
+const pinScope = () => `app-pin:${fixtures.owner.value!.id}:${fixtures.device.value}`
 beforeEach(() => {
   vi.stubGlobal('crypto', webcrypto)
-  owner.value = { id: 'alice' }
-  device.value = 'device-1'
+  fixtures.owner.value = { id: 'alice' }
+  fixtures.device.value = 'device-1'
   fixtures.data.clear()
   fixtures.legacy.clear()
   fixtures.fails = false
@@ -82,15 +80,15 @@ describe('R1-06 D3 PIN security boundary', () => {
     await expect(unlockApp('123456')).rejects.toThrow('pin.cooldown')
     wall -= 30_000
     await expect(unlockApp('123456')).rejects.toThrow('pin.clock_rollback')
-    owner.value = { id: 'bob' }
+    fixtures.owner.value = { id: 'bob' }
     await loadAppLock()
     expect(appPinEnabled.value).toBe(false)
     expect(appLocked.value).toBe(false)
-    owner.value = { id: 'alice' }
-    device.value = 'device-2'
+    fixtures.owner.value = { id: 'alice' }
+    fixtures.device.value = 'device-2'
     await loadAppLock()
     expect(appPinEnabled.value).toBe(false)
-    device.value = 'device-1'
+    fixtures.device.value = 'device-1'
     wall = 2_060_000
     await loadAppLock()
     await unlockApp('123456')
