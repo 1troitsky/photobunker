@@ -5,7 +5,7 @@ import { Blob as NodeBlob } from 'node:buffer'
 import { createMemoryHistory } from 'vue-router'
 import { createAppRouter } from '../src/router'
 import { ready, b64 } from '../src/crypto/protocol'
-import { encryptCard, decryptCard, publicCardPayload, validateCardScopes, CARD_ONLY } from '../src/crypto/card-shares'
+import { encryptCard, decryptCard, decryptCardObject, encryptCardBundle, publicCardPayload, validateCardScopes, CARD_ONLY } from '../src/crypto/card-shares'
 import type { PrivatePhotoCard } from '../src/studio/private-photo-card'
 
 beforeAll(async () => {
@@ -32,8 +32,6 @@ describe('R1-03B / card-only E2EE without JPEG', () => {
   it('explicitly rejects impossible image scopes rather than revealing an unmasked JPEG', () => {
     for (const scopes of [
       { ...CARD_ONLY, download: true },
-      { ...CARD_ONLY, photo: true },
-      { ...CARD_ONLY, original: true },
       { ...CARD_ONLY, card: false },
     ]) expect(() => validateCardScopes(scopes)).toThrow()
   })
@@ -89,5 +87,48 @@ describe('R1-03B / card-only E2EE without JPEG', () => {
   it('never allows requested duration or parent expiry to be exceeded', async () => {
     await expect(encryptCard(card(), CARD_ONLY, Date.now() + 2 * 3600_000, 3600)).rejects.toThrow()
     await expect(encryptCard(card(), CARD_ONLY, Date.now() + 150_000, 3600)).rejects.toThrow()
+  })
+})
+
+describe('R1-03C / independent encrypted image objects', () => {
+  it('does not change any legacy v2 card-only ciphertext contract', async () => {
+    const p=await encryptCardBundle(card(),CARD_ONLY,Date.now()+60_000,3600,{})
+    expect(p.manifest.objects).toBeUndefined()
+    expect(Object.keys(p.objects)).toEqual(['card'])
+    expect((await decryptCard(p.objects.card!,p.manifest,p.secret)).title).toBe('Synthetic title')
+  })
+  it('encrypts different kinds with different IVs/AAD; no image fallback', async () => {
+    const scopes={...CARD_ONLY,photo:true,original:true,download:true}
+    const p=await encryptCardBundle(card(),scopes,Date.now()+60_000,3600,{
+      photo:{versionId:'687ced2f-cd6e-4bb9-81e6-6c5f86d6bccb',
+        blob:new Blob(['synthetic flattened pixels'],{type:'image/jpeg'})},
+      original:new Blob(['synthetic immutable original']),
+    })
+    const m=p.manifest
+    expect(m.objects?.photo?.iv).not.toBe(m.object.iv)
+    expect(m.objects?.original?.iv).not.toBe(m.objects?.photo?.iv)
+    expect(m.objects?.original?.iv).not.toBe(m.object.iv)
+    expect(await (await decryptCardObject(p.objects.photo!,m,p.secret,'photo')).text())
+      .toBe('synthetic flattened pixels')
+    expect(await (await decryptCardObject(p.objects.original!,m,p.secret,'original')).text())
+      .toBe('synthetic immutable original')
+    expect((await decryptCard(p.objects.card!,m,p.secret)).title).toBe('Synthetic title')
+    await expect(decryptCardObject(p.objects.original!,m,p.secret,'photo')).rejects.toThrow()
+    await expect(decryptCardObject(p.objects.photo!,{...m,scopes:{...scopes,photo:false}},
+      p.secret,'photo')).rejects.toThrow()
+    await expect(decryptCardObject(p.objects.photo!,{...m,objects:{...m.objects,
+      photo:{...m.objects!.photo!,versionId:crypto.randomUUID()}}},
+      p.secret,'photo')).rejects.toThrow()
+    await expect(decryptCardObject(p.objects.photo!,m,b64(crypto.getRandomValues(new Uint8Array(32))),
+      'photo')).rejects.toThrow()
+  })
+  it('rejects missing selected version and unmatched encrypted objects', async () => {
+    const scope={...CARD_ONLY,photo:true}
+    await expect(encryptCardBundle(card(),scope,Date.now()+30_000,3600,{})).rejects.toThrow()
+    await expect(encryptCardBundle(card(),CARD_ONLY,Date.now()+30_000,3600,{
+      original:new Blob(['unexpected'])})).rejects.toThrow()
+    await expect(encryptCardBundle(card(),scope,Date.now()+30_000,3600,{
+      photo:{versionId:'missing',blob:new Blob(['pixels'],{type:'image/jpeg'})},
+    })).rejects.toThrow()
   })
 })
