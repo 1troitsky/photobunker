@@ -18,6 +18,7 @@ export type CardManifest = {
   id: string
   scopes: CardScopes
   expiresAt: number
+  durationSeconds: 3600 | 86400 | 604800
   object: { type: 'card'; version: 1; iv: string; ciphertextHash: string; ciphertextBytes: number }
 }
 export type PublicCard = {
@@ -49,16 +50,21 @@ function manifestValid(input: unknown): input is CardManifest {
   if (!input || typeof input !== 'object') return false
   const v = input as Partial<CardManifest>, o = v.object
   return v.type === 'photo-card' && v.version === 2 && uuid(v.id ?? '') &&
-    scopesValid(v.scopes) && Number.isSafeInteger(v.expiresAt) && (v.expiresAt ?? 0) > Date.now() &&
-    !!o && o.type === 'card' && o.version === 1 &&
+    scopesValid(v.scopes) &&
+    Object.keys(v).sort().join(',') === ['type','version','id','scopes','expiresAt','durationSeconds','object'].sort().join(',') &&
+    [3600, 86400, 604800].includes(v.durationSeconds ?? 0) &&
+    Number.isSafeInteger(v.expiresAt) && (v.expiresAt ?? 0) > Date.now() &&
+    !!o && Object.keys(o).sort().join(',') === ['type','version','iv','ciphertextHash','ciphertextBytes'].sort().join(',') &&
+    o.type === 'card' && o.version === 1 &&
     typeof o.iv === 'string' && typeof o.ciphertextHash === 'string' &&
-    Number.isSafeInteger(o.ciphertextBytes) && o.ciphertextBytes > 16 &&
-    o.ciphertextBytes <= 32784
+    typeof o.ciphertextBytes === 'number' && Number.isSafeInteger(o.ciphertextBytes) &&
+    o.ciphertextBytes > 16 && o.ciphertextBytes <= 32784
 }
 const aad = (manifest: CardManifest) => new TextEncoder().encode(
   'photobunker/photo-card/v2\0' + canonical({
     type: manifest.type, version: manifest.version, id: manifest.id,
     scopes: manifest.scopes, expiresAt: manifest.expiresAt,
+    durationSeconds: manifest.durationSeconds,
     object: { type: manifest.object.type, version: manifest.object.version },
   }),
 )
@@ -98,8 +104,11 @@ function payloadValid(x: unknown, scopes: CardScopes, expiry: number): x is Publ
     Object.keys(v.metadata).some(k => !['date','time','camera','width','height','bytes','mime','method','accuracy','locationSource'].includes(k)))) return false
   return true
 }
-export async function encryptCard(card: PrivatePhotoCard, scopes: CardScopes, expiresAt: number) {
+export async function encryptCard(card: PrivatePhotoCard, scopes: CardScopes, expiresAt: number,
+  durationSeconds: 3600 | 86400 | 604800) {
   await ready()
+  if (expiresAt > Date.now() + durationSeconds * 1000)
+    throw new Error('card_share.invalid_duration')
   const payload = publicCardPayload(card, scopes, expiresAt)
   const plain = new TextEncoder().encode(JSON.stringify(payload))
   if (plain.byteLength > 32768) throw new Error('card_share.too_large')
@@ -107,7 +116,8 @@ export async function encryptCard(card: PrivatePhotoCard, scopes: CardScopes, ex
     iv = crypto.getRandomValues(new Uint8Array(12))
   const manifest: CardManifest = {
     type: 'photo-card', version: 2, id: crypto.randomUUID(), scopes,
-    expiresAt, object: { type: 'card', version: 1, iv: b64(iv), ciphertextHash: '', ciphertextBytes: 0 },
+    expiresAt, durationSeconds,
+    object: { type: 'card', version: 1, iv: b64(iv), ciphertextHash: '', ciphertextBytes: 0 },
   }
   try {
     const key = await crypto.subtle.importKey('raw', keyMaterial, 'AES-GCM', false, ['encrypt'])
