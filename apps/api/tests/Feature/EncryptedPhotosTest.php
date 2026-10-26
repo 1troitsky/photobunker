@@ -391,7 +391,7 @@ final class EncryptedPhotosTest extends TestCase
         $scopes = ['card' => true, 'photo' => false, 'original' => false,
             'download' => false, 'metadata' => false];
         $manifest = ['type' => 'photo-card', 'version' => 2, 'id' => $shareId,
-            'scopes' => $scopes, 'expiresAt' => $f['s']['expiresAt'],
+            'scopes' => $scopes, 'expiresAt' => min($f['s']['expiresAt'], now()->addHour()->getTimestampMs()), 'durationSeconds' => 3600,
             'object' => ['type' => 'card', 'version' => 1,
                 'iv' => Protocol::b64(random_bytes(12)),
                 'ciphertextHash' => Protocol::digest($ciphertext),
@@ -442,7 +442,7 @@ final class EncryptedPhotosTest extends TestCase
         $bytes = random_bytes(80);
         $manifest = ['type' => 'photo-card', 'version' => 2, 'id' => $shareId,
             'scopes' => ['card' => true, 'photo' => false, 'original' => false,
-                'download' => false, 'metadata' => false], 'expiresAt' => $f['s']['expiresAt'],
+                'download' => false, 'metadata' => false], 'expiresAt' => min($f['s']['expiresAt'], now()->addHour()->getTimestampMs()), 'durationSeconds' => 3600,
             'object' => ['type' => 'card', 'version' => 1,
                 'iv' => Protocol::b64(random_bytes(12)),
                 'ciphertextHash' => Protocol::digest($bytes), 'ciphertextBytes' => strlen($bytes)]];
