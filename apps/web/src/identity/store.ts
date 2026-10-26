@@ -508,7 +508,7 @@ export async function restorePublicCaptureIdentity(warm = false) {
       d.publicId === saved.publicId &&
       !d.privateKey.extractable,
   )
-  if (!known || account.value || epoch !== generation || !identityUnavailable.value && !warm) return
+  if (emergencyBarrierActive() || !known || account.value || epoch !== generation || !identityUnavailable.value && !warm) return
   const fields = Object.fromEntries(
       ['name', 'username', 'email', 'phone', 'links', 'about'].map((k) => [
         k,
