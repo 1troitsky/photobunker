@@ -41,7 +41,7 @@ const DATABASES = new Set([
   'photobunker-private-messenger-folders-v1',
   'photobunker-team-cache-v1', 'photobunker-private-presence-v1',
   'photobunker-photo-browser-cache-v1', 'photobunker-photo-names-v1',
-  'photobunker-card-share-outbox-v1',
+  'photobunker-card-share-intents-v1',
 ])
 type KeyRow = { database: string; store: string; key: IDBValidKey }
 /** A read-only full store inventory; unknown storage is never assumed empty. */
@@ -115,8 +115,8 @@ export async function freshLocalDeletePreflight(pin: string): Promise<{scope: De
     x.database === 'photobunker-photo-browser-cache-v1' &&
     String(x.key).startsWith('browser:' + scope.owner + ':' + scope.device + ':'))
   for (const row of browserKeys) {
-    const snapshot = await readBrowser(scope.owner, scope.device, String(row.key).split(':').at(-1)!)
-    if (snapshot?.pending) throw new PreflightDenied('unsynced')
+    const snapshot = await readBrowser(scope.owner, scope.device, String(row.key).split(':').at(-1)!, false)
+    if (!snapshot || snapshot.pending) throw new PreflightDenied('unsynced')
   }
   // Any unsynchronized share intent is vetoed. Existing access grants remain
   // server-side and are NOT revoked by local deletion.
@@ -129,9 +129,9 @@ export async function freshLocalDeletePreflight(pin: string): Promise<{scope: De
   if (photos.some(p => p.uiOnly || p.uploadRequested || p.metadataDirty || p.deleteRequested ||
     p.uploadError || p.remoteRevision === undefined || p.deliveryOnly || p.uploadOnly))
     throw new PreflightDenied('unsynced')
-  const existing = await photoIndex()
+  const existing = photos.some(p => !p.encrypted) ? await photoIndex() : undefined
   checkPreflightScope(scope)
-  const remoteIds = new Map(existing.photos.map(p => [p.id,p]))
+  const remoteIds = new Map(existing?.photos.map(p => [p.id,p]) ?? [])
   for (const p of photos) {
     const server = p.encrypted ? await secureRemote(p.id) : undefined
     const known = p.encrypted ? server : remoteIds.get(p.id)
