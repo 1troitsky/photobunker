@@ -223,6 +223,10 @@ function focusText() {
   // Explicitly callable from a click to open the iOS software keyboard.
   textEditor.value?.focus()
 }
+function chooseText(id: string) {
+  selectedText.value = id
+  void nextTick(focusText)
+}
 function addText() {
   if (edits.value.texts.length >= 20) return
   const anchor = imagePoint(
@@ -702,7 +706,7 @@ onBeforeUnmount(() => {
               :key="layer.id"
               class="quiet-button"
               :aria-pressed="selectedText === layer.id"
-              @click="selectedText = layer.id"
+              @click="chooseText(layer.id)"
             >
               {{ s('text') }} {{ index + 1 }}</button
             ><button
