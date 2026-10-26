@@ -27,7 +27,12 @@ final class PhotoShareController
         $row = $this->objects->active($actor, $id);
         abort_unless($this->workspace->grant($actor, $row)['shareExternal'], 403);
 
-        return response()->json(['shares' => DB::table('encrypted_shares')->where('photo_id', $id)->where('creator_id', $actor)->orderByDesc('created_at')->get()->map(fn ($s) => ['id' => $s->id, 'scope' => Protocol::decode($s->manifest)['scope'], 'versionId' => Protocol::decode($s->manifest)['versionId'], 'expiresAt' => min((int) $s->expires_at, (int) $row->expires_at), 'revoked' => (bool) $s->revoked_at])]);
+        return response()->json(['shares' => DB::table('encrypted_shares')->where('photo_id', $id)->where('creator_id', $actor)->orderByDesc('created_at')->get()->map(function ($s) use ($row) {
+            $m = Protocol::decode($s->manifest);
+            if (($m['version'] ?? null) !== 1 || isset($m['type'])) return null;
+            return ['id' => $s->id, 'scope' => $m['scope'], 'versionId' => $m['versionId'],
+                'expiresAt' => min((int) $s->expires_at, (int) $row->expires_at), 'revoked' => (bool) $s->revoked_at];
+        })->filter()->values()]);
     }
 
     public function create(Request $r, string $id)
@@ -108,13 +113,17 @@ final class PhotoShareController
     public function show(Request $r, string $id)
     {
         $s = $this->publicShare($r, $id);
+        $manifest = Protocol::decode($s->manifest);
+        abort_unless(($manifest['version'] ?? null) === 1 && !isset($manifest['type']), 404);
 
-        return response()->json(Protocol::decode($s->manifest), 200, ['Cache-Control' => 'no-store', 'Referrer-Policy' => 'no-referrer']);
+        return response()->json($manifest, 200, ['Cache-Control' => 'no-store', 'Referrer-Policy' => 'no-referrer']);
     }
 
     public function content(Request $r, string $id)
     {
         $s = $this->publicShare($r, $id);
+        $manifest = Protocol::decode($s->manifest);
+        abort_unless(($manifest['version'] ?? null) === 1 && !isset($manifest['type']), 404);
         $o = DB::table('encrypted_objects')->find($s->object_id);
         try {
             $stream = Storage::disk(config('prototype.disk'))->readStream($o->object_key);
