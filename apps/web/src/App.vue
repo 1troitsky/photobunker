@@ -16,6 +16,8 @@ import {
   protectionEnabled,
   protectionReady,
   photoReadAllowed,
+  strongUnlocked,
+  warmLocked,
 } from './crypto/store'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { c } from './collaboration/text'
@@ -50,12 +52,25 @@ import { selected as selectedConversation, pendingConversationUi } from './messa
 import { purgeAccountFromDevice } from './identity/storage'
 import { locationEnabled, startGrantedLocation, stopLocation } from './profiles/location'
 import { warmNames } from './local/photo-names'
+import { flushCardShares } from './crypto/card-share-outbox'
 
 const route = useRoute(),
   router = useRouter()
+
+// Card intents are replayed by the app shell even if the owner has left the
+// private Photo Card page. Only a confirmed session and open photo PIN gate
+// permit contacting the server.
+function reconnectCardShares() {
+  // The guest /c route must never initiate the previous account's private
+  // cache/outbox workflow.
+  if (route.name === 'shared-card') return
+  if (hasConfirmedIdentity() && photoReadAllowed() && !appLocked.value &&
+      navigator.onLine) void flushCardShares().catch(() => {})
+}
+watch([sessionState, appLocked, protectionReady, strongUnlocked, warmLocked], reconnectCardShares)
 const privatePhotoRoute = computed(() => route.path.startsWith('/gallery'))
 const openRoute = computed(() =>
-  ['shared-photo', 'welcome', 'profile', 'account-auth', 'person-profile'].includes(String(route.name)),
+  ['shared-photo', 'shared-card', 'welcome', 'profile', 'account-auth', 'person-profile'].includes(String(route.name)),
 )
 const offlineLocalRoute = computed(() =>
   // A known non-extractable device may display its own encrypted outbox, but
@@ -129,7 +144,7 @@ watch(
     appLockReady, appLocked, locationEnabled, locationVisible, locationResumeEpoch,
     hidden, () => route.name],
   () => {
-    const privatePage = !['welcome', 'shared-photo', 'account-auth'].includes(String(route.name))
+    const privatePage = !['welcome', 'shared-photo', 'shared-card', 'account-auth'].includes(String(route.name))
     const scopedIdentity = hasConfirmedIdentity() ||
       (offlineCaptureIdentity.value && ['checking', 'offline'].includes(sessionState.value))
     if (privatePage && scopedIdentity && account.value?.id && deviceId.value &&
@@ -288,6 +303,7 @@ onMounted(() => {
   void refreshProfiles()
   window.addEventListener('online', updateConnection)
   window.addEventListener('online', reconnectPhotoNames)
+  window.addEventListener('online', reconnectCardShares)
   window.addEventListener('offline', updateConnection)
   window.addEventListener('photobunker-privacy-screen', privacy)
 })
@@ -307,6 +323,7 @@ onBeforeUnmount(() => {
   stopActivity?.()
   window.removeEventListener('online', updateConnection)
   window.removeEventListener('online', reconnectPhotoNames)
+  window.removeEventListener('online', reconnectCardShares)
   window.removeEventListener('offline', updateConnection)
   window.removeEventListener('photobunker-privacy-screen', privacy)
 })
@@ -343,7 +360,7 @@ watch(
 </script>
 
 <template>
-  <RouterView v-if="route.name === 'shared-photo'" :key="route.fullPath" />
+  <RouterView v-if="(route.name === 'shared-photo' || route.name === 'shared-card')" :key="route.fullPath" />
   <template v-else>
     <a class="skip-link" href="#main">{{ t('skip') }}</a>
     <div

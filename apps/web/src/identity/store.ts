@@ -427,6 +427,8 @@ export async function logout() {
           .then(local => local.eraseTeamCache(previousAccount, previousDevice)).catch(() => {}))
         cleanup.push(import('../local/photo-names')
           .then(names => names.purgeNames(previousAccount, previousDevice)).catch(() => {}))
+        cleanup.push(import('../crypto/card-share-outbox')
+          .then(shares => shares.purgeCardShareIntents(previousAccount, previousDevice)).catch(() => {}))
       }
       await Promise.all(cleanup)
     } finally {

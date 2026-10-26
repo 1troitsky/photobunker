@@ -6,6 +6,7 @@ use App\Http\Controllers\EncryptedPhotoController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\IdentityController;
 use App\Http\Controllers\MessagingController;
+use App\Http\Controllers\PhotoCardShareController;
 use App\Http\Controllers\PhotoDeviceLinkController;
 use App\Http\Controllers\PhotoKeyController;
 use App\Http\Controllers\PhotoMigrationController;
@@ -25,6 +26,8 @@ use App\Http\Middleware\LocalPrototype;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function (): void {
+    Route::get('/cards/{id}', [PhotoCardShareController::class, 'show'])->whereUuid('id');
+    Route::get('/cards/{id}/content', [PhotoCardShareController::class, 'content'])->whereUuid('id');
     Route::get('/shares/{id}', [PhotoShareController::class, 'show'])->whereUuid('id');
     Route::get('/shares/{id}/content', [PhotoShareController::class, 'content'])->whereUuid('id');
     Route::get('/rtc-gate', [RtcController::class, 'gate']);
@@ -77,6 +80,9 @@ Route::prefix('v1')->group(function (): void {
         Route::get('/secure/photos/{id}/objects/{objectId}', [$encryptedPhotos, 'content'])->whereUuid(['id', 'objectId']);
         Route::get('/secure/photos/{id}/versions', [PhotoVersionController::class, 'index'])->whereUuid('id');
         Route::post('/secure/photos/{id}/versions', [PhotoVersionController::class, 'save'])->whereUuid('id');
+        Route::get('/secure/photos/{id}/cards', [PhotoCardShareController::class, 'index'])->whereUuid('id');
+        Route::post('/secure/photos/{id}/cards', [PhotoCardShareController::class, 'create'])->whereUuid('id');
+        Route::delete('/secure/photos/{id}/cards/{shareId}', [PhotoCardShareController::class, 'revoke'])->whereUuid(['id', 'shareId']);
         Route::get('/secure/photos/{id}/shares', [PhotoShareController::class, 'index'])->whereUuid('id');
         Route::post('/secure/photos/{id}/shares', [PhotoShareController::class, 'create'])->whereUuid('id');
         Route::delete('/secure/photos/{id}/shares/{shareId}', [PhotoShareController::class, 'revoke'])->whereUuid(['id', 'shareId']);

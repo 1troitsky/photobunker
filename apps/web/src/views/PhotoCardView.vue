@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import ScreenHeader from '../components/ScreenHeader.vue'
 import AppIcon from '../components/AppIcon.vue'
 import PrivateLocationMap from '../components/PrivateLocationMap.vue'
+import PhotoCardLinks from '../components/PhotoCardLinks.vue'
 import { photos } from '../local/library'
 import { account, sessionState } from '../identity/store'
 import { appLockReady, appLocked } from '../app/lock'
@@ -16,6 +17,7 @@ import { locale } from '../i18n'
 
 const route = useRoute()
 const card = ref<PrivatePhotoCard>()
+const canShare = ref(false)
 const ownerOfCard = ref('')
 const loading = ref(false)
 const error = ref<'offline' | 'denied' | 'locked' | 'unavailable'>()
@@ -44,6 +46,7 @@ let generation = 0
 function invalidate() {
   generation++
   card.value = undefined
+  canShare.value = false
   ownerOfCard.value = ''
   loading.value = false
   error.value = undefined
@@ -53,6 +56,7 @@ function invalidate() {
 async function load() {
   const token = ++generation, owner = account.value?.id, photoId = id.value
   card.value = undefined
+  canShare.value = false
   ownerOfCard.value = ''
   error.value = undefined
   copyState.value = 'idle'
@@ -65,6 +69,7 @@ async function load() {
     if (token !== generation || owner !== account.value?.id ||
         photoId !== id.value || !privateCardScopeAllowed()) return
     ownerOfCard.value = owner || ''
+    canShare.value = photo.workspaceAccess?.shareExternal === true
     card.value = projection
   } catch (reason) {
     if (token !== generation || owner !== account.value?.id || photoId !== id.value) return
@@ -182,6 +187,7 @@ onBeforeUnmount(() => { invalidate(); clearInterval(expiry) })
               </div>
             </dl>
           </section>
+          <PhotoCardLinks v-if="canShare && visible" :card="visible" :share-allowed="canShare" />
         </div>
       </template>
     </div>
