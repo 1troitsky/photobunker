@@ -114,7 +114,8 @@ async function clearScopedCaches(s: DeleteScope) {
   // Public PWA shell precache stays intact. Private caches must explicitly
   // identify the device; unscoped private cache means fail closed.
   for (const name of await caches.keys()) {
-    if (!/private|encrypted|photo|message/i.test(name)) continue
+    if (name.startsWith('photobunker-shell-')) continue
+    if (!/private|encrypted|photo|message/i.test(name.replace(/^photobunker-/,''))) continue
     const target = name.includes(s.owner + ':' + s.device)
     // A cache belonging to another explicit UUID/UUID scope is preserved.
     // An unscoped private cache cannot be attributed safely and blocks D4.
