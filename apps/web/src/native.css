@@ -408,3 +408,20 @@
   .photo-card-private-label { font-size: 0; gap: 0; }
   .photo-card-private-label svg { width: 20px; height: 20px; }
 }
+
+/* R1-03B: protected Card links, responsive pending controls and safe area. */
+.photo-card-share { display: flex; flex-direction: column; gap: 10px; }
+.photo-card-share .toggle-row { border-bottom: 1px solid var(--border); }
+.photo-card-share .toggle-row input[disabled] { opacity: .6; }
+.photo-card-duration { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.photo-card-duration select { min-height: 44px; width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--background); color: var(--text); }
+.photo-card-share-action { display: inline-flex; gap: 8px; justify-content: center; align-items: center; min-height: 48px; }
+.photo-card-share-action svg, .photo-card-share-actions svg { width: 17px; height: 17px; }
+.photo-card-share-row { border-top: 1px solid var(--border); padding: 12px 0; min-width: 0; }
+.photo-card-share-row textarea { box-sizing: border-box; width: 100%; min-height: 64px; resize: none; font-size: 14px; color: var(--text); background: var(--background); border: 1px solid var(--border); border-radius: 10px; padding: 10px; overflow-wrap: anywhere; }
+.photo-card-share-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.photo-card-share-actions > button { min-height: 44px; display: inline-flex; align-items: center; gap: 8px; }
+@media (max-width: 460px) {
+  .photo-card-share-actions { flex-direction: column; }
+  .photo-card-share-actions > button { width: 100%; justify-content: center; }
+}
