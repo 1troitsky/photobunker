@@ -257,7 +257,16 @@
 .external-photo-preview { display: flex; flex-direction: column; gap: 16px; }
 .external-photo-preview img { display: block; max-width: 100%; max-height: 50dvh; object-fit: contain; }
 .external-photo-preview p { font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; }
-.interactive-canvas canvas { touch-action: none; cursor: crosshair; }
+.interactive-canvas canvas { touch-action: none; cursor: crosshair; user-select: none; -webkit-user-select: none; }
+.photo-editor .editor-image-stage { max-height: calc(100dvh - var(--native-header) - 168px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+.photo-editor .editor-image-stage canvas { display: block; }
+.photo-editor .drawing-tools .secondary-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; }
+.photo-editor .drawing-tools svg { width: 20px; height: 20px; flex: none; }
+.photo-editor .editor-fill-toggle { flex-direction: row; align-items: center; min-height: 44px; gap: 10px; }
+.photo-editor .editor-fill-toggle input[type=checkbox] { width: 20px; height: 20px; flex: none; accent-color: var(--accent); }
+.photo-editor .editor-focus-text { align-self: flex-start; min-height: 44px; }
+@media (max-width: 520px) { .photo-editor .editor-image-stage { margin: 12px 12px 0; height: min(42dvh, 380px); min-height: 160px; } }
+
 .drawing-tools, .text-layers { display: flex; gap: 8px; flex-wrap: wrap; }
 .drawing-tools > button { flex: 1; padding: 10px; }
 .drawing-tools [aria-pressed=true], .text-layers [aria-pressed=true] { color: var(--accent); background: var(--accent-dim); border-color: var(--accent); }
