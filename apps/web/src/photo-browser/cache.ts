@@ -13,10 +13,11 @@ async function ownerLock<T>(owner: string, job: () => Promise<T>): Promise<T> {
     : job()
   const pending = serial.get(owner) ?? Promise.resolve()
   const current = pending.then(run, run)
-  serial.set(owner, current.catch(() => {}))
+  const tail = current.catch(() => {})
+  serial.set(owner, tail)
   try { return await current }
   finally {
-    if (serial.get(owner) === current) serial.delete(owner)
+    if (serial.get(owner) === tail) serial.delete(owner)
   }
 }
 
