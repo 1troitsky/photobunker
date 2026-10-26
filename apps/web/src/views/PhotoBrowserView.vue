@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import ScreenHeader from '../components/ScreenHeader.vue'
 import AppIcon from '../components/AppIcon.vue'
 import PhotoThumbnail from '../components/PhotoThumbnail.vue'
@@ -14,6 +14,8 @@ import { eraseBrowser, readBrowser, saveBrowser } from '../photo-browser/cache'
 import { visibleBrowserPhotos, type BrowserCollection, type BrowserSnapshot } from '../photo-browser/model'
 import { bt } from '../photo-browser/text'
 import { locale } from '../i18n'
+import { downloadBrowser, chooseZipDestination, releaseTemporaryDownloads } from '../photo-browser/download'
+import { lockGeneration } from '../crypto/state'
 
 const route = useRoute()
 const id = computed(() => String(route.params.id ?? ''))
@@ -27,6 +29,12 @@ const display = ref<'grid' | 'list' | 'tree'>('grid')
 const sort = ref<'newest' | 'oldest' | 'name'>('newest')
 const copyStatus = ref('')
 const busy = ref(false)
+const exporting = ref(false)
+const exportStopping = ref(false)
+const exportDone = ref(0)
+const exportTotal = ref(0)
+const exportNotice = ref<'' | 'exportWritten' | 'exportDispatched' | 'exportCancelled' | 'exportDenied' | 'exportSize' | 'exportVersion' | 'exportFailed'>('')
+let exportController: AbortController | undefined
 const online = ref(navigator.onLine)
 const now = ref(Date.now())
 let generation = 0
@@ -56,7 +64,15 @@ const expiry = computed(() => collection.value?.expiresAt ?? 0)
 const date = (time: number) => new Intl.DateTimeFormat(locale.value, {
   dateStyle: 'medium', timeStyle: 'short',
 }).format(time)
+function stopExport() {
+  if (exportController && !exportController.signal.aborted) {
+    exportStopping.value = true
+    exportController.abort()
+  }
+}
 function clear() {
+  stopExport()
+  releaseTemporaryDownloads()
   generation++
   snapshot.value = undefined
   selected.value = []
@@ -64,6 +80,7 @@ function clear() {
   query.value = ''
   assignment.value = ''
   copyStatus.value = ''
+  exportNotice.value = ''
   status.value = 'locked'
 }
 async function load() {
@@ -137,7 +154,72 @@ function toggle(id: string) {
     ? selected.value.filter(value => value !== id)
     : [...selected.value, id]
 }
-function selectAll() { selected.value = ordered.value.map(x => x.id) }
+function selectAll() { selected.value = [...new Set(ordered.value.map(x => x.id))] }
+// Selection survives search/folder/display changes. Export exactly what the
+// counter shows, while dropping rows that expired since they were selected.
+const selection = computed(() => status.value === 'ready' && snapshot.value
+  ? snapshot.value.photos.filter(item => selectedSet.value.has(item.id) && item.expiresAt > now.value)
+  : [])
+function exportSelection(mode: 'single' | 'zip') {
+  if (exporting.value || status.value !== 'ready' || !collection.value ||
+      !hasConfirmedIdentity() || !online.value) return
+  const items = selection.value
+  if (!items.length || (mode === 'single' && items.length !== 1)) return
+  const current = ++generation
+  const owner = account.value!.id, device = deviceId.value
+  const browserId = id.value
+  const lock = lockGeneration.value
+  const selectedCollection = collection.value
+  const controller = new AbortController()
+  exportController = controller
+  exporting.value = true
+  exportStopping.value = false
+  exportDone.value = 0
+  exportTotal.value = items.length
+  exportNotice.value = ''
+  // Save-file picker must be opened in the user's click event, before fetch.
+  const destination = mode === 'zip' ? chooseZipDestination() : undefined
+  void (async () => {
+    try {
+      const result = await downloadBrowser({
+        collection: selectedCollection, selected: items, mode,
+        owner, device, signal: controller.signal,
+        stillCurrent: () => current === generation &&
+          id.value === browserId && lockGeneration.value === lock &&
+          document.visibilityState === 'visible' && !exportStopping.value &&
+          status.value === 'ready',
+        onProgress: (done, total) => {
+          if (current === generation) {
+            exportDone.value = done
+            exportTotal.value = total
+          }
+        },
+      }, destination)
+      if (current === generation) exportNotice.value =
+        result === 'written' ? 'exportWritten' : 'exportDispatched'
+    } catch (error) {
+      if (current !== generation) return
+      const statusCode = (error as { status?: number })?.status
+      const code = error instanceof Error ? error.message : ''
+      exportNotice.value = controller.signal.aborted ||
+        (error instanceof DOMException && error.name === 'AbortError')
+        ? 'exportCancelled' :
+        statusCode === 403 || statusCode === 404 || statusCode === 410 ||
+          code === 'browser.denied' ? 'exportDenied' :
+        code === 'browser.zip_limit' || code === 'browser.image_limit' ? 'exportSize' :
+        code === 'browser.version_required' ? 'exportVersion' : 'exportFailed'
+      if (exportNotice.value === 'exportDenied') {
+        snapshot.value = undefined
+        status.value = 'denied'
+        void eraseBrowser(owner, device, browserId).catch(() => {})
+      }
+    } finally {
+      if (exportController === controller) exportController = undefined
+      exporting.value = false
+      exportStopping.value = false
+    }
+  })()
+}
 async function copy() {
   if (status.value !== 'ready' || !online.value) return
   try {
@@ -150,6 +232,8 @@ async function revoke() {
       busy.value || !confirm(bt('revokeConfirm'))) return
   const epoch = generation, owner = account.value!.id, device = deviceId.value, collectionId = id.value
   busy.value = true
+  stopExport()
+  exportNotice.value = ''
   try {
     await request('/browser/' + encodeURIComponent(collectionId), 'DELETE', undefined, owner)
     await eraseBrowser(owner, device, collectionId)
@@ -163,14 +247,18 @@ async function revoke() {
 const tick = setInterval(() => {
   now.value = Date.now()
   if (snapshot.value?.collection.expiresAt && snapshot.value.collection.expiresAt <= now.value) {
-    snapshot.value = undefined; status.value = 'unavailable'
+    stopExport(); releaseTemporaryDownloads(); snapshot.value = undefined; status.value = 'unavailable'
   }
 }, 5000)
+function exportVisibility() { if (document.hidden) stopExport() }
+document.addEventListener('visibilitychange', exportVisibility)
 window.addEventListener('online', onlineChanged)
 window.addEventListener('offline', onlineChanged)
+onBeforeRouteLeave(() => { stopExport() })
 onBeforeUnmount(() => {
   clear()
   clearInterval(tick)
+  document.removeEventListener('visibilitychange', exportVisibility)
   window.removeEventListener('online', onlineChanged)
   window.removeEventListener('offline', onlineChanged)
 })
@@ -192,6 +280,7 @@ onBeforeUnmount(() => {
           status === 'locked' ? 'locked' : status === 'denied' ? 'denied' :
           status === 'revoked' ? 'revoked' :
           status === 'failed' ? 'loadFailed' : 'unavailable') }}</p>
+        <p v-if="exportNotice" class="field-hint">{{ bt(exportNotice) }}</p>
         <button class="primary-button" type="button" @click="load">{{ bt('retry') }}</button>
       </div>
       <template v-else>
@@ -226,11 +315,30 @@ onBeforeUnmount(() => {
             @click="choosing = !choosing; selected = []">{{ bt('select') }}</button>
         </div>
         <div v-if="choosing" class="browser-selection" role="status">
-          {{ bt('selectedCount') }}: {{ selected.length }}
+          {{ bt('selectedCount') }}: {{ selection.length }}
           <button class="quiet-button" type="button" @click="selectAll">{{ bt('selectAll') }}</button>
           <button class="quiet-button" type="button" @click="selected = []">{{ bt('clear') }}</button>
-          <span class="field-hint">{{ bt('noDownload') }}</span>
+          <button type="button" class="secondary-button"
+            :disabled="exporting || status !== 'ready' || selection.length !== 1"
+            @click="exportSelection('single')">{{ bt('downloadOne') }}</button>
+          <button type="button" class="primary-button"
+            :disabled="exporting || status !== 'ready' || selection.length < 1"
+            @click="exportSelection('zip')">{{ bt('downloadZip') }}</button>
         </div>
+        <div v-if="exporting || exportNotice" class="browser-export-status" role="status" aria-live="polite">
+          <p v-if="exporting">{{ bt(exportStopping ? 'exportCancelling' : 'exportProgress') }}:
+            {{ exportDone }} / {{ exportTotal }}</p>
+          <progress v-if="exporting" :value="exportDone" :max="Math.max(1, exportTotal)"></progress>
+          <button v-if="exporting && !exportStopping" type="button"
+            class="secondary-button" @click="stopExport">{{ bt('exportCancel') }}</button>
+          <p v-if="exportNotice">{{ bt(exportNotice) }}</p>
+          <button v-if="exportNotice && exportNotice !== 'exportWritten' &&
+            exportNotice !== 'exportDispatched'" type="button"
+            class="quiet-button" :disabled="exporting || status !== 'ready'"
+            @click="exportSelection(selection.length === 1 ? 'single' : 'zip')">
+            {{ bt('retry') }}</button>
+        </div>
+        <p v-if="status === 'ready'" class="field-hint">{{ bt('exportLimit') }}</p>
         <p v-if="!ordered.length" class="native-empty">{{ bt('noPhotos') }}</p>
         <div v-else-if="display === 'grid'" class="native-photo-grid browser-grid">
           <div v-for="item in ordered" :key="item.id" class="browser-photo">

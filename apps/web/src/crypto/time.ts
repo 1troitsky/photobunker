@@ -19,7 +19,9 @@ type SavedClock = { serverTime: number; savedAt: number }
 export async function rememberClock(owner: string, serverTime: number) {
   observe(serverTime)
   await db.put(`clock:${owner}`, {
-    serverTime: trustedNow(),
+    // performance.now() contributes fractional milliseconds. Persist the
+    // conservative integer ceiling required by restoreClock's strict schema.
+    serverTime: Math.ceil(trustedNow()),
     savedAt: Date.now(),
   } satisfies SavedClock)
 }
