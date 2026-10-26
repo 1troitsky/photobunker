@@ -120,7 +120,7 @@ export async function publish(photo: Photo, value: Upload) {
     form,
   )
 }
-export async function fetchVersions(photo: Photo): Promise<PhotoVersion[]> {
+export async function fetchVersions(photo: Photo, newestOnly = false): Promise<PhotoVersion[]> {
   await ready()
   const owner = account.value?.id,
     generation = lockGeneration.value,
@@ -129,7 +129,9 @@ export async function fetchVersions(photo: Photo): Promise<PhotoVersion[]> {
       `/photos/${photo.id}/versions`,
     ),
     result: PhotoVersion[] = []
-  for (const row of response.versions) {
+  // Server returns versions by ascending immutable ordinal. An export only
+  // needs the latest published flattened image; do not decrypt every sibling.
+  for (const row of newestOnly ? response.versions.slice(-1) : response.versions) {
     const e = row.event,
       p = row.image,
       member = p.plan.statement.members.find(
