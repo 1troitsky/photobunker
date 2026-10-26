@@ -84,20 +84,17 @@ final class PresenceController extends Controller
                 'account_id' => $me->id, 'visibility' => 'contacts', 'revision' => 0,
             ]);
             $key = ['device_id' => $device, 'instance_id' => $data['instanceId']];
-            DB::table('identity_presence_leases')->insertOrIgnore($key + [
-                'sequence' => 0, 'last_pulse_at' => now(), 'closed_at' => now(),
+            $inserted = DB::table('identity_presence_leases')->insertOrIgnore($key + [
+                'sequence' => $data['sequence'], 'last_pulse_at' => now(),
+                'closed_at' => $data['active'] ? null : now(),
             ]);
             $lease = DB::table('identity_presence_leases')->where($key)->lockForUpdate()->first();
-            // A brand-new lease can open; a closed lease may NEVER reopen.
-            // A late in-flight pulse cannot undo an accepted disconnect.
-            if ($lease->sequence === 0 && $lease->closed_at && $data['active']) {
-                DB::table('identity_presence_leases')->where($key)->update([
-                    'sequence' => $data['sequence'], 'last_pulse_at' => now(),
-                    'closed_at' => null,
-                ]);
+            // An inactive first request creates a permanently closed tab lease.
+            // Neither a late heartbeat nor an out-of-order request can reopen it.
+            if ($inserted && $data['active']) {
                 DB::table('identity_presence_preferences')->where('account_id', $me->id)
                     ->update(['last_active_at' => now()]);
-            } elseif ($data['sequence'] > $lease->sequence && ! $lease->closed_at) {
+            } elseif (! $inserted && $data['sequence'] > $lease->sequence && ! $lease->closed_at) {
                 DB::table('identity_presence_leases')->where($key)->update([
                     'sequence' => $data['sequence'], 'last_pulse_at' => now(),
                     'closed_at' => $data['active'] ? null : now(),
