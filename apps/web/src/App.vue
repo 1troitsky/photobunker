@@ -108,7 +108,7 @@ async function openApp() {
   try {
     await unlockApp(pin)
   } catch (error) {
-    const triggered = await tryEmergencyOnLockedScreen(pin)
+    const triggered = await tryEmergencyOnLockedScreen(pin).catch(() => false)
     if(!triggered)appPinError.value = pinError(error)
   } finally {
     appPin.value = ''
@@ -375,7 +375,7 @@ watch([emergencyBlocked,deletionBlocked, () => route.name], ([emergency,blocked]
   if (!mounted) return
   if (emergency || blocked) stopPrivateRuntime()
   else startPrivateRuntime()
-}, { flush: 'post' })
+}, { flush: 'sync' })
 onMounted(() => {
   mounted = true
   startPrivateRuntime()
