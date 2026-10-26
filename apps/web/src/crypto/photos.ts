@@ -769,6 +769,19 @@ export async function readLocalCardMetadata(id: string): Promise<Photo | undefin
     ).text()), id)
     photo = { ...photo, ...draft }
   }
+  if (full && value.gps?.object.bytes.byteLength) {
+    // Pending late GPS is E2EE as well. Only full metadata readers may see it.
+    const gps = JSON.parse(await (
+      await decrypt(value.gps.object, { asset_id: id, kind: 'gps' })
+    ).text()) as Photo['metadata']
+    if (gps?.location && !photo.metadata?.locationEditedAt &&
+        photo.metadata?.location?.source !== 'manual') {
+      photo = { ...photo, metadata: {
+        ...photo.metadata, location: gps.location,
+        locationStatus: gps.locationStatus,
+      } }
+    }
+  }
   const name = value.needsName
     ? await localName(id).catch(() => undefined) ?? value.nameCode : undefined
   guard(owner, generation)
