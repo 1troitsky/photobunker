@@ -16,6 +16,8 @@ import {
   protectionEnabled,
   protectionReady,
   photoReadAllowed,
+  strongUnlocked,
+  warmLocked,
 } from './crypto/store'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { c } from './collaboration/text'
@@ -59,7 +61,7 @@ function reconnectCardShares() {
   if (hasConfirmedIdentity() && photoReadAllowed() && !appLocked.value &&
       navigator.onLine) void flushCardShares().catch(() => {})
 }
-watch([sessionState, appLocked, protectionReady], reconnectCardShares)
+watch([sessionState, appLocked, protectionReady, strongUnlocked, warmLocked], reconnectCardShares)
 const route = useRoute(),
   router = useRouter()
 const privatePhotoRoute = computed(() => route.path.startsWith('/gallery'))
