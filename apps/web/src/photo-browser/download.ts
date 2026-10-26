@@ -218,6 +218,8 @@ export async function downloadBrowser(run: ExportRun, destination?: Promise<File
       const folder = safePart(task.name, task.id) + '-' + task.id.slice(0, 8)
       const name = distinctPath(folder + '/' + file.name, paths)
       await zip.add(name, file.blob)
+      // Detect revocation/expiry that occurred while the ZIP was being written.
+      await verify(run, item)
       checkExport(run)
       run.onProgress(i + 1, items.length)
     }
