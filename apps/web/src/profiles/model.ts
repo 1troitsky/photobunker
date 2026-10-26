@@ -28,12 +28,6 @@ export function aspectRatio(rules: ProfileRules): number | undefined {
   return width! / height!
 }
 export function snapshot(profile: Profile): Profile { return JSON.parse(JSON.stringify({ id: profile.id, name: profile.name, description: profile.description, version: profile.version, rules: profile.rules, spaceId: profile.spaceId, access: profile.access })) }
-export function photoCode(prefix: string): string {
-  const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
-  const random = crypto.getRandomValues(new Uint8Array(10))
-  const code = [...random].map(value => alphabet[value % alphabet.length]).join('')
-  return prefix ? `${prefix}-${code}` : code
-}
 export function missingRequirements(photo: { uiRules?: { descriptionRequired: boolean; minLength: number; particularCategory?: boolean }; note: string; category?: string; metadata?: PhotoMetadata; profile?: Profile }): ('description' | 'category' | 'location' | 'resolution')[] {
   const rules = photo.profile?.rules
   if (!rules) return []

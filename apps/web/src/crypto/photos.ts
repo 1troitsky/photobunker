@@ -3,6 +3,7 @@ export { observe as clock } from './time'
 import { IdentityError } from '../identity/api'
 import { account } from '../identity/store'
 import type { Photo, Capture, PhotoChanges } from '../local/photos'
+import { ensureName, localName, isNameId } from '../local/photo-names'
 import { restrictedThumbnail } from '../workspace/thumbnail'
 import { pendingCount, queueError, queueBusy } from '../workspace/state'
 import {
@@ -84,6 +85,9 @@ export type Job = {
   accountId: string
   id: string
   assignmentId?: string
+  needsName?: boolean
+  nameAssignmentId?: string | null
+  nameCode?: string
   expiresAt: number
   submission: Submission
   signature: string
@@ -94,6 +98,7 @@ export type Job = {
   deleted?: boolean
 }
 export type Remote = {
+  nameId?: string | null
   id: string
   vaultId: string
   creatorId: string
@@ -297,6 +302,9 @@ export async function save(
     accountId: owner,
     id: photo.id,
     assignmentId: photo.workspaceAssignmentId,
+    needsName: photo.needsName,
+    nameAssignmentId: photo.nameAssignmentId ?? null,
+    nameCode: photo.shortId,
     expiresAt,
     submission,
     signature,
@@ -397,8 +405,10 @@ export async function index() {
         })
       ).text(),
     ) as Photo
+    const name = pending.needsName ? await localName(pending.id).catch(() => undefined) : undefined
     photos.push({
       ...photo,
+      ...(name ? { shortId: name, title: photo.title || name } : {}),
       encrypted: true,
       uploadRequested: !!pending.submission.retentionSeconds,
       remoteRevision: undefined,
@@ -650,9 +660,11 @@ async function metadata(remote: Remote): Promise<Photo> {
           JSON.parse(await (await remoteObject(remote, kind)).text()),
           remote.id,
         )
+  const resolved = isNameId(remote.nameId) ? remote.nameId : undefined
   const value: Photo = {
     ...captured,
-    title: latest.title,
+    ...(resolved ? { shortId: resolved } : {}),
+    title: latest.title || resolved || '',
     note: latest.note,
     favorite: latest.favorite,
     category: latest.category,
@@ -750,10 +762,12 @@ export async function read(id: string) {
       pending.objects[full ? 'original' : 'thumbnail']!,
       { asset_id: id, kind: full ? 'original' : 'thumbnail' },
     )
+    const name = pending.needsName ? await localName(id).catch(() => undefined) : undefined
     guard(owner, generation)
     return {
       photo: {
         ...photo,
+        ...(name ? { shortId: name, title: photo.title || name } : {}),
         encrypted: true,
         thumbnailOnly: !full,
         workspaceAccess: pendingGrant(pending, full),
@@ -785,6 +799,10 @@ export async function read(id: string) {
     value,
     value.access.read ? 'original' : 'thumbnail',
   )
+  if (isNameId(value.nameId)) {
+    photo.shortId = value.nameId
+    if (!photo.title) photo.title = value.nameId
+  }
   guard(owner, generation)
   return { photo, blob: new Blob([blob], { type: photo.mime }) }
 }
@@ -823,6 +841,9 @@ async function send(id: string) {
   }
   if (value.expiresAt <= Date.now()) throw new Error('crypto.expired')
   if (!value.submission.retentionSeconds) return
+  // This mapping is server-authorized and separate from immutable encrypted
+  // photo metadata. The signed submission and ciphertext never change.
+  if (value.needsName) await ensureName(id, value.nameAssignmentId ?? null, value.nameCode)
   const form = new FormData()
   form.set('submission', canonical(value.submission))
   form.set('signature', value.signature)

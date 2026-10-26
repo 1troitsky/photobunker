@@ -115,6 +115,7 @@ onMounted(async () => {
       person.notify = false
     })
   }
+  item.rules.useAssignmentPhotoId ??= true // Old assignments default to shared numbering.
   draft.value = item
   shots.value = item.shots.join('\n')
   categories.value = item.rules.categories.join('\n')
@@ -322,6 +323,7 @@ onBeforeRouteLeave(
           </p>
         </div>
         <div v-show="tab === 'rules'" class="form-section">
+          <ToggleRow v-model="draft.rules.useAssignmentPhotoId" :label="s('useAssignmentPhotoId')" :hint="s('useAssignmentPhotoIdHint')" />
           <p class="field-hint">{{ s('rulesHint') }}</p>
           <div class="form-card">
             <ToggleRow

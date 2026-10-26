@@ -12,6 +12,7 @@ import {
 import * as local from '../local/photos'
 import type { Photo, PhotoChanges } from '../local/photos'
 import * as api from './api'
+import { ensureName } from '../local/photo-names'
 import { pendingAccess, pendingGrant } from './access'
 import { pendingCount, queueBusy, queueError } from './state'
 
@@ -131,6 +132,15 @@ async function send(id: string) {
   const [originalChecksum, thumbnailChecksum, previewChecksum] =
     await Promise.all([hash(original), hash(thumb), hash(preview)])
   if (owner !== account.value?.id) throw new Error('workspace.cancelled')
+  if (saved.needsName) {
+    const code = await ensureName(id, saved.nameAssignmentId ?? null, saved.shortId)
+    if (owner !== account.value?.id) throw new Error('workspace.cancelled')
+    await local.patchPhoto(id, {
+      shortId: code, title: saved.title || code,
+    })
+    saved.shortId = code
+    if (!saved.title) saved.title = code
+  }
   const form = new FormData()
   const manifest = {
     ...saved,
@@ -166,6 +176,7 @@ async function send(id: string) {
     uploadOnly: result.photo.uploadOnly,
     thumbnailOnly: result.photo.thumbnailOnly,
     uploadRequested: false,
+    shortId: result.photo.shortId ?? saved.shortId,
     expiresAt: Math.min(
       current.expiresAt ?? Infinity,
       result.photo.expiresAt ?? Infinity,

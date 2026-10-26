@@ -109,7 +109,7 @@ final class Objects
             }
         }
 
-        return ['captureMetadata' => $captureMetadata, 'captureCertificate' => $initial['certificate'], 'captureKey' => $captureKey, 'id' => $row->id, 'vaultId' => $row->vault_id, 'creatorId' => $row->creator_id, 'assignmentId' => $row->assignment_id, 'expiresAt' => (int) $row->expires_at, 'revision' => (int) $row->revision, 'reviewRevision' => (int) $row->review_revision, 'reviewState' => $row->review_state, 'submission' => Protocol::decode($row->submission), 'signature' => $row->submission_signature, 'objects' => $objects, 'access' => $access];
+        return ['nameId' => app(\App\Workspace\PhotoNames::class)->forPhoto($row->id), 'captureMetadata' => $captureMetadata, 'captureCertificate' => $initial['certificate'], 'captureKey' => $captureKey, 'id' => $row->id, 'vaultId' => $row->vault_id, 'creatorId' => $row->creator_id, 'assignmentId' => $row->assignment_id, 'expiresAt' => (int) $row->expires_at, 'revision' => (int) $row->revision, 'reviewRevision' => (int) $row->review_revision, 'reviewState' => $row->review_state, 'submission' => Protocol::decode($row->submission), 'signature' => $row->submission_signature, 'objects' => $objects, 'access' => $access];
     }
 
     public function cleanup(object $row): bool

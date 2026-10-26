@@ -155,6 +155,125 @@ final class WorkspaceTest extends TestCase
         return $this->post('/api/v1/identity/workspace/photos', ['manifest' => json_encode([...$manifest, ...$overrides]), 'original' => UploadedFile::fake()->createWithContent('original.jpg', $original), 'thumbnail' => UploadedFile::fake()->createWithContent('thumbnail.jpg', 'synthetic thumbnail'), 'preview' => UploadedFile::fake()->createWithContent('preview.jpg', 'synthetic preview')], ['Accept' => 'application/json']);
     }
 
+    public function test_photo_name_leases_are_disjoint_idempotent_and_do_not_reuse_codes(): void
+    {
+        $owner = $this->fixture();
+        $member = $this->fixture();
+        $outsider = $this->fixture();
+        $this->contact($owner, $member);
+        $task = $this->saveTask($owner, $this->task([$this->participant($member)]));
+        $this->accept($member, $task);
+
+        $url = '/api/v1/identity/photo-names/reserve';
+        $claimUrl = '/api/v1/identity/photo-names/claim';
+        $keyA = (string) Str::uuid();
+        $keyB = (string) Str::uuid();
+        $first = $this->actor($owner)->postJson($url, [
+            'requestKey' => $keyA, 'assignmentId' => $task['id'], 'count' => 4,
+        ])->assertOk()->json();
+        $again = $this->postJson($url, [
+            'requestKey' => $keyA, 'assignmentId' => $task['id'], 'count' => 4,
+        ])->assertOk()->json();
+        $this->assertSame($first, $again);
+        $second = $this->actor($member)->postJson($url, [
+            'requestKey' => $keyB, 'assignmentId' => $task['id'], 'count' => 4,
+        ])->assertOk()->json();
+        $this->assertSame($first['prefix'], $second['prefix']);
+        $this->assertSame($first['last'] + 1, $second['first']);
+        $this->actor($outsider)->postJson($url, [
+            'requestKey' => (string) Str::uuid(), 'assignmentId' => $task['id'],
+        ])->assertNotFound();
+
+        $id = (string) Str::uuid();
+        $body = ['photoId' => $id, 'assignmentId' => $task['id'],
+            'leaseId' => $first['id'], 'number' => $first['first']];
+        $code = $this->actor($owner)->postJson($claimUrl, $body)
+            ->assertOk()->json('code');
+        $this->assertMatchesRegularExpression('/^[A-Z]{4}[0-9]{4}$/', $code);
+        $this->postJson($claimUrl, $body)->assertOk()->assertJsonPath('code', $code);
+        $this->postJson($claimUrl, [
+            'photoId' => $id, 'assignmentId' => $task['id'],
+        ])->assertOk()->assertJsonPath('code', $code);
+        $this->postJson($claimUrl, [
+            ...$body, 'photoId' => (string) Str::uuid(),
+        ])->assertConflict();
+        $this->actor($member)->postJson($claimUrl, $body)->assertNotFound();
+        $this->actor($owner)->postJson($claimUrl, [
+            'photoId' => (string) Str::uuid(), 'assignmentId' => $task['id'],
+            'leaseId' => $second['id'], 'number' => $second['first'],
+        ])->assertForbidden();
+        $this->assertDatabaseCount('photo_name_codes', 1);
+    }
+
+    public function test_workspace_photo_upload_uses_reserved_name_and_keeps_legacy_short_id(): void
+    {
+        $owner = $this->fixture();
+        $id = (string) Str::uuid();
+        $this->upload($owner, null, $id, 'name-id-photo', [
+            'needsName' => true, 'shortId' => null,
+        ])->assertConflict();
+
+        $lease = $this->actor($owner)->postJson('/api/v1/identity/photo-names/reserve', [
+            'requestKey' => (string) Str::uuid(), 'assignmentId' => null,
+        ])->assertOk()->json();
+        $code = $this->postJson('/api/v1/identity/photo-names/claim', [
+            'photoId' => $id, 'assignmentId' => null,
+            'leaseId' => $lease['id'], 'number' => $lease['first'],
+        ])->assertOk()->json('code');
+
+        $this->upload($owner, null, $id, 'name-id-photo', [
+            'needsName' => true, 'shortId' => $code, 'title' => '',
+        ])->assertOk()->assertJsonPath('photo.shortId', $code)
+          ->assertJsonPath('photo.title', $code);
+        $this->getJson('/api/v1/identity/workspace/photos/'.$id)
+            ->assertOk()->assertJsonPath('photo.shortId', $code);
+
+        $editedId = (string) Str::uuid();
+        $editedCode = $this->postJson('/api/v1/identity/photo-names/claim', [
+            'photoId' => $editedId, 'assignmentId' => null,
+        ])->assertOk()->json('code');
+        $this->upload($owner, null, $editedId, 'custom-title-photo', [
+            'needsName' => true, 'shortId' => $editedCode, 'title' => 'Synthetic photo',
+        ])->assertOk()->assertJsonPath('photo.title', 'Synthetic photo');
+
+        $legacyId = (string) Str::uuid();
+        $legacy = $this->upload($owner, null, $legacyId)->assertOk()->json('photo.shortId');
+        $this->assertSame(10, strlen($legacy));
+        $this->postJson('/api/v1/identity/photo-names/claim', [
+            'photoId' => $legacyId, 'assignmentId' => null,
+        ])->assertConflict();
+        $this->getJson('/api/v1/identity/workspace/photos/'.$legacyId)
+            ->assertOk()->assertJsonPath('photo.shortId', $legacy);
+    }
+
+    public function test_photo_name_prefix_rolls_over_after_9999_without_renaming_issued_codes(): void
+    {
+        $owner = $this->fixture();
+        $url = '/api/v1/identity/photo-names/reserve';
+        $first = $this->actor($owner)->postJson($url, [
+            'requestKey' => (string) Str::uuid(), 'assignmentId' => null, 'count' => 2,
+        ])->assertOk()->json();
+        DB::table('photo_name_prefixes')->where('prefix', $first['prefix'])
+            ->update(['next_number' => 9999]);
+        $end = $this->postJson($url, [
+            'requestKey' => (string) Str::uuid(), 'assignmentId' => null, 'count' => 32,
+        ])->assertOk()->json();
+        $this->assertSame(9999, $end['first']);
+        $this->assertSame(9999, $end['last']);
+        $photoId = (string) Str::uuid();
+        $code = $this->postJson('/api/v1/identity/photo-names/claim', [
+            'photoId' => $photoId, 'assignmentId' => null,
+            'leaseId' => $end['id'], 'number' => 9999,
+        ])->assertOk()->json('code');
+        $next = $this->postJson($url, [
+            'requestKey' => (string) Str::uuid(), 'assignmentId' => null,
+        ])->assertOk()->json();
+        $this->assertNotSame($first['prefix'], $next['prefix']);
+        $this->assertSame(1, $next['first']);
+        $this->assertSame($first['prefix'].'9999', $code);
+        $this->assertDatabaseHas('photo_name_codes', ['photo_id' => $photoId, 'code' => $code]);
+    }
+
     public function test_team_acceptance_does_not_grant_assignment_or_photo_access_and_actor_binding_is_enforced(): void
     {
         $owner = $this->fixture();
