@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Identity\Accounts;
+use App\Identity\AccountLifecycle;
 use App\Prototype\Retention;
 use App\Workspace\Workspace;
 use Illuminate\Http\Request;
@@ -41,6 +42,8 @@ final class PhotoBrowserController extends Controller
     private function visible(object $row, string $actor): array
     {
         abort_if($row->revoked_at || $row->expires_at <= Retention::milliseconds(), 410);
+        $creator = DB::table('identity_accounts')->find($row->owner_id);
+        abort_if(! $creator || AccountLifecycle::unavailable($creator), 410);
         abort_if($this->accounts->blocked($actor, $row->owner_id), 403);
         $ids = json_decode(Crypt::decryptString($row->assignments), true, flags: JSON_THROW_ON_ERROR);
         abort_unless(is_array($ids) && count($ids) > 0 && count($ids) <= 20, 404);
