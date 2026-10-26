@@ -167,7 +167,9 @@ export async function flushPresencePreference():Promise<void>{
       }
     }
   })
-  const tracked=job.finally(()=>{flushing.delete(s)})
+  const tracked=job.catch(()=>{
+    if(epoch===changeGeneration)privacyError.value='offline'
+  }).finally(()=>{flushing.delete(s)})
   flushing.set(s,tracked)
   return tracked
 }
@@ -253,9 +255,23 @@ export function usePeerPresence(handle:Ref<string>){
   watch([handle,()=>account.value?.id,appLocked],()=>{
     state.value='unknown';void refresh()
   },{immediate:true})
+  function disconnected(){ generation++;state.value='unknown' }
+  function visibilityChanged(){
+    if(document.hidden) disconnected()
+    else void refresh()
+  }
+  function connected(){void refresh()}
+  window.addEventListener('offline',disconnected)
+  window.addEventListener('online',connected)
+  document.addEventListener('visibilitychange',visibilityChanged)
   const interval=setInterval(()=>{
     if(document.visibilityState==='visible')void refresh()
   },20000)
-  onBeforeUnmount(()=>{generation++;clearInterval(interval)})
+  onBeforeUnmount(()=>{
+    generation++;clearInterval(interval)
+    window.removeEventListener('offline',disconnected)
+    window.removeEventListener('online',connected)
+    document.removeEventListener('visibilitychange',visibilityChanged)
+  })
   return state
 }
