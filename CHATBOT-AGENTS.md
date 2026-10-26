@@ -26,7 +26,7 @@ Chatbot Agent получает конкретное задание, изучае
 
 Перед каждым заданием прочитать:
 
-1. Корневой `AGENTS.md` и ближайший `AGENTS.md` изменяемого каталога.
+1. Корневой `AGENTS.md`, `COLLABORATION.md` и ближайший `AGENTS.md` изменяемого каталога.
 2. `README.md` и `docs/IMPLEMENTATION_PLAN.md`.
 3. `docs/AUDIT-20261025.md`, затем `docs/CHECKLIST.md`.
 4. `docs/REMEDIATION_PLAN-20261025.md` и полученную карточку задачи.
