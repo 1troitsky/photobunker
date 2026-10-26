@@ -4,7 +4,7 @@ import { appLockReady, appLocked } from './lock'
 import { localDeletePinFailure, localDeletePinReady, verifyLocalDeletePin } from './local-delete-pin'
 import { readVerifier } from './local-delete-store'
 import { listPhotos } from '../local/photos'
-import { credentials } from '../identity/keys'
+import { credentials, unb64 } from '../identity/keys'
 import * as encryptedDb from '../crypto/database'
 import type { Job } from '../crypto/photos'
 import * as versionCloud from '../crypto/version-cloud'
@@ -107,6 +107,12 @@ export async function freshLocalDeletePreflight(pin: string): Promise<{scope: De
   checkPreflightScope(scope)
   if (me.account.id !== scope.owner || me.deviceId !== scope.device ||
     me.account.rootKey !== account.value?.rootKey) throw new PreflightDenied('scope')
+  // Compare the saved non-secret PB1 fingerprint to this fresh server root.
+  // A matching app accountId is insufficient after root-key rotation.
+  const fingerprint = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+    unb64(me.account.rootKey ?? ''))),
+    byte => byte.toString(16).padStart(2,'0')).join('')
+  if (fingerprint !== verifier.recoveryFingerprint) throw new PreflightDenied('recovery')
   const knownDevices = await credentials()
   // The account vault uses an account-wide key on the current browser profile;
   // never wipe it when another local device for the same account is enrolled.
@@ -114,6 +120,12 @@ export async function freshLocalDeletePreflight(pin: string): Promise<{scope: De
     throw new PreflightDenied('scope')
   const rows = await inventory()
   checkPreflightScope(scope)
+  if ('caches' in window) {
+    const knownCaches = await caches.keys()
+    if (knownCaches.some(name => /private|encrypted|photo|message/i.test(name) &&
+      !name.includes(scope.owner+':'+scope.device)))
+      throw new PreflightDenied('storage')
+  }
   if (rows.some(row => isPendingRow(row, scope))) throw new PreflightDenied('unsynced')
   if ((await readDurableText()).length) throw new PreflightDenied('unsynced')
   const team = await readTeamCache(scope.owner + ':' + scope.device)
