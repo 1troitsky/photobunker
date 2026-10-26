@@ -42,10 +42,11 @@ final class PhotoCardShareController
 
     private function validateManifest(array $m): void
     {
-        Protocol::fields($m, ['type', 'version', 'id', 'scopes', 'expiresAt', 'object']);
+        Protocol::fields($m, ['type', 'version', 'id', 'scopes', 'expiresAt', 'durationSeconds', 'object']);
         Validator::make($m, [
             'type' => 'required|in:photo-card', 'version' => 'required|integer|in:2',
             'id' => 'required|uuid', 'expiresAt' => 'required|integer|min:1|max:9007199254740991',
+            'durationSeconds' => 'required|integer|in:3600,86400,604800',
             'scopes' => 'required|array:card,photo,original,download,metadata|size:5',
             'scopes.card' => 'required|accepted',
             'scopes.photo' => 'required|boolean',
@@ -106,7 +107,8 @@ final class PhotoCardShareController
             $photo = $this->versions->lock($actor, $id);
             $this->effectiveRead($actor, $photo);
             abort_unless($photo->creator_id && $manifest['expiresAt'] <= $photo->expires_at &&
-                $manifest['expiresAt'] > Retention::milliseconds(), 422);
+                $manifest['expiresAt'] > Retention::milliseconds() &&
+                $manifest['expiresAt'] <= Retention::milliseconds() + $manifest['durationSeconds'] * 1000, 422);
             abort_if(DB::table('photo_card_share_tombstones')->where('id', $manifest['id'])->exists(), 410);
             $existing = DB::table('encrypted_shares')->find($manifest['id']);
             if ($existing) {
