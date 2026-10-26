@@ -18,7 +18,7 @@ PhotoBunker — устанавливаемое Local-First PWA для прива
 
 Большая часть функций реализована, но приложение ещё не считается production-ready. Первые критерии приёмки — рабочие регистрация/вход и обычная переписка между двумя реальными аккаунтами: открыть диалог, отправить и получить текст, повторить offline/reload/reconnect без потерь и дублей. Сборка и автоматические проверки эту приёмку не заменяют.
 
-25 октября выявлен более ранний блокер: вход/регистрация. До его устранения перечисленные реализации не означают доступность пользовательских сценариев. [Аудит](docs/AUDIT-20261025.md) и [чеклист](docs/CHECKLIST.md) задают требования; [план исправлений](docs/REMEDIATION_PLAN-20261025.md) — текущую очередь и приёмку. [IMPLEMENTATION_PLAN](docs/IMPLEMENTATION_PLAN.md) сохраняет архитектуру и долгосрочный roadmap.
+25 октября аудит выявил ранние блокеры входа и базовой переписки. Их технические исправления уже интегрированы, но перечисленные реализации не означают финальную пользовательскую приёмку. [Аудит](docs/AUDIT-20261025.md) и [чеклист](docs/CHECKLIST.md) задают требования, [IMPLEMENTATION_PLAN](docs/IMPLEMENTATION_PLAN.md) — архитектуру и долгосрочный roadmap, а единственная текущая очередь находится в [GitHub Issues](https://github.com/1troitsky/photobunker/issues) и Project **PhotoBunker Development**.
 
 ## Принцип работы
 
@@ -120,12 +120,15 @@ apps/api/                           Laravel API и миграции
 infra/                              Docker, Nginx, Garage, Matrix, LiveKit
 scripts/                            локальное управление окружением
 contracts/                          фактические API/format contracts
+.github/ISSUE_TEMPLATE/task.yml     единая форма новых задач
+.github/pull_request_template.md    обязательная передача реализации
 docs/IMPLEMENTATION_PLAN.md         продукт и архитектурный roadmap
 docs/references/artefacts-messages/ справочные требования messenger UI
 tools/browser-spike/                узкие browser/E2EE проверки
 AGENTS.md                           правила работы автоматизированных агентов
 CHATBOT-AGENTS.md                   правила работы Chatbot через отдельные PR
-docs/REMEDIATION_PLAN-20261025.md   очередь исправлений по аудиту
+COLLABORATION.md                    роли, Scrumban, WIP и критерии стадий
+docs/REMEDIATION_PLAN-20261025.md   архив перехода от аудита к Issues
 ```
 
 Локальные `.env` и credentials не коммитятся. В репозитории остаются только `.env.example`, lockfiles и конфигурация без секретов.
@@ -139,4 +142,4 @@ docs/REMEDIATION_PLAN-20261025.md   очередь исправлений по �
 
 Неактуальные параллельные планы, исторические ADR, отчёты и runbook-дубли удалены. Контракты рядом с кодом и справочные messenger-артефакты сохраняются только там, где они описывают действующее поведение.
 
-По отдельному запросу владельца 25 октября добавлены исходные аудит/чеклист и один план исправлений. Совместная работа: Chatbot Agent пишет код через PR, Codex проверяет и дорабатывает локально, владелец принимает. Правила: [CHATBOT-AGENTS.md](CHATBOT-AGENTS.md).
+Аудит и CHECKLIST остаются требованиями, а старый remediation plan — только архивом выполненного перехода. Операционные карточки, зависимости и критерии приёмки хранятся только в GitHub Issues; стадия — в Project. Совместная работа: Chatbot Agent пишет код через Draft PR, Codex проверяет, дорабатывает и интегрирует, владелец принимает на реальном устройстве. Правила: [COLLABORATION.md](COLLABORATION.md) и [CHATBOT-AGENTS.md](CHATBOT-AGENTS.md).

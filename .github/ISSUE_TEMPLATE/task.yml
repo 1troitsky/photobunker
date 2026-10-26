@@ -1,0 +1,71 @@
+name: PhotoBunker task
+description: Один пользовательский результат из roadmap/CHECKLIST
+title: "[Task ID] "
+labels: ["task"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Один Issue — один пользовательский результат. Перед `Ready` проверьте Definition of Ready в `COLLABORATION.md`.
+  - type: input
+    id: task_id
+    attributes:
+      label: Task ID и название
+      placeholder: R1-05 — приватность presence
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Roadmap / CHECKLIST
+      description: Ссылка на точный раздел и идентификаторы требований.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Пользовательский результат
+      description: Одно наблюдаемое поведение без описания внутренней реализации.
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Текущее поведение и evidence
+      description: Что происходит сейчас, как воспроизвести, ссылки на код/PR/скриншот.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Зависимости
+      description: Нативные blocked-by связи добавляются после создания Issue; здесь поясните причину или напишите «нет».
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Критерии приёмки
+      description: Проверяемые сценарии, включая ошибки и права.
+    validations:
+      required: true
+  - type: textarea
+    id: local_first
+    attributes:
+      label: Local-First, offline и безопасность
+      description: Local commit, reload/retry/lost ACK/account switch/ACL/E2EE/TTL — только применимые пункты.
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Не входит в задачу
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Проверки Chatbot Agent / Codex / владельца
+      description: Разделите source review, локальные проверки Codex и будущую mobile-приёмку.
+    validations:
+      required: true
