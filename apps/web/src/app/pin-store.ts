@@ -4,7 +4,7 @@
  * This is a UI-lock verifier, NOT encrypted-at-rest protection against someone
  * who can copy or edit the entire browser profile.
  */
-export type LegacyPin = { salt: string; digest: string; failures: number; until: number }
+export type LegacyPin = { salt: string; digest: string; failures: number; until: number; lastWall?: number }
 export type PinV2 = {
   version: 2
   salt: string
