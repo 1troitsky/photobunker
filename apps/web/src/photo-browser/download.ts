@@ -128,6 +128,9 @@ async function approvedFile(run: ExportRun, item: ExportItem) {
     source = version.blob
   }
   checkExport(run)
+  const sourceLimit = window.matchMedia?.('(pointer: coarse)').matches
+    ? 16 * 1024 * 1024 : 32 * 1024 * 1024
+  if (source.size > sourceLimit) throw new Error('browser.image_limit')
   const clean = await scrubJpeg(source, run)
   // A credential revocation, collection revoke or TTL change racing decode
   // must abort before any pixels are written to a download/ZIP sink.
