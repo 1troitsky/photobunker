@@ -16,7 +16,7 @@ createApp(App).use(createAppRouter()).mount('#app')
 // have an independent public entry point.
 // The destructive journal is checked BEFORE any Identity/Matrix bootstrap.
  // Never restore a session or mount private data while a partial wipe exists.
-if (!location.pathname.startsWith('/s/') && !location.pathname.startsWith('/c/')) {
+if (!location.pathname.startsWith('/s/')) {
   void resumeLocalDeletion().then(ok => { if (ok) startIdentityBootstrap() })
 }
 
