@@ -77,7 +77,7 @@ const openRoute = computed(() =>
 const offlineLocalRoute = computed(() =>
   // A known non-extractable device may display its own encrypted outbox, but
   // this offline scope NEVER grants an API/Matrix session or bypasses PIN.
-  ['camera', 'gallery', 'photo', 'photo-card', 'photo-editor', 'profiles', 'profile-edit', 'messages', 'team-profile'].includes(String(route.name)),
+  ['camera', 'gallery', 'photo', 'photo-card', 'photo-editor', 'profiles', 'profile-edit', 'messages', 'team-profile', 'settings'].includes(String(route.name)),
 )
 const privatePending = computed(() =>
   !openRoute.value && !hasConfirmedIdentity() &&
@@ -276,7 +276,8 @@ watch([() => account.value?.id, deviceId, sessionState, appLockReady, appLocked,
   hidden, () => route.name], updatePrivatePresence, { immediate: true })
 watch([() => account.value?.id, deviceId, sessionState, appLockReady, appLocked],
   ([id,device]) => {
-    if (id && device && hasConfirmedIdentity() && appLockReady.value && !appLocked.value)
+    if (id && device && appLockReady.value && !appLocked.value &&
+        (hasConfirmedIdentity() || (sessionState.value==='offline' && offlineCaptureIdentity.value)))
       void initializePresencePreference()
     else stopPresencePreference()
   },{ immediate: true })
