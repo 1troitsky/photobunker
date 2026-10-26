@@ -18,7 +18,7 @@ type Entry = { key:IDBValidKey; value:unknown }
 type Predicate = (store:string,row:Entry)=>boolean
 const pair=(s:DeleteScope)=>s.owner+':'+s.device
 const fail=()=>{throw new Error('emergency.wipe_storage')}
-function belongs(db:string,store:string,row:Entry,s:DeleteScope):boolean {
+export function emergencyWipeMatchesScope(db:string,store:string,row:Entry,s:DeleteScope):boolean {
   const key=String(row.key),id=pair(s)
   switch(db) {
     case 'photobunker-app-pin-v2':return key==='app-pin:'+id
@@ -144,7 +144,7 @@ async function sweep(s:DeleteScope,erase:boolean) {
     if(name==='photobunker-local-prototype-v1') {
       await photos(s,erase)
     }else if(databases.has(name)) {
-      await inspect(name,(store,row)=>belongs(name,store,row,s),erase)
+      await inspect(name,(store,row)=>emergencyWipeMatchesScope(name,store,row,s),erase)
     }
   }
   await matrix(s,all,erase)
