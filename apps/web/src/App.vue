@@ -343,7 +343,7 @@ watch(
 </script>
 
 <template>
-  <RouterView v-if="route.name === 'shared-photo'" :key="route.fullPath" />
+  <RouterView v-if="(route.name === 'shared-photo' || route.name === 'shared-card')" :key="route.fullPath" />
   <template v-else>
     <a class="skip-link" href="#main">{{ t('skip') }}</a>
     <div
