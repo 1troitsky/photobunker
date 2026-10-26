@@ -17,7 +17,7 @@ retry:['Повторить подтверждение регистрации','R
 same:['PIN должен отличаться от обычного PIN и PIN локального удаления','PIN must differ from app PIN and local-delete PIN'],
 wrong:['Неверный экстренный PIN','Incorrect emergency PIN'],
 failed:['Не удалось подтвердить регистрацию. Удаление не запускалось.','Could not confirm key registration. No deletion was started.'],
-warning:['Это не secure erase, не удаление копий получателей и не подтверждение физического удаления.','This is not secure erase, deletion of recipients’ copies, or proof of physical erasure.'],
+warning:['Это не secure erase, не удаление копий получателей и не подтверждение физического удаления. Короткий PIN не защищает от офлайн-перебора при копировании всего браузерного хранилища.','This is not secure erase, deletion of recipients’ copies, or proof of physical erasure. A short PIN cannot prevent offline guessing if an attacker copies the full browser profile.'],
 } as const
 export type EmergencyLabel=keyof typeof lines
 export const et=(k:EmergencyLabel)=>lines[k][locale.value==='ru'?0:1]
