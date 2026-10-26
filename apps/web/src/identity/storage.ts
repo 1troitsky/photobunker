@@ -17,6 +17,7 @@ export async function purgeAccountFromDevice(owner: string) {
   await (await import('../messages/durable-outbox')).eraseDurableOutbox(owner)
   await (await import('../workspace/team-local')).eraseTeamCache(owner)
   await (await import('../local/photo-names')).purgeNames(owner)
+  await (await import('../crypto/card-share-outbox')).purgeCardShareIntents(owner)
   for (const entry of await encrypted.entries<unknown>(''))
     if (entry.key.split(':').includes(owner)) await encrypted.remove(entry.key)
   await clearScope(`account:${owner}`)
