@@ -6,6 +6,7 @@ import { lockApp } from './lock'
 import { hardLock } from '../crypto/store'
 import { stopMessaging } from '../messages/store'
 import { listPhotos, deletePhoto } from '../local/photos'
+import * as encryptedDb from '../crypto/database'
 import { eraseDurableOutbox } from '../messages/durable-outbox'
 import { eraseLocalDeleteFolders } from '../messages/private-folders'
 import { eraseTeamCache } from '../workspace/team-local'
@@ -125,6 +126,11 @@ export async function purgeLocalDeleteScope(s: DeleteScope) {
   for (const photo of await listPhotos()) if (photo.accountId===s.owner) await deletePhoto(photo.id)
   await purgeIDBKey('photobunker-encrypted-queue-v1','entries',
     key => key.split(':').includes(s.owner))
+  // Historical single-device capture pointer has no scope in its KEY.
+  // Inspect the value; never clear a pointer that belongs to account B.
+  const capture = await encryptedDb.get<{accountId:string;deviceId:string}>('capture-current')
+  if (capture && capture.accountId===s.owner && capture.deviceId===s.device)
+    await encryptedDb.remove('capture-current')
   await eraseMatrixScope(s)
   await eraseExactDeviceCredentials(s)
   await eraseAppPinForLocalDelete(s.owner,s.device)
@@ -132,7 +138,26 @@ export async function purgeLocalDeleteScope(s: DeleteScope) {
   for(const key of Object.keys(localStorage))
     if(key.includes(s.owner) && !key.startsWith('pb-local-delete-'))
       localStorage.removeItem(key)
+  if(localStorage.getItem('pb-active-device')===s.device)
+    localStorage.removeItem('pb-active-device')
   await clearScopedCaches(s)
+  // No success is possible until exact scoped storage reads confirm emptiness.
+  const outstanding=(await listPhotos()).filter(p=>p.accountId===s.owner)
+  if(outstanding.length) throw new Error('localDelete.storage')
+  const remaining = (await (await import('./local-delete-preflight')).inventory())
+    .filter(row=>{
+      const k=String(row.key)
+      return k.startsWith('local-delete:'+s.owner+':'+s.device) ||
+        k.startsWith('app-pin:'+s.owner+':'+s.device) ||
+        k.startsWith('msg:'+s.owner+':'+s.device+':') ||
+        k.startsWith('job:'+s.owner+':') ||
+        k.startsWith('version:'+s.owner+':') ||
+        k.startsWith('browser:'+s.owner+':'+s.device+':') ||
+        k.startsWith(s.owner+':'+s.device) ||
+        k.startsWith('photo-names:'+s.owner+':'+s.device) ||
+        k.startsWith('trusted:'+s.owner+':'+s.device)
+    })
+  if(remaining.length) throw new Error('localDelete.storage')
   // Do not clear the signed-out marker or any account B data.
   signedOutMarker()
 }
