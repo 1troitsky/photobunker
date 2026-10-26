@@ -6,6 +6,19 @@ const decoder = new TextDecoder()
 type Cipher = { key: CryptoKey; iv: Uint8Array; data: ArrayBuffer }
 const name = (owner: string, device: string, id: string) =>
   'browser:' + owner + ':' + device + ':' + id
+const serial = new Map<string, Promise<unknown>>()
+async function ownerLock<T>(owner: string, job: () => Promise<T>): Promise<T> {
+  const run = () => navigator.locks?.request
+    ? navigator.locks.request('photobunker-browser:' + owner, job)
+    : job()
+  const pending = serial.get(owner) ?? Promise.resolve()
+  const current = pending.then(run, run)
+  serial.set(owner, current.catch(() => {}))
+  try { return await current }
+  finally {
+    if (serial.get(owner) === current) serial.delete(owner)
+  }
+}
 
 async function database(): Promise<IDBDatabase> {
   if (typeof indexedDB === 'undefined' || !crypto.subtle)
@@ -52,6 +65,7 @@ export async function readBrowser(owner: string, device: string, id: string): Pr
   return value
 }
 export async function saveBrowser(owner: string, device: string, snapshot: BrowserSnapshot): Promise<void> {
+  return ownerLock(owner, async () => {
   if (snapshot.collection.expiresAt <= Date.now()) throw new Error('browser.expired')
   const scope = name(owner, device, snapshot.collection.id)
   const old = await transact<Cipher | undefined>('readonly', s => s.get(scope))
@@ -69,11 +83,13 @@ export async function saveBrowser(owner: string, device: string, snapshot: Brows
   } finally {
     clear.fill(0)
   }
+  })
 }
 export async function eraseBrowser(owner: string, device: string, id: string) {
-  await transact('readwrite', s => s.delete(name(owner, device, id)))
+  await ownerLock(owner, () => transact('readwrite', s => s.delete(name(owner, device, id))))
 }
 export async function eraseBrowsersForAccount(owner: string, device?: string) {
+  await ownerLock(owner, async () => {
   const db = await database()
   const prefix = 'browser:' + owner + ':' + (device ? device + ':' : '')
   const keys = await new Promise<string[]>((resolve, reject) => {
@@ -83,4 +99,5 @@ export async function eraseBrowsersForAccount(owner: string, device?: string) {
     tx.onabort = () => { db.close(); reject(new Error('browser.storage_failed')) }
   })
   for (const key of keys) await transact('readwrite', s => s.delete(key))
+  })
 }
