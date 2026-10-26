@@ -223,7 +223,8 @@ export async function setAppPin(pin: string, oldPin?: string) {
     if (!oldPin) throw new Error('pin.confirm_required')
     await verify(oldPin, id, epoch, mutation)
   }
-  if (await (await import('./local-delete-pin')).matchesLocalDeletePin(pin))
+  if (await (await import('./local-delete-pin')).matchesLocalDeletePin(pin) ||
+    await (await import('./emergency')).matchesConfiguredEmergencyPin(pin))
     throw new Error('localDelete.samePin')
   const next = await makeRecord(pin)
   guard(id, epoch, mutation)
