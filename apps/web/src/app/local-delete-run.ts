@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { account, deviceId, hasConfirmedIdentity } from '../identity/store'
+import { invalidateLocalDeleteSession } from '../identity/store'
 import { identityRequest, IdentityError } from '../identity/api'
 import { appLocked, appLockReady, lockApp } from './lock'
 import { hardLock } from '../crypto/store'
@@ -161,9 +161,10 @@ export async function runJournalWithSteps(
   steps.lock()
   if(row.phase==='committed'){
     steps.signOut()
+    invalidateLocalDeleteSession(s.owner,s.device)
     await stage(row.operationId,'committed','signed-out')
     row={...row,phase:'signed-out'}
-  } else steps.signOut()
+  } else { steps.signOut();invalidateLocalDeleteSession(s.owner,s.device) }
   if(row.phase==='signed-out') {
     await steps.purge(s)
     await stage(row.operationId,'signed-out','local-purged')
