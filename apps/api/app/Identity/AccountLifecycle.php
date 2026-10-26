@@ -47,7 +47,9 @@ final class AccountLifecycle
             abort_unless(in_array($reason, ['user', 'inactivity', 'emergency'], true), 422);
             // The emergency receipt is inserted in this SAME transaction and
             // account write-lock as revoking every device/session/read grant.
-            $beforeClaim?.__invoke($account);
+            if ($beforeClaim !== null) {
+                $beforeClaim($account);
+            }
             DB::table('identity_accounts')->where('id', $id)->update(['deletion_requested_at' => now(), 'deletion_reason' => $inactive ? 'inactivity' : $reason, 'deletion_retry_at' => now()]);
             $devices = DB::table('identity_devices')->where('account_id', $id)->pluck('id');
             DB::table('identity_sessions')->whereIn('device_id', $devices)->delete();
