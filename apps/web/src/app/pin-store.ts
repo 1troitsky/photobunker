@@ -64,6 +64,10 @@ async function transaction<T>(
     tx.onerror = () => { database.close(); reject(new Error('pin.storage_failed')) }
   })
 }
+/** D4: exact device only, unlike account retirement's all-device purge. */
+export async function eraseAppPinForLocalDelete(owner: string, device: string) {
+  await writePin('app-pin:' + owner + ':' + device, () => undefined)
+}
 export const readPin = (scope: string) =>
   transaction<PinRecord>(scope, 'readonly', value => value)
 export const writePin = (scope: string, update: (value: PinRecord | undefined) => PinRecord | undefined) =>
