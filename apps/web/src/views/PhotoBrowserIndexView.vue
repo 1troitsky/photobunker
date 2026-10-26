@@ -55,7 +55,9 @@ async function create() {
     working.value = false
   }
 }
-onMounted(() => { if (ready.value) void loadStudio().catch(() => { failed.value = true }) })
+watch(ready, enabled => {
+  if (enabled) void loadStudio().catch(() => { failed.value = true })
+}, { immediate: true })
 </script>
 
 <template>
