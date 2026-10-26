@@ -7,6 +7,7 @@ import { signFromLockedScreen } from './emergency'
 import { readEmergencyCommand,commitEmergencyCommand,advanceEmergencyCommand,
   type EmergencyCommand } from './emergency-command'
 import { purgeEmergencyDevice } from './emergency-wipe'
+import { replayEmergencyPhases } from './emergency-phases'
 import { beginEmergencyBarrier,resetEmergencyBarrierForNormalBootstrap } from './emergency-barrier'
 
 /** The cover never discloses operation, local progress or server status. */
@@ -68,37 +69,29 @@ async function phase(operationId:string,from:EmergencyCommand['phase'],to:Emerge
   })
 }
 /** Replays immutable command; failure leaves journal and neutral cover intact.
- * Does not require Identity, an app PIN, a private key or a live cookie.
- */
-async function progress() {
-  stopPrivateAccess()
-  let row=await readEmergencyCommand()
+ * Does not requireasync function progress() {
+  const row=await readEmergencyCommand()
   if(!row)throw new Error('emergency.journal')
-  if(row.phase==='prepared'){
-    signedOut()
-    invalidateLocalDeleteSession(row.accountId,row.deviceId)
-    row=(await phase(row.operationId,'prepared','locked'))!
-  }else signedOut()
-  if(row.phase==='locked')row=(await phase(row.operationId,'locked','purging'))!
-  let wipeFailed=false
-  if(row.phase==='purging'){
-    try{
-      await purgeEmergencyDevice({owner:row.accountId,device:row.deviceId})
-      row=(await phase(row.operationId,'purging','purged'))!
-    }catch{wipeFailed=true}
-  }
-  // Local completion never authorizes a UI unlock. The original signed
-  // public command must remain until a verified server lifecycle receipt.
-  if(row.delivery!=='completed' && navigator.onLine){
-    const outcome=await sendEmergencyCommand(row)
-    await advanceEmergencyCommand(row.operationId,current=>{
-      const latest=['queued','accepted','processing','completed'].indexOf(current.delivery)
-      const next=['queued','accepted','processing','completed'].indexOf(outcome)
-      return {...current,delivery:next>latest?outcome:current.delivery}
-    })
-  }
+  const {wipeFailed}=await replayEmergencyPhases(row,{
+    lock:stopPrivateAccess,
+    signedOut,
+    invalidate:invalidateLocalDeleteSession,
+    advance:async(op,from,to)=>(await phase(op,from,to))!,
+    purge:async(owner,device)=>purgeEmergencyDevice({owner,device}),
+    deliver:sendEmergencyCommand,
+    recordDelivery:async(operationId,outcome)=>{
+      await advanceEmergencyCommand(operationId,current=>{
+        const statuses=['queued','accepted','processing','completed']
+        const latest=statuses.indexOf(current.delivery),next=statuses.indexOf(outcome)
+        return {...current,delivery:next>latest?outcome:current.delivery}
+      })
+    },
+    online:()=>navigator.onLine,
+  })
   const final=await readEmergencyCommand()
   if(wipeFailed || final?.delivery!=='completed')schedule()
+}
+if(wipeFailed || final?.delivery!=='completed')schedule()
 }
 export function resumeEmergency():Promise<boolean> {
   if(replay)return replay
