@@ -35,6 +35,14 @@ broadcast?.addEventListener('message',()=>{
   stopPrivateAccess()
   void resumeEmergency()
 })
+// BroadcastChannel is unavailable in some embedded WebViews: storage events
+// also lock sibling tabs without disclosing the emergency operation.
+if(typeof window!=='undefined')window.addEventListener('storage',e=>{
+  if(e.key==='pb-emergency-locked'&&e.newValue==='true'){
+    stopPrivateAccess()
+    void resumeEmergency()
+  }
+})
 function schedule() {
   if(timer!==undefined)clearTimeout(timer)
   timer=setTimeout(()=>{void resumeEmergency()},delay)
