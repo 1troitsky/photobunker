@@ -46,6 +46,7 @@ const DATABASES = new Set([
   'photobunker-team-cache-v1', 'photobunker-private-presence-v1',
   'photobunker-photo-browser-cache-v1', 'photobunker-photo-names-v1',
   'photobunker-card-share-intents-v1',
+  'photobunker-emergency-v1', 'photobunker-emergency-outbox-v1',
 ])
 type KeyRow = { database: string; store: string; key: IDBValidKey }
 /** A read-only full store inventory; unknown storage is never assumed empty. */
