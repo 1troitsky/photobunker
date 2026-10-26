@@ -10,7 +10,7 @@ export type PinV2 = {
   salt: string
   verifier: string
   iterations: number
-  length: 6 | 8
+  length: 4 | 6 | 8
   failures: number
   until: number
   lastWall: number
@@ -83,7 +83,7 @@ async function legacyStore<T>(scope: string, mode: IDBTransactionMode,
   }
   const database = await new Promise<IDBDatabase>((resolve, reject) => {
     const req = indexedDB.open(dbName, 1)
-    req.onupgradeneeded = () => { req.transaction?.abort() }
+    req.onupgradeneeded = () => { req.result.createObjectStore('entries') }
     req.onerror = () => reject(new Error('pin.storage_failed'))
     req.onblocked = () => reject(new Error('pin.storage_failed'))
     req.onsuccess = () => resolve(req.result)
