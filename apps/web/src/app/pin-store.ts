@@ -111,7 +111,7 @@ export async function purgeAccountPins(owner: string) {
   const prefix = 'app-pin:' + owner + ':'
   await new Promise<void>((resolve, reject) => {
     const tx = database.transaction(STORE, 'readwrite', { durability: 'strict' })
-    const req = tx.objectStore(STORE).openCursor(IDBKeyRange.bound(prefix, prefix + '\\uffff'))
+    const req = tx.objectStore(STORE).openCursor(IDBKeyRange.bound(prefix, prefix + String.fromCharCode(0xffff)))
     req.onsuccess = () => {
       const cursor = req.result
       if (cursor) { cursor.delete(); cursor.continue() }
