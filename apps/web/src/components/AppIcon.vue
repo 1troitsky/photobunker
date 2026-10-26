@@ -42,6 +42,9 @@ defineProps<{
     | 'grid'
     | 'rotate'
     | 'crop'
+    | 'brush'
+    | 'pencil'
+    | 'eraser'
 }>()
 </script>
 
@@ -128,6 +131,15 @@ defineProps<{
       <path d="M4 9V3m0 6h6M4 9a8 8 0 1 1 0 7" />
     </template>
     <path v-else-if="name === 'crop'" d="M7 3v14h14M3 7h14v14" />
+    <template v-else-if="name === 'brush'">
+      <path d="m14 5 4-3 4 4-3 4-8 8-4-4zM7 14c-2 0-4 2-4 5 0 2-1 3-2 3 6 1 10-1 10-5" />
+    </template>
+    <template v-else-if="name === 'pencil'">
+      <path d="M4 20h5L21 8l-5-5L4 15zM13 6l5 5M4 15l5 5" />
+    </template>
+    <template v-else-if="name === 'eraser'">
+      <path d="m3 15 10-11a3 3 0 0 1 4 0l4 4a3 3 0 0 1 0 4l-8 9H8zM8 10l8 8M13 21h8" />
+    </template>
     <template v-else-if="name === 'messages'">
       <path d="M21 11a8 8 0 0 1-8 8H8l-5 3V7a4 4 0 0 1 4-4h6a8 8 0 0 1 8 8Z" />
       <path d="M7 9h10M7 13h7" />

@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { IdentityError } from '../identity/api'
-import { ServerError } from '../server/api'
 import { account } from '../identity/store'
 import { securityError } from '../crypto/text'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -43,7 +41,8 @@ import { s } from '../studio/text'
 const route = useRoute(),
   router = useRouter(),
   photo = ref<Photo>(),
-  preview = ref<HTMLCanvasElement>()
+  preview = ref<HTMLCanvasElement>(),
+  textEditor = ref<HTMLTextAreaElement>()
 const edits = ref<EditDocument>(emptyEdits()),
   tab = ref('image'),
   compare = ref(false),
@@ -62,7 +61,8 @@ const tool = ref<Stroke['tool']>('brush'),
   width = ref(6),
   opacity = ref(100),
   selectedText = ref(''),
-  shapeTool = ref<ShapeLayer['kind']>('rectangle')
+  shapeTool = ref<ShapeLayer['kind']>('rectangle'),
+  shapeFilled = ref(false)
 const history = ref<EditDocument[]>([emptyEdits()]),
   cursor = ref(0)
 const tabs = computed(() =>
@@ -128,9 +128,11 @@ function checkpoint() {
   }
 }
 function undo() {
+  if (pointer || busy.value) return
   if (cursor.value > 0) edits.value = clone(history.value[--cursor.value]!)
 }
 function redo() {
+  if (pointer || busy.value) return
   if (cursor.value < history.value.length - 1)
     edits.value = clone(history.value[++cursor.value]!)
 }
@@ -142,8 +144,11 @@ function paint() {
       compare.value ? emptyEdits() : edits.value,
       1200,
     )
-    preview.value.width = canvas.width
-    preview.value.height = canvas.height
+    // Reassigning canvas dimensions resets its bitmap and implicitly releases
+    // pointer capture. Keep the live drawing gesture intact when the output
+    // dimensions did not actually change.
+    if (preview.value.width !== canvas.width) preview.value.width = canvas.width
+    if (preview.value.height !== canvas.height) preview.value.height = canvas.height
     preview.value.getContext('2d')!.drawImage(canvas, 0, 0)
     if (tab.value === 'text' && activeText.value && !compare.value) {
       const context = preview.value.getContext('2d')!,
@@ -217,7 +222,16 @@ function point(event: PointerEvent): Point {
     edits.value,
   )
 }
+function focusText() {
+  // Explicitly callable from a click to open the iOS software keyboard.
+  textEditor.value?.focus()
+}
+function chooseText(id: string) {
+  selectedText.value = id
+  void nextTick(focusText)
+}
 function addText() {
+  if (edits.value.texts.length >= 20) return
   const anchor = imagePoint(
     { x: 0.1, y: 0.15 },
     image.naturalWidth,
@@ -236,6 +250,8 @@ function addText() {
   edits.value.texts.push(layer)
   selectedText.value = layer.id
   checkpoint()
+  // Vue must mount the new textarea before it can receive focus.
+  void nextTick(focusText)
 }
 watch(tab, (value) => {
   if (value === 'text' && ready.value) {
@@ -261,6 +277,7 @@ function down(event: PointerEvent) {
     edits.value.shapes ??= []
     if (edits.value.shapes.length >= 100) {
       pointer = undefined
+      preview.value!.releasePointerCapture(event.pointerId)
       return
     }
     const shape: ShapeLayer = {
@@ -270,12 +287,14 @@ function down(event: PointerEvent) {
       to: value,
       color: ink.value,
       width: width.value / 1000,
+      filled: tab.value === 'shapes' && shapeFilled.value,
     }
     edits.value.shapes.push(shape)
     pointer.shape = edits.value.shapes.at(-1)
   } else if (tab.value === 'drawing') {
     if (edits.value.strokes.length >= 300) {
       pointer = undefined
+      preview.value!.releasePointerCapture(event.pointerId)
       return
     }
     const stroke: Stroke = {
@@ -311,19 +330,52 @@ function move(event: PointerEvent) {
   if (!pointer || pointer.id !== event.pointerId) return
   const value = point(event)
   if (pointer.shape) pointer.shape.to = value
-  else if (pointer.stroke && pointer.stroke.points.length < 4096)
-    pointer.stroke.points.push(value)
-  else if (activeText.value && pointer.offset) {
+  else if (pointer.stroke) {
+    // Coalesced pen/touch samples remove gaps at high input frequencies.
+    // The final event is included even when coalesced events are unavailable.
+    const samples = event.getCoalescedEvents?.() ?? [event]
+    for (const sample of samples.length ? samples : [event]) {
+      if (pointer.stroke.points.length >= 4096) break
+      pointer.stroke.points.push(point(sample))
+    }
+    if (pointer.stroke.points.length < 4096 &&
+        (samples.at(-1)?.clientX !== event.clientX ||
+         samples.at(-1)?.clientY !== event.clientY))
+      pointer.stroke.points.push(value)
+  } else if (activeText.value && pointer.offset) {
     activeText.value.x = value.x - pointer.offset.x
     activeText.value.y = value.y - pointer.offset.y
   }
 }
 function up(event: PointerEvent, cancel = false) {
   if (!pointer || pointer.id !== event.pointerId) return
-  if (cancel) edits.value = pointer.before
+  const gesture = pointer
+  if (cancel) edits.value = gesture.before
+  else {
+    // Pointerup can be the only delivered movement on slow touch devices.
+    const final = point(event)
+    if (gesture.shape) gesture.shape.to = final
+    else if (gesture.stroke && gesture.stroke.points.length < 4096) {
+      const last = gesture.stroke.points.at(-1)!
+      if (last.x !== final.x || last.y !== final.y)
+        gesture.stroke.points.push(final)
+    } else if (gesture.offset && activeText.value) {
+      activeText.value.x = final.x - gesture.offset.x
+      activeText.value.y = final.y - gesture.offset.y
+    }
+  }
   pointer = undefined
   if (preview.value?.hasPointerCapture(event.pointerId))
     preview.value.releasePointerCapture(event.pointerId)
+  checkpoint()
+  if (!cancel && gesture.offset) void nextTick(focusText)
+}
+function lostCapture(event: PointerEvent) {
+  if (!pointer || pointer.id !== event.pointerId) return
+  // pointercancel performs an explicit rollback first. A standalone capture
+  // loss only means no more samples will arrive, so preserve and checkpoint
+  // the points already shown instead of erasing the entire gesture.
+  pointer = undefined
   checkpoint()
 }
 function setPosition(axis: 'x' | 'y', value: number) {
@@ -341,11 +393,17 @@ function setPosition(axis: 'x' | 'y', value: number) {
 }
 function keyboard(event: KeyboardEvent) {
   if (
-    tab.value !== 'text' ||
-    !activeText.value ||
-    !event.key.startsWith('Arrow')
-  )
+    event.ctrlKey || event.metaKey
+  ) {
+    if (event.key.toLowerCase() === 'z') {
+      event.preventDefault()
+      if (event.shiftKey) redo()
+      else undo()
+    }
     return
+  }
+  if (tab.value !== 'text' || !activeText.value ||
+      !event.key.startsWith('Arrow')) return
   event.preventDefault()
   const step = event.shiftKey ? 5 : 1
   const axis = ['ArrowLeft', 'ArrowRight'].includes(event.key) ? 'x' : 'y'
@@ -432,21 +490,13 @@ async function save() {
   error.value = ''
   let canvas: HTMLCanvasElement | undefined
   try {
-    let current = photo.value
-    if (navigator.onLine) {
-      try {
-        current = (await readPhoto(photo.value.id)).photo
-      } catch (failure) {
-        if (!(
-          failure instanceof TypeError ||
-          ((failure instanceof IdentityError ||
-            failure instanceof ServerError) &&
-            failure.status >= 500)
-        ))
-          throw failure
-      }
-    }
-    canvas = renderEdits(image, edits.value)
+    // Local encrypted version commit precedes any network synchronization.
+    // A slow read of the remote photo must not block offline editing.
+    const current = photo.value
+    // Snapshot pixels and metadata together. UI changes during JPEG encoding
+    // must never produce a version whose editable layers differ from its pixels.
+    const snapshot = clone(edits.value)
+    canvas = renderEdits(image, snapshot)
     const blob = await new Promise<Blob>((resolve, reject) =>
       canvas!.toBlob(
         (value) => (value ? resolve(value) : reject(new Error('encode'))),
@@ -459,14 +509,21 @@ async function save() {
       await stripEncodedMetadata(blob),
       canvas.width,
       canvas.height,
-      edits.value,
+      snapshot,
       typeof route.query.version === 'string' ? route.query.version : null,
     )
     saved = true
     if (version.sync === 'pending') {
       saved = false
-      initial.value = signature(edits.value)
+      initial.value = signature(snapshot)
       versionNotice.value = s('versionSavedLocal')
+      return
+    }
+    // A late user change must stay in the editor, not vanish on navigation.
+    if (signature(edits.value) !== signature(snapshot)) {
+      saved = false
+      initial.value = signature(snapshot)
+      versionNotice.value = s('versionSaved')
       return
     }
     await router.replace({
@@ -534,6 +591,7 @@ onBeforeUnmount(() => {
         @pointermove="move"
         @pointerup="up($event)"
         @pointercancel="up($event, true)"
+        @lostpointercapture="lostCapture"
         @keydown="keyboard"
       />
       <p v-else class="field-hint">{{ error || s('preview') }}</p>
@@ -633,7 +691,7 @@ onBeforeUnmount(() => {
               :aria-pressed="tool === value"
               @click="tool = value"
             >
-              {{ s(value) }}
+              <AppIcon :name="value" />{{ s(value) }}
             </button>
           </div>
           <div class="two-fields">
@@ -659,7 +717,7 @@ onBeforeUnmount(() => {
               :key="layer.id"
               class="quiet-button"
               :aria-pressed="selectedText === layer.id"
-              @click="selectedText = layer.id"
+              @click="chooseText(layer.id)"
             >
               {{ s('text') }} {{ index + 1 }}</button
             ><button
@@ -671,9 +729,11 @@ onBeforeUnmount(() => {
             </button>
           </div>
           <template v-if="activeText"
-            ><label
+            ><button type="button" class="quiet-button editor-focus-text"
+              @click="focusText">{{ s('editText') }}</button><label
               >{{ s('text')
               }}<textarea
+                ref="textEditor"
                 v-model="activeText.text"
                 rows="2"
                 maxlength="200"
@@ -772,6 +832,8 @@ onBeforeUnmount(() => {
               >{{ s('strokeWidth')
               }}<input v-model.number="width" type="range" min="1" max="50"
             /></label>
+            <label class="editor-fill-toggle"><input v-model="shapeFilled" type="checkbox" />
+              {{ s('fill') }}</label>
           </template>
           <p class="field-hint">
             {{ s(tab === 'privacy' ? 'redactHint' : 'shapeHint') }}

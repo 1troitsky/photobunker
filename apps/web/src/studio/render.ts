@@ -83,13 +83,20 @@ export function renderEdits(
     const drawing = annotations.getContext('2d')!
     for (const stroke of edits.strokes ?? []) {
       if (!stroke.points.length) continue
+      drawing.save()
       drawing.globalCompositeOperation =
         stroke.tool === 'eraser' ? 'destination-out' : 'source-over'
-      drawing.globalAlpha =
-        stroke.opacity * (stroke.tool === 'pencil' ? 0.7 : 1)
+      drawing.globalAlpha = stroke.opacity
       drawing.strokeStyle = drawing.fillStyle = stroke.color
       drawing.lineCap = drawing.lineJoin = 'round'
-      drawing.lineWidth = stroke.width * Math.min(originalWidth, originalHeight)
+      const size = stroke.width * Math.min(originalWidth, originalHeight)
+      // The pencil has a precise, narrower edge; brush is a broad, soft dab.
+      // Blur is rendered into annotations, never into the original source pixels.
+      drawing.lineWidth = stroke.tool === 'pencil' ? Math.max(1, size * 0.45) : size
+      if (stroke.tool === 'brush') {
+        drawing.shadowColor = stroke.color
+        drawing.shadowBlur = Math.max(2, size * 0.9)
+      }
       const first = stroke.points[0]!
       if (stroke.points.length === 1) {
         drawing.beginPath()
@@ -108,6 +115,7 @@ export function renderEdits(
           drawing.lineTo(point.x * originalWidth, point.y * originalHeight)
         drawing.stroke()
       }
+      drawing.restore()
     }
     drawing.globalCompositeOperation = 'source-over'
     drawing.globalAlpha = 1
@@ -204,8 +212,18 @@ export function renderEdits(
     } else if (shape.kind === 'ellipse') {
       context.beginPath()
       context.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2)
+      if (shape.filled === true) {
+        context.fillStyle = shape.color
+        context.fill()
+      }
       context.stroke()
-    } else context.strokeRect(x, y, w, h)
+    } else {
+      if (shape.filled === true) {
+        context.fillStyle = shape.color
+        context.fillRect(x, y, w, h)
+      }
+      context.strokeRect(x, y, w, h)
+    }
     context.restore()
   }
   if (edits.watermark?.trim()) {
