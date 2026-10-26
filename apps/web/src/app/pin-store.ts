@@ -105,6 +105,21 @@ async function legacyStore<T>(scope: string, mode: IDBTransactionMode,
     tx.onabort = () => { database.close(); reject(new Error('pin.storage_failed')) }
   })
 }
+/** Account retirement only; never invoked on PIN entry or storage errors. */
+export async function purgeAccountPins(owner: string) {
+  const database = await open()
+  const prefix = 'app-pin:' + owner + ':'
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction(STORE, 'readwrite', { durability: 'strict' })
+    const req = tx.objectStore(STORE).openCursor(IDBKeyRange.bound(prefix, prefix + '\\uffff'))
+    req.onsuccess = () => {
+      const cursor = req.result
+      if (cursor) { cursor.delete(); cursor.continue() }
+    }
+    tx.oncomplete = () => { database.close(); resolve() }
+    tx.onabort = () => { database.close(); reject(new Error('pin.storage_failed')) }
+  })
+}
 export const readLegacyPin = (scope: string) => legacyStore<LegacyPin>(scope, 'readonly')
 export const clearLegacyPin = (scope: string) =>
   legacyStore<LegacyPin>(scope, 'readwrite', (_, store) => { store.delete(scope) })
