@@ -2,7 +2,6 @@
 
 namespace App\Http\Middleware;
 
-use App\Http\ApiResponse;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
