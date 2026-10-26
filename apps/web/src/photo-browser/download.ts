@@ -74,8 +74,9 @@ async function scrubJpeg(blob: Blob, run: ExportRun): Promise<Blob> {
     image.src = url
     await image.decode()
     checkExport(run)
+    const maxPixels = window.matchMedia?.('(pointer: coarse)').matches ? 8_000_000 : 24_000_000
     if (!image.naturalWidth || !image.naturalHeight ||
-      image.naturalWidth * image.naturalHeight > 24_000_000)
+      image.naturalWidth * image.naturalHeight > maxPixels)
       throw new Error('browser.image_limit')
     canvas.width = image.naturalWidth
     canvas.height = image.naturalHeight
@@ -97,16 +98,23 @@ async function scrubJpeg(blob: Blob, run: ExportRun): Promise<Blob> {
   }
 }
 
+export function permittedSource(photo: Pick<Photo, 'workspaceAccess'>):
+  'thumbnail' | 'flattened-version' {
+  if (photo.workspaceAccess?.thumbnail !== true)
+    throw new Error('browser.denied')
+  if (photo.workspaceAccess.read !== true) return 'thumbnail'
+  if (photo.workspaceAccess.shareExternal !== true)
+    throw new Error('browser.denied')
+  return 'flattened-version'
+}
 async function approvedFile(run: ExportRun, item: ExportItem) {
   const photo = await verify(run, item)
   let source: Blob
-  if (photo.workspaceAccess?.read !== true) {
+  if (permittedSource(photo) === 'thumbnail') {
     // Restricted 80px thumbnail for thumbnail-only grants. In particular,
     // NEVER fall back to preview, a saved version, or original.
     source = await readThumbnail(photo.id)
   } else {
-    // Existing file-export right is separate from read and edit grants.
-    if (photo.workspaceAccess.shareExternal !== true) throw new Error('browser.denied')
     // E2EE versions are read from the authenticated server; pending local
     // layers and the immutable original are never export candidates.
     const versions = photo.encrypted
