@@ -5,7 +5,7 @@ import { pt, pinError } from '../app/pin-text'
 import { localDeletePinEnabled,localDeletePinReady,localDeletePinFailure,loadLocalDeletePin,configureLocalDeletePin,disableLocalDeletePin } from '../app/local-delete-pin'
 import { localDeleteText as ld, localDeleteError } from '../app/local-delete-text'
 import { freshLocalDeletePreflight, type DeleteScope } from '../app/local-delete-preflight'
-import { commitLocalDeletion, deletionBlocked, deletionFailure } from '../app/local-delete-run'
+import { commitLocalDeletion, deletionBlocked } from '../app/local-delete-run'
 import AppSheet from '../components/AppSheet.vue'
 import { appLocked, appLockReady } from '../app/lock'
 const appPin = ref(''), oldPin = ref(''), pinNotice = ref(''), pinBusy = ref(false)
