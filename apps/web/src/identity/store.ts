@@ -220,7 +220,9 @@ export function loadIdentity(force = false): Promise<void> {
   if (localStorage.getItem('pb-signed-out') === 'true') {
     if (sessionState.value === 'signed-out' && identityReady.value) return Promise.resolve()
     cancelRetry()
-    clear()
+    // A scoped local wipe owns capture-current cleanup. Do not schedule a
+    // delayed unscoped deletion that could hit a newly selected account B.
+    clear(true, localStorage.getItem('pb-local-delete-signed-out') !== 'true')
     sessionState.value = 'signed-out'
     identityReady.value = true
     identityUnavailable.value = false
