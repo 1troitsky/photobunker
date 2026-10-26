@@ -347,13 +347,16 @@ export async function register(
   authenticated(result)
   })
 }
-export async function recover(kit: string, name = automaticDeviceName()) {
+export async function recover(kit: string, name = automaticDeviceName(), resetAppPin = false) {
   return withSignIn(async epoch => {
   const root = await parseKit(kit)
-  if (hasConfirmedIdentity() && account.value?.rootKey === root.publicKey && deviceId.value) {
+  if (!resetAppPin && hasConfirmedIdentity() && account.value?.rootKey === root.publicKey && deviceId.value) {
     assertLoginEpoch(epoch)
     return
   }
+  // Reset requires a fresh online root-key challenge/proof. An already-active
+  // cookie or a local comparison of PB1 public keys is NOT evidence of proof.
+  const priorOwner = account.value?.id, priorDevice = deviceId.value
   const device = await onboardingDevice(root.publicKey, name)
   assertLoginEpoch(epoch)
   const result = await prove<Session>(
@@ -369,6 +372,12 @@ export async function recover(kit: string, name = automaticDeviceName()) {
   assertLoginEpoch(epoch)
   await completeOnboardingDevice(root.publicKey, device, result.account.publicId)
   assertLoginEpoch(epoch)
+  if (resetAppPin && priorOwner === result.account.id && priorDevice) {
+    // Proven PB1 identity, successful server session and completed device
+    // onboarding are mandatory before resetting only the old device verifier.
+    await (await import('../app/lock')).resetAppPinAfterRecovery(result.account.id, priorDevice)
+    assertLoginEpoch(epoch)
+  }
   authenticated(result)
   })
 }
