@@ -118,7 +118,7 @@ async function approvedFile(run: ExportRun, item: ExportItem) {
     // E2EE versions are read from the authenticated server; pending local
     // layers and the immutable original are never export candidates.
     const versions = photo.encrypted
-      ? await fetchVersions(photo)
+      ? await fetchVersions(photo, true)
       : photo.workspaceAccess.role === 'owner'
         ? await listPhotoVersions(photo) : []
     checkExport(run)
