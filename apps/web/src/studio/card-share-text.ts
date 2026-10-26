@@ -21,6 +21,8 @@ const text = {
   sent: ['Доступна', 'Available'],
   revoking: ['Ожидает подтверждения отзыва', 'Revocation pending confirmation'],
   failed: ['Не удалось сохранить или отправить. Повторите.', 'Could not save or send. Retry.'],
+  denied: ['Доступ к публикации отозван (403).', 'Sharing permission denied (403).'],
+  expired: ['Фото или срок ссылки истёк (410).', 'Photo or link expired (410).'],
   locked: ['Откройте защищённые фотографии и повторите.', 'Unlock private photos and try again.'],
   none: ['Создавать ссылки можно только с подтверждённым правом публикации.', 'Only verified sharing rights allow link creation.'],
   refresh: ['Повторить отправку', 'Retry upload'],
