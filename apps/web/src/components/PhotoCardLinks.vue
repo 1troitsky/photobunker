@@ -8,7 +8,7 @@ import { commitCardShare, revokeCardShare, listCardShareIntents,
   flushCardShares, type ShareRow } from '../crypto/card-share-outbox'
 import { account, deviceId, sessionState, hasConfirmedIdentity } from '../identity/store'
 import { appLocked } from '../app/lock'
-import { photoReadAllowed } from '../crypto/store'
+import { photoReadAllowed, strongUnlocked, warmLocked } from '../crypto/store'
 
 const props = defineProps<{ card: PrivatePhotoCard; shareAllowed: boolean }>()
 const metadata = ref(false), duration = ref(3600)
@@ -80,7 +80,8 @@ async function retry() {
     if (token === generation && owner === account.value?.id) error.value = t('failed')
   }
 }
-watch([() => props.card.id, () => account.value?.id, deviceId, sessionState, appLocked],
+watch([() => props.card.id, () => props.shareAllowed, () => account.value?.id,
+  deviceId, sessionState, appLocked, strongUnlocked, warmLocked],
   () => { reset(); if (eligible.value) void load() }, { immediate: true, flush: 'sync' })
 function changed() { if (eligible.value) void load() }
 onMounted(() => {
