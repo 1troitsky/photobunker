@@ -83,7 +83,6 @@ export async function inventory(): Promise<KeyRow[]> {
 }
 function isPendingRow(row: KeyRow, s: DeleteScope) {
   const k = String(row.key)
-  const scoped = s.owner + ':' + s.device
   if (row.database === 'photobunker-message-outbox-v1')
     return k.startsWith('msg:' + scoped + ':')
   if (row.database === 'photobunker-encrypted-queue-v1')
