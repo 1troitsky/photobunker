@@ -64,6 +64,25 @@ Recovery kit `PB1.<root SPKI base64url>.<root PKCS8 base64url>` создаётс
 
 Person relationship: `null` или `{id, state:accepted, incoming:false}`. Public поля видны авторизованному искателю по точному ID, contacts — если владелец профиля добавил искателя в свой список, private — владельцу. Нет поиска по email/телефону, листинга пользователей или импорта адресной книги. Блокировка собеседником возвращает 404. Собственную блокировку можно увидеть как `blocked:true` для разблокировки; при блокировке доступны только public поля. Удаление контакта не требует ожидания перед повторным добавлением. Контакт не создаёт grants, задания и Matrix membership.
 
+## R1-05 — приватное присутствие
+
+**Источником пользовательского статуса является только PhotoBunker Identity API.** Native Matrix presence не используется: в `infra/matrix/tuwunel.toml` отключены `allow_local_presence`, `allow_incoming_presence`, `allow_outgoing_presence`; в Matrix SDK остаётся `disablePresence: true`. Это предотвращает обход настройки видимости через нативные Matrix presence endpoints/room members. Laravel не хранит сообщения и не запрашивает Matrix/crypto для статуса.
+
+Все endpoints требуют действующую Identity session, `X-PhotoBunker: identity-v1`, origin protection и собственный account binding:
+
+| Endpoint | Контракт |
+| --- | --- |
+| `GET /presence/privacy` | `{visibility:"all"|"contacts"|"nobody",revision:int}`; default `contacts` |
+| `PUT /presence/privacy` | `{visibility,expectedRevision,operationId:UUID}` → `{visibility,revision}`; CAS, повтор того же успешного operation ID с тем же payload идемпотентен, устаревший выбор →409 |
+| `POST /presence/pulse` | `{instanceId:UUID,sequence:int,active:boolean}` → `{accepted:true}`; per-tab nonce, сервер сам берёт текущий device ID из сессии и время из clock; явный inactive закрывает lease навсегда |
+| `GET /presence/<exact handle or MXID>` | строго `{state:"online"|"recent"|"longAgo"|"hidden"|"unknown"}`; **никогда** timestamps, device IDs, numeric last-seen, raw Matrix data |
+
+Видимость `all` разрешает любой аутентифицированной PhotoBunker сессии; `contacts` требует *двух* встречных записей в `identity_address_book` (не pending/односторонний contact); `nobody` скрывает статус от других. Блокировка в любую сторону, удаление или retirement возвращают `hidden`; никогда не вычислять online на основе avatar, preview, сообщений, старого SDK state или `identity_devices.last_seen_at`.
+
+**Online** подтверждается любым активным, не отозванным устройством со действующей Identity session и хотя бы одним незакрытым browser lease с серверным pulse моложе **85 секунд**. `pagehide`, background и logout передают inactive best-effort; при сетевом сбое server TTL автоматически снимает online. Таймаут не является мгновенным доказательством disconnect. Состояния без live lease: `recent` если последняя **серверно подтверждённая presence-активность** не старше 24 часов; `longAgo` если старше; `unknown` если activity никогда не подтверждалась. Эти интервалы не раскрывают точное время. Нативные timestamp текущих устройств из собственного `GET /devices` не являются публичным presence.
+
+Privacy changes сначала атомарно сохраняются в account+device-scoped encrypted IndexedDB с non-extractable AES-GCM key и устойчивым operation UUID. UI не утверждает подтверждение сервера до `PUT` ACK; offline сохраняет intent локально на доверенном устройстве с открытым PIN gate, а не выдаёт серверные права. Replay на reconnect использует тот же ID; CAS conflict 409 возвращает подтверждённый сервером выбор с видимым уведомлением. Logout/удаление очищают локальные intents; смена аккаунта и запоздалые ответы не переносят состояние другому владельцу.
+
 ## Устройства и Matrix
 
 `POST /matrix/conversations/prepare {peers: string[1..30]}` — явное намерение начать переписку. Проверяет все точные handles, запрещает self, удаляемые/истёкшие аккаунты, повторы одного адресата и двусторонние блокировки до обращения к Matrix. Идемпотентно подключает ещё не provisioned Matrix accounts адресатов, без их входа, устройств и E2EE secrets. Затем повторно проверяет актуальную доступность и возвращает `{peers:[Person & {matrixUserId,ready:true}]}`. При недоступной инфраструктуре — 503 `{code:"messaging_unavailable"}`, без деталей/credentials upstream. Саму комнату и сообщения создаёт SDK текущего пользователя. GET lookup не меняет accounts. Контент переписки и ключи в этот API не передаются.
