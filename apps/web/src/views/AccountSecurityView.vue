@@ -285,7 +285,7 @@ async function claim() {
           <p v-if="emergencyFailure" role="alert">{{ et('offline') }}</p>
           <button v-if="emergencyFailure" type="button" class="secondary-button"
             :disabled="emergencyBusy" @click="loadEmergencyRegistration">{{ et('retry') }}</button>
-          <template v-if="emergencyReady && !emergencyFailure && !deletionBlocked">
+          <template v-if="emergencyReady && !deletionBlocked">
             <label v-if="emergencyActive">{{ et('old') }}
               <input v-model="emergencyOld" type="password" inputmode="numeric"
                 autocomplete="off" maxlength="8" :disabled="emergencyBusy" />
