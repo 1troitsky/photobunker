@@ -86,10 +86,15 @@ watch([id, () => account.value?.id, sessionState, appLockReady, appLocked,
 }, { immediate: true, flush: 'sync' })
 async function copyCoordinates() {
   if (!visible.value?.location || !coordinates.value) return
+  const token = generation, currentOwner = account.value?.id
+  const text = coordinates.value
   try {
-    await navigator.clipboard.writeText(coordinates.value)
-    if (visible.value?.location) copied.value = true
-  } catch { copied.value = false }
+    await navigator.clipboard.writeText(text)
+    if (token === generation && currentOwner === account.value?.id &&
+        coordinates.value === text && visible.value?.location) copied.value = true
+  } catch {
+    if (token === generation) copied.value = false
+  }
 }
 const expiry = setInterval(() => {
   now.value = Date.now()
