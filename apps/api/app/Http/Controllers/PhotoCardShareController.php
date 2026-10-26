@@ -150,7 +150,10 @@ final class PhotoCardShareController
         $uploads = ['card' => $request->file('file')];
         if ($request->hasFile('photo')) $uploads['photo'] = $request->file('photo');
         if ($request->hasFile('original')) $uploads['original'] = $request->file('original');
-        abort_unless(array_keys($uploads) === array_keys($descriptors), 422);
+        $supplied = array_keys($uploads);
+        $expected = array_keys($descriptors);
+        sort($supplied); sort($expected);
+        abort_unless($supplied === $expected, 422);
         $bytes = 0;
         foreach ($descriptors as $kind => $d) {
             $part = $uploads[$kind];
