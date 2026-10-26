@@ -97,11 +97,24 @@ function payloadValid(x: unknown, scopes: CardScopes, expiry: number): x is Publ
       (v.description !== undefined && (typeof v.description !== 'string' || v.description.length > 2000)) ||
       v.expiresAt !== expiry) return false
   if (v.capturedAt !== undefined && (!Number.isSafeInteger(v.capturedAt) || v.capturedAt <= 0)) return false
-  if (v.location && (!Number.isFinite(v.location.latitude) || !Number.isFinite(v.location.longitude) ||
+  if (v.location && (typeof v.location !== 'object' ||
+    Object.keys(v.location).sort().join(',') !== 'latitude,longitude' ||
+    !Number.isFinite(v.location.latitude) || !Number.isFinite(v.location.longitude) ||
     Math.abs(v.location.latitude) > 90 || Math.abs(v.location.longitude) > 180)) return false
-  if (v.author && (!/^[A-Za-z0-9_-]{2,128}$/.test(v.author.publicId))) return false
-  if (v.metadata && (typeof v.metadata !== 'object' ||
-    Object.keys(v.metadata).some(k => !['date','time','camera','width','height','bytes','mime','method','accuracy','locationSource'].includes(k)))) return false
+  if (v.author && (typeof v.author !== 'object' ||
+    Object.keys(v.author).join(',') !== 'publicId' ||
+    !/^[A-Za-z0-9_-]{2,128}$/.test(v.author.publicId))) return false
+  if (v.metadata) {
+    if (typeof v.metadata !== 'object' || Array.isArray(v.metadata) ||
+        Object.keys(v.metadata).some(k =>
+          !['date','time','camera','width','height','bytes','mime','method','accuracy','locationSource'].includes(k)))
+      return false
+    for (const k of ['date', 'time', 'camera', 'mime', 'method', 'locationSource'] as const)
+      if (v.metadata[k] !== undefined && typeof v.metadata[k] !== 'string') return false
+    for (const k of ['width', 'height', 'bytes', 'accuracy'] as const)
+      if (v.metadata[k] !== undefined &&
+          (typeof v.metadata[k] !== 'number' || !Number.isFinite(v.metadata[k]))) return false
+  }
   return true
 }
 export async function encryptCard(card: PrivatePhotoCard, scopes: CardScopes, expiresAt: number,
