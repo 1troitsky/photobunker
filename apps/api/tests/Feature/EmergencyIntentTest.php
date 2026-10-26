@@ -156,10 +156,11 @@ final class EmergencyIntentTest extends TestCase
             [...$payload, 'accountId' => $b['accountId']],
             [...$payload, 'keyId' => (string) Str::uuid()],
             [...$payload, 'revision' => 200],
-            [...$payload, 'operationId' => (string) Str::uuid()],
         ] as $tampered) {
-            $this->send($tampered, $signature)->assertStatus(403);
+            $this->send($tampered, $signature)->assertForbidden();
         }
+        $this->send([...$payload, 'operationId' => (string) Str::uuid()], $signature)
+            ->assertUnprocessable();
         $this->send($payload, $signature)->assertStatus(202);
         $this->send([...$payload, 'revision' => 2], $signature)->assertConflict();
         $this->send([...$payload, 'keyId' => (string) Str::uuid()], $signature)->assertConflict();
