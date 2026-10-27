@@ -173,6 +173,12 @@ async function guardSiblingDevice(s:DeleteScope) {
 }
 export async function purgeEmergencyDevice(s:DeleteScope) {
   if(!/^[a-f0-9-]{36}$/i.test(s.owner)||!/^[a-f0-9-]{36}$/i.test(s.device))fail()
+  // Once a durable signature exists, remove the device's encrypted private
+  // signing key FIRST. Other stores might be blocked by another tab/crash;
+  // they must not leave a reusable emergency signer on this device.
+  if((await names()).includes('photobunker-emergency-v1'))
+    await inspect('photobunker-emergency-v1',
+      (store,row)=>emergencyWipeMatchesScope('photobunker-emergency-v1',store,row,s),true)
   await guardSiblingDevice(s)
   await sweep(s,true)
   for(const key of Object.keys(localStorage)) {
