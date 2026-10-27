@@ -43,6 +43,8 @@ describe('R1-08B immutable intent, synthetic scopes',()=>{
       {key:A+':'+AD,value:undefined},s)).toBe(true)
     expect(emergencyWipeMatchesScope('photobunker-message-outbox-v1','records',
       {key:'msg:'+A+':'+AD+':tx',value:undefined},s)).toBe(true)
+    expect(emergencyWipeMatchesScope('photobunker-message-storage-v1','keys',
+      {key:A+':'+AD,value:undefined},s)).toBe(true)
   })
 })
 function fixture() {

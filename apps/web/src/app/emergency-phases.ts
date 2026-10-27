@@ -24,8 +24,10 @@ export async function replayEmergencyPhases(initial:EmergencyCommand,ops:Emergen
   if(row.phase==='purging') {
     try{
       await ops.purge(row.accountId,row.deviceId)
-      row=await ops.advance(row.operationId,'purging','purged')
     }catch{wipeFailed=true}
+    // A failed durable phase commit is not a wipe failure. Let the caller
+    // retry from the journal instead of swallowing a storage/transaction error.
+    if(!wipeFailed)row=await ops.advance(row.operationId,'purging','purged')
   }
   // A failed local wipe never discards the valid signed server intent.
   if(row.delivery!=='completed' && ops.online()){

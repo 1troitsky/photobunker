@@ -37,7 +37,7 @@ export function emergencyWipeMatchesScope(db:string,store:string,row:Entry,s:Del
     case 'photobunker-photo-browser-cache-v1':return key.startsWith('browser:'+id+':')
     case 'photobunker-photo-names-v1':return key==='photo-names:'+id
     case 'photobunker-card-share-intents-v1':return key.startsWith(id+':')
-    case 'photobunker-message-storage-v1':return key.startsWith(id+':')
+    case 'photobunker-message-storage-v1':return key===id||key.startsWith(id+':')
     case 'photobunker-ui-workspace-v1':return key.startsWith('account:'+s.owner+':')
     case 'photobunker-encrypted-queue-v1':
       return key==='capture-current'

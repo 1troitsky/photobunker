@@ -12,6 +12,7 @@ import { beginEmergencyBarrier,resetEmergencyBarrierForNormalBootstrap } from '.
 
 /** The cover never discloses operation, local progress or server status. */
 export const emergencyBlocked=ref(true)
+export const emergencyChecked=ref(false)
 const broadcast=typeof BroadcastChannel==='function'
   ? new BroadcastChannel('photobunker-emergency-stop-v1'):undefined
 let replay:Promise<boolean>|undefined
@@ -19,6 +20,7 @@ let timer:ReturnType<typeof setTimeout>|undefined
 let delay=5000
 function stopPrivateAccess() {
   beginEmergencyBarrier()
+  emergencyChecked.value=true
   emergencyBlocked.value=true
   lockApp()
   hardLock()
@@ -76,8 +78,10 @@ async function phase(operationId:string,from:EmergencyCommand['phase'],to:Emerge
     return {...row,phase:to}
   })
 }
-/** Replays immutable command; failure leaves journal and neutral cover intact.
- * Does not requireasync function progress() {
+/** Replays the immutable command without requiring Identity credentials.
+ * Failure leaves the journal and neutral cover intact.
+ */
+async function progress() {
   const row=await readEmergencyCommand()
   if(!row)throw new Error('emergency.journal')
   const {wipeFailed}=await replayEmergencyPhases(row,{
@@ -99,8 +103,6 @@ async function phase(operationId:string,from:EmergencyCommand['phase'],to:Emerge
   const final=await readEmergencyCommand()
   if(wipeFailed || final?.delivery!=='completed')schedule()
 }
-if(wipeFailed || final?.delivery!=='completed')schedule()
-}
 export function resumeEmergency():Promise<boolean> {
   if(replay)return replay
   replay=(async()=>{
@@ -111,6 +113,7 @@ export function resumeEmergency():Promise<boolean> {
         if(localStorage.getItem('pb-emergency-locked')==='true')
           throw new Error('emergency.missing_journal')
         resetEmergencyBarrierForNormalBootstrap()
+        emergencyChecked.value=true
         emergencyBlocked.value=false
         return true
       }

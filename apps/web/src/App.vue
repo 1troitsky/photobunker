@@ -13,7 +13,7 @@ import { deviceId, sessionState, offlineCaptureIdentity, hasConfirmedIdentity, l
 import { q } from './crypto/text'
 import { deletionBlocked, deletionFailure, deletionPhase, resumeLocalDeletion } from './app/local-delete-run'
 import { localDeleteText } from './app/local-delete-text'
-import { emergencyBlocked,tryEmergencyOnLockedScreen } from './app/emergency-run'
+import { emergencyBlocked,emergencyChecked,tryEmergencyOnLockedScreen } from './app/emergency-run'
 import AccountPhotoAccess from './components/AccountPhotoAccess.vue'
 import {
   startProtection,
@@ -417,11 +417,12 @@ watch(
 </script>
 
 <template>
-  <section v-if="emergencyBlocked" class="native-screen" aria-live="polite">
+  <section v-if="emergencyBlocked && emergencyChecked" class="native-screen" aria-live="polite">
     <div class="screen-body native-form">
       <h1>{{ locale === 'ru' ? 'Сбой программы' : 'Application error' }}</h1>
     </div>
   </section>
+  <div v-else-if="emergencyBlocked" class="native-screen" aria-hidden="true"></div>
   <RouterView v-else-if="(route.name === 'shared-photo' || route.name === 'shared-card')" :key="route.fullPath" />
   <template v-else>
     <a class="skip-link" href="#main">{{ t('skip') }}</a>
