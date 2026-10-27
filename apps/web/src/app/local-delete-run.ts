@@ -114,7 +114,8 @@ async function clearScopedCaches(s: DeleteScope) {
   // Public PWA shell precache stays intact. Private caches must explicitly
   // identify the device; unscoped private cache means fail closed.
   for (const name of await caches.keys()) {
-    if (!/private|encrypted|photo|message/i.test(name)) continue
+    if (name.startsWith('photobunker-shell-')) continue
+    if (!/private|encrypted|photo|message/i.test(name.replace(/^photobunker-/,''))) continue
     const target = name.includes(s.owner + ':' + s.device)
     // A cache belonging to another explicit UUID/UUID scope is preserved.
     // An unscoped private cache cannot be attributed safely and blocks D4.
@@ -142,6 +143,7 @@ function rowMatchesScope(row: {database:string;store:string;key:IDBValidKey}, s:
     case 'photobunker-photo-browser-cache-v1': return key.startsWith('browser:' + pair + ':')
     case 'photobunker-photo-names-v1': return key === 'photo-names:' + pair
     case 'photobunker-card-share-intents-v1': return key.startsWith(pair + ':')
+    case 'photobunker-emergency-v1': return key === pair
     default: return false
   }
 }
@@ -171,6 +173,7 @@ export async function purgeLocalDeleteScope(s: DeleteScope) {
   await eraseExactDeviceCredentials(s)
   await eraseAppPinForLocalDelete(s.owner,s.device)
   await updateVerifier(s.owner,s.device,() => undefined)
+  await (await import('./emergency-store')).changeEmergency(s.owner,s.device,()=>undefined)
   for(const key of Object.keys(localStorage))
     if(key.includes(s.owner) && !key.startsWith('pb-local-delete-'))
       localStorage.removeItem(key)

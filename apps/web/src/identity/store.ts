@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { emergencyBarrierActive } from '../app/emergency-barrier'
 import { identityRequest, IdentityError, bindIdentity } from './api'
 import {
   credentials,
@@ -85,6 +86,7 @@ function clear(invalidate = true, removeCapture = true) {
   changed()
 }
 function accept(value: Session) {
+  if (emergencyBarrierActive()) return
   if (account.value?.id !== value.account.id || deviceId.value !== value.deviceId)
     generation++
   localStorage.setItem('pb-active-device', value.deviceId)
@@ -102,6 +104,7 @@ function accept(value: Session) {
     }).catch(() => {})
 }
 function markAuthenticated(value: Session) {
+  if (emergencyBarrierActive()) return
   cancelRetry()
   retryCount = 0
   sessionState.value = 'authenticated'
@@ -206,7 +209,7 @@ if (typeof window !== 'undefined') {
 
 /** The app shell must not await network/bootstrap. */
 export function startIdentityBootstrap() {
-  if (bootstrapStarted) return
+  if (emergencyBarrierActive() || bootstrapStarted) return
   bootstrapStarted = true
   // Speculative local context can permit capture but never authenticates API.
   void restorePublicCaptureIdentity(true).catch(() => {})
@@ -216,6 +219,7 @@ export function hasConfirmedIdentity() {
   return sessionState.value === 'authenticated' && !!account.value && !offlineCaptureIdentity.value
 }
 export function loadIdentity(force = false): Promise<void> {
+  if(emergencyBarrierActive())return Promise.resolve()
   if (signingOut.value) return Promise.resolve()
   if (localStorage.getItem('pb-signed-out') === 'true') {
     if (sessionState.value === 'signed-out' && identityReady.value) return Promise.resolve()
@@ -300,6 +304,7 @@ export function loadIdentity(force = false): Promise<void> {
 }
 
 function authenticated(result: Session) {
+  if(emergencyBarrierActive())return
   localStorage.removeItem('pb-local-delete-signed-out')
   localStorage.removeItem('pb-signed-out')
   profileSaved.value = false
@@ -483,6 +488,7 @@ export async function connectMatrix() {
 // Restoring a public capture identity grants no login or photo-read capability.
 // Every later upload is checked against the live Identity session and epoch.
 export async function restorePublicCaptureIdentity(warm = false) {
+  if(emergencyBarrierActive())return
   if(localStorage.getItem('pb-signed-out')==='true')return
   if (account.value || !identityUnavailable.value && !warm) return
   const epoch = generation
@@ -502,7 +508,7 @@ export async function restorePublicCaptureIdentity(warm = false) {
       d.publicId === saved.publicId &&
       !d.privateKey.extractable,
   )
-  if (!known || account.value || epoch !== generation || !identityUnavailable.value && !warm) return
+  if (emergencyBarrierActive() || !known || account.value || epoch !== generation || !identityUnavailable.value && !warm) return
   const fields = Object.fromEntries(
       ['name', 'username', 'email', 'phone', 'links', 'about'].map((k) => [
         k,
