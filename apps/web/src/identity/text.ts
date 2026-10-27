@@ -81,6 +81,7 @@ const copy = {
   authTimeout: ['Ответ сервера не получен. Аккаунт мог быть создан: повторите с тем же ключом, не создавайте новый.', 'The server did not respond. The account may already exist; retry with the same key, not a new one.'],
   authRateLimited: ['Слишком много попыток. Повторите позже с тем же ключом.', 'Too many attempts. Try again later with the same key.'],
   authServer: ['Сервис аккаунтов временно недоступен. Повторите с тем же ключом.', 'The account service is temporarily unavailable. Retry with the same key.'],
+  authOrigin: ['Адрес приложения не разрешён сервером. Проверьте APP_URL на сервере и повторите.', 'The app address is not allowed by the server. Check the server APP_URL and retry.'],
   authConflict: ['Устройство или аккаунт уже изменены. Проверьте подключённый аккаунт и повторите с тем же ключом.', 'This device or account has changed. Check the connected account and retry with the same key.'],
   authStorage: ['Не удалось безопасно сохранить ключи на устройстве. Освободите место или разрешите хранилище браузера и повторите. Не закрывайте этот экран, пока не сохраните ключ.', 'Could not securely store the keys on this device. Free up storage or enable browser storage and retry. Keep this screen open until your key is saved.'],
   authCancelled: ['Вход был отменён или аккаунт изменился. Проверьте текущий профиль.', 'Sign-in was cancelled or the account changed. Check the current profile.'],

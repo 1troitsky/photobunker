@@ -13,7 +13,7 @@ final class EmergencyIntentBoundary
     {
         // Intentionally cookie-independent; never relax IdentityBoundary or
         // accept cross-origin browser requests to a destructive endpoint.
-        abort_unless(app()->environment('local', 'testing') && config('identity.enabled'), 404);
+        abort_unless(config('identity.enabled'), 404);
         abort_unless($request->isMethod('POST'), 405);
         abort_unless($request->header('X-PhotoBunker') === 'identity-v1', 403);
         abort_unless(in_array($request->header('Origin'), config('identity.origins'), true), 403);

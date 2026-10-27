@@ -443,13 +443,16 @@ final class IdentityTest extends TestCase
         $this->postJson('/api/v1/identity/matrix/signing', ['keys' => $keys])->assertOk();
     }
 
-    public function test_identity_is_hidden_when_disabled_or_production(): void
+    public function test_identity_is_hidden_when_disabled_and_available_in_production_only_to_trusted_origin(): void
     {
         config(['identity.enabled' => false]);
         $this->getJson('/api/v1/identity/me')->assertNotFound();
-        config(['identity.enabled' => true]);
+        config(['identity.enabled' => true, 'identity.origins' => ['https://photos.example']]);
         app()->detectEnvironment(fn () => 'production');
-        $this->getJson('/api/v1/identity/me')->assertNotFound();
+        $this->withHeaders(['Origin' => 'https://photos.example'])
+            ->getJson('/api/v1/identity/me')->assertUnauthorized();
+        $this->withHeaders(['Origin' => 'https://attacker.example'])
+            ->getJson('/api/v1/identity/me')->assertForbidden();
     }
 
     public function test_device_session_has_no_time_expiry_but_revocation_still_ends_access(): void

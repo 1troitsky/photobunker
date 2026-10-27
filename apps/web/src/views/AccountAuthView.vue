@@ -31,7 +31,8 @@ function message(failure: unknown) {
     if (failure.status === 429) return a('authRateLimited')
     if (failure.status >= 500) return a('authServer')
     if (failure.status === 409) return a('authConflict')
-    if (failure.status === 401 || failure.status === 403) return a('denied')
+    if (failure.status === 403) return a('authOrigin')
+    if (failure.status === 401) return a('denied')
     return a('failed')
   }
   if (['invalid_backup', 'identity.invalid_key', 'identity.invalid_kit', 'recovery.wrong_account'].includes(code))

@@ -14,7 +14,7 @@ final class IdentityBoundary
 {
     public function handle(Request $request, Closure $next): Response
     {
-        abort_unless(app()->environment('local', 'testing') && config('identity.enabled'), 404);
+        abort_unless(config('identity.enabled'), 404);
         abort_unless($request->header('X-PhotoBunker') === 'identity-v1', 403);
         if (! $request->isMethod('GET') || $request->hasHeader('Origin')) {
             abort_unless(in_array($request->header('Origin'), config('identity.origins'), true), 403);
