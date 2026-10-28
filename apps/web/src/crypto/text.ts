@@ -204,8 +204,10 @@ const english: Record<string, string> = {
   'Сервер временно недоступен. Проверьте связь и повторите; ключи сохранены на устройстве.': 'The server is temporarily unavailable. Check your connection and retry; your keys remain on this device.',
 
 }
-export const q = (message: string) =>
-  locale.value === 'en' ? (english[message] ?? message) : message
+// Never show an untranslated Russian source key in English. Static audit
+// checks q('literal') call sites against the complete English catalogue.
+export const q = (message: string): string =>
+  locale.value === 'ru' ? message : (english[message] ?? 'Translation unavailable')
 export const roleLabel = (role: string) =>
   q(
     (
