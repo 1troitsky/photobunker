@@ -11,7 +11,8 @@
     "build": "vue-tsc --noEmit && vite build",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
-    "check": "npm run test && npm run build",
+    "localization:check": "node scripts/check-localization.mjs",
+    "check": "npm run localization:check && npm run test && npm run build",
     "preview": "vite preview --host 0.0.0.0 --port 4173 --strictPort"
   },
   "dependencies": {
