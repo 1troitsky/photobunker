@@ -17,6 +17,7 @@ import {
 } from '../studio/store'
 import { photos, refreshLibrary } from '../local/library'
 import { locale } from '../i18n'
+import { q } from '../crypto/text'
 import WorkspaceReceipts from '../components/WorkspaceReceipts.vue'
 import { respond } from '../workspace/api'
 import { receipts } from '../workspace/state'
@@ -167,7 +168,7 @@ onMounted(() => {
         <AppIcon name="folder" />{{ s('photoBrowser') }}</RouterLink>
     </div>
     <FormTabs v-model="tab" :items="tabs" />
-    <div class="screen-body"><button v-if="account" class="secondary-button" @click="router.push({path:'/profile/photos-security',query:{assignment:String(route.params.id)}})">Защита задания</button>
+    <div class="screen-body"><button v-if="account" class="secondary-button" @click="router.push({path:'/profile/photos-security',query:{assignment:String(route.params.id)}})">{{ q('Защита задания') }}</button>
       <p v-if="failed" class="form-error" role="alert">{{ s('failed') }}</p>
       <template v-if="tab === 'materials'"
         ><WorkspaceReceipts v-if="task.accountId" :assignment-id="task.id" />
