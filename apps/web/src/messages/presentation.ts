@@ -1,4 +1,4 @@
-import { locale } from '../i18n'
+import { locale, formatDate } from '../i18n'
 const copy = {
   search: ['Поиск чатов и сообщений', 'Search chats and messages'], searchChat: ['Поиск сообщений', 'Search messages'],
   searchHistory: ['Искать сообщения во всех чатах', 'Search messages in all chats'], searching: ['Ищем в истории…', 'Searching history…'],
@@ -68,12 +68,12 @@ export function dayLabel(time: number, now = Date.now()) {
   yesterday.setDate(yesterday.getDate() - 1)
   if (date.toDateString() === today.toDateString()) return ui('today')
   if (date.toDateString() === yesterday.toDateString()) return ui('yesterday')
-  return date.toLocaleDateString(locale.value === 'ru' ? 'ru-RU' : 'en-US', { day: 'numeric', month: 'long', ...(date.getFullYear() !== today.getFullYear() ? { year: 'numeric' } : {}) })
+  return formatDate(date, { day: 'numeric', month: 'long', ...(date.getFullYear() !== today.getFullYear() ? { year: 'numeric' as const } : {}) })
 }
 export function chatTime(time?: number, now = Date.now()) {
   if (!time) return ''
   const date = new Date(time)
   return date.toDateString() === new Date(now).toDateString()
-    ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    : date.toLocaleDateString(locale.value === 'ru' ? 'ru-RU' : 'en-US', { day: 'numeric', month: 'short' })
+    ? formatDate(date, { hour: '2-digit', minute: '2-digit' })
+    : formatDate(date, { day: 'numeric', month: 'short' })
 }
