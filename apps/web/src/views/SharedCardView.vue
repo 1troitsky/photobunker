@@ -5,7 +5,7 @@ import PrivateLocationMap from '../components/PrivateLocationMap.vue'
 import { decryptCard, decryptCardObject, type CardManifest, type PublicCard } from '../crypto/card-shares'
 import { downloadFile } from '../studio/export'
 import { cardShareText as t } from '../studio/card-share-text'
-import { locale } from '../i18n'
+import { formatDate, formatNumber } from '../i18n'
 import { profilePath } from '../identity/person'
 
 const route = useRoute()
@@ -120,7 +120,7 @@ function hide() {
   error.value = 'invalid'
 }
 function date(value: number) {
-  return new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium', timeStyle: 'short' }).format(value)
+  return formatDate(value, { dateStyle: 'medium', timeStyle: 'short' })
 }
 async function copyCoordinates() {
   if (!card.value?.location) return
@@ -215,7 +215,7 @@ onBeforeUnmount(() => {
             <dl v-if="details" class="native-facts">
               <div v-if="card.metadata.camera"><dt>{{ t('details') }}</dt><dd>{{ card.metadata.camera }}</dd></div>
               <div v-if="card.metadata.width && card.metadata.height">
-                <dt>{{ t('details') }}</dt><dd>{{ card.metadata.width }} × {{ card.metadata.height }}</dd></div>
+                <dt>{{ t('details') }}</dt><dd>{{ formatNumber(card.metadata.width) }} × {{ formatNumber(card.metadata.height) }}</dd></div>
               <div v-if="card.metadata.mime"><dt>{{ t('details') }}</dt><dd>{{ card.metadata.mime }}</dd></div>
             </dl>
           </section>
