@@ -11,7 +11,7 @@ import ReviewPanel from '../components/ReviewPanel.vue'
 import { c } from '../collaboration/text'
 import { serverPhoto } from '../server/api'
 import AppIcon from '../components/AppIcon.vue'
-import { locale, t } from '../i18n'
+import { locale, t, formatNumber } from '../i18n'
 import {
   deletePhoto,
   readPhoto,
@@ -618,7 +618,7 @@ onBeforeUnmount(() => {
           @click="sibling(-1)"
         >
           <AppIcon name="back" /></button
-        ><span>{{ position + 1 }} / {{ siblings.length }}</span
+        ><span>{{ formatNumber(position + 1) }} / {{ formatNumber(siblings.length) }}</span
         ><button
           class="app-icon-button"
           :disabled="position >= siblings.length - 1"
