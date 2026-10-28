@@ -7,7 +7,7 @@ import { photos, formatBytes } from '../local/library'
 import { jobs } from '../crypto/photos'
 import { storageSummary, saveInactivity, deleteAccountData, type StorageSummary } from '../identity/storage'
 import { q } from '../crypto/text'
-import { locale } from '../i18n'
+import { formatDate, formatNumber } from '../i18n'
 const router = useRouter(), summary = ref<StorageSummary>(), days = ref(180), pending = ref(0), queuedBytes = ref(0), availableSpace = ref<number>(), busy = ref(false), error = ref(''), notice = ref(''), deleteOpen = ref(false), confirmed = ref(false)
 const availablePhotos = computed(() => photos.value.filter(photo => !photo.uploadOnly && !photo.deliveryOnly && !photo.deleteRequested && (!photo.expiresAt || photo.expiresAt > Date.now())).length)
 async function refresh() {
@@ -46,12 +46,12 @@ onMounted(() => void refresh())
       <section class="form-card">
         <h2>{{ q('Хранилище') }}</h2>
         <dl class="native-facts">
-          <div><dt>{{ q('Доступные фотографии') }}</dt><dd>{{ availablePhotos }}</dd></div>
+          <div><dt>{{ q('Доступные фотографии') }}</dt><dd>{{ formatNumber(availablePhotos) }}</dd></div>
           <template v-if="summary">
-            <div><dt>{{ q('Ваши фотографии в облаке') }}</dt><dd>{{ summary.ownedPhotos }}</dd></div>
+            <div><dt>{{ q('Ваши фотографии в облаке') }}</dt><dd>{{ formatNumber(summary.ownedPhotos) }}</dd></div>
             <div><dt>{{ q('Занято в облаке') }}</dt><dd>{{ formatBytes(summary.encryptedBytes) }}</dd></div>
           </template>
-          <div><dt>{{ q('Ожидают отправки') }}</dt><dd>{{ pending }} · {{ formatBytes(queuedBytes) }}</dd></div>
+          <div><dt>{{ q('Ожидают отправки') }}</dt><dd>{{ formatNumber(pending) }} · {{ formatBytes(queuedBytes) }}</dd></div>
           <div v-if="availableSpace !== undefined"><dt>{{ q('Доступно приложению на устройстве') }}</dt><dd>{{ formatBytes(availableSpace) }}</dd></div>
         </dl>
         <p class="field-hint">{{ q('В объём облака входят зашифрованные оригиналы, превью и версии. Доступное место на устройстве — оценка браузера, а не свободная память телефона.') }}</p>
@@ -63,7 +63,7 @@ onMounted(() => void refresh())
         <label for="inactivity-days">{{ q('Дней без активности') }}</label>
         <input id="inactivity-days" v-model.number="days" type="number" min="30" max="360" step="1" inputmode="numeric" required :disabled="busy || !summary" />
         <p class="field-hint">{{ q('От 30 до 360 дней') }}</p>
-        <p v-if="summary?.deletesAt" class="field-hint">{{ q('Если больше не пользоваться приложением:') }} {{ new Date(summary.deletesAt).toLocaleDateString(locale === 'ru' ? 'ru-RU' : 'en-US') }}</p>
+        <p v-if="summary?.deletesAt" class="field-hint">{{ q('Если больше не пользоваться приложением:') }} {{ formatDate(summary.deletesAt, { dateStyle: 'medium' }) }}</p>
         <button class="primary-button" :disabled="busy || !summary">{{ q('Сохранить') }}</button>
       </form>
       <section class="form-card">
