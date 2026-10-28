@@ -377,8 +377,8 @@ async function claim() {
   <AppSheet :open="destructiveSheet" :busy="deletePinBusy" :title="ld('confirmTitle')"
       @close="destructiveSheet=false;exactScope=undefined;actionPin='';finalConfirm=false">
       <p>{{ ld('ready') }}</p>
-      <p v-if="exactScope"><strong>Account:</strong> <code>{{ exactScope.owner }}</code>
-        <strong>Device:</strong> <code>{{ exactScope.device }}</code></p>
+      <p v-if="exactScope"><strong>{{ q('Аккаунт') }}:</strong> <code>{{ exactScope.owner }}</code>
+        <strong>{{ q('Устройство') }}:</strong> <code>{{ exactScope.device }}</code></p>
       <p>{{ ld('boundary') }}</p>
       <label class="check-row"><input v-model="finalConfirm" type="checkbox"
         :disabled="deletePinBusy" />{{ ld('confirm') }}</label>
