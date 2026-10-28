@@ -40,7 +40,7 @@ import { s } from '../studio/text'
 import { guardReload } from '../studio/unsaved'
 import { w } from '../workspace/text'
 import { m } from '../messages/text'
-import { ui, initials, avatarColor, dayLabel, chatTime } from '../messages/presentation'
+import { ui, initials, avatarColor, dayLabel, chatTime, membersCount } from '../messages/presentation'
 import { formatDate, formatNumber } from '../i18n'
 import { usePersonLookup } from '../messages/lookup'
 import { decideChatEntry, canAutoOpenChat } from '../messages/chat-entry'
@@ -1032,7 +1032,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
           <template v-if="activeChat">
             <ThreadHeader
               :name="selecting ? formatNumber(selectedMessages.length) + ' ' + ui('messageSelected').toLocaleLowerCase() : activeChat.name"
-              :subtitle="connection === 'offline' ? ui('offlineShort') : activeChat.direct ? presenceLabel(conversationPresence) : formatNumber(activeChat.members.length) + ' ' + ui('members')"
+              :subtitle="connection === 'offline' ? ui('offlineShort') : activeChat.direct ? presenceLabel(conversationPresence) : membersCount(activeChat.members.length)"
               :avatar-class="avatarColor(activeChat.id)"
               :initials="initials(activeChat.name)"
               :group="!activeChat.direct"
