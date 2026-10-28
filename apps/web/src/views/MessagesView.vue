@@ -41,6 +41,7 @@ import { guardReload } from '../studio/unsaved'
 import { w } from '../workspace/text'
 import { m } from '../messages/text'
 import { ui, initials, avatarColor, dayLabel, chatTime } from '../messages/presentation'
+import { formatDate, formatNumber } from '../i18n'
 import { usePersonLookup } from '../messages/lookup'
 import { decideChatEntry, canAutoOpenChat } from '../messages/chat-entry'
 import { personText } from '../identity/person-text'
@@ -1030,8 +1031,8 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
         <main class="messenger-thread" :class="{ 'messenger-thread-placeholder': !activeChat && !pendingEntryPeer }" :aria-label="activeChat?.name || pendingEntryPeer || ui('threadEmpty')">
           <template v-if="activeChat">
             <ThreadHeader
-              :name="selecting ? selectedMessages.length + ' ' + ui('messageSelected').toLocaleLowerCase() : activeChat.name"
-              :subtitle="connection === 'offline' ? ui('offlineShort') : activeChat.direct ? presenceLabel(conversationPresence) : activeChat.members.length + ' ' + ui('members')"
+              :name="selecting ? formatNumber(selectedMessages.length) + ' ' + ui('messageSelected').toLocaleLowerCase() : activeChat.name"
+              :subtitle="connection === 'offline' ? ui('offlineShort') : activeChat.direct ? presenceLabel(conversationPresence) : formatNumber(activeChat.members.length) + ' ' + ui('members')"
               :avatar-class="avatarColor(activeChat.id)"
               :initials="initials(activeChat.name)"
               :group="!activeChat.direct"
@@ -1071,7 +1072,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                     :sender="item.message.sender"
                     :show-sender="!activeChat.direct && !item.message.mine && !item.grouped"
                     :body="item.message.body"
-                    :time-label="new Date(item.message.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })"
+                    :time-label="formatDate(item.message.time, { hour: '2-digit', minute: '2-digit' })"
                     :status="item.message.status"
                     :status-label="m(item.message.status)"
                     :menu-label="ui('messageActions')"
@@ -1211,7 +1212,7 @@ watch(messageSearchOpen, open => { if (open) { void perform(loadAllMessages); vo
                   sender=""
                   :show-sender="false"
                   :body="item.body"
-                  :time-label="new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })"
+                  :time-label="formatDate(item.time, { hour: '2-digit', minute: '2-digit' })"
                   status="queued"
                   :status-label="m('queued')"
                   :menu-label="ui('messageActions')"
