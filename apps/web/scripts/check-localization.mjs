@@ -21,7 +21,11 @@ function initializer(ast, name) {
   return found
 }
 function objectEntries(file, symbol) {
-  const ast = source(file, read(file)), object = initializer(ast, symbol)
+  const ast = source(file, read(file))
+  let object = initializer(ast, symbol)
+  while (object && (ts.isAsExpression(object) ||
+    ts.isSatisfiesExpression(object) || ts.isParenthesizedExpression(object)))
+    object = object.expression
   if (!object || !ts.isObjectLiteralExpression(object))
     throw new Error('Missing catalogue '+symbol+' in '+file)
   const entries = new Map()
