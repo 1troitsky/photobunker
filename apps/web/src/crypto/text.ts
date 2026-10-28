@@ -3,6 +3,15 @@ import { locale } from '../i18n'
 
 // Source-language message IDs keep security copy together with its translation.
 const english: Record<string, string> = {
+  'Уникальный @username: 3–32 символа, латинские буквы, цифры, дефис или подчёркивание. Начинается с буквы; поиск по нему общедоступен. Изменение вступает в силу после сохранения.': 'Your unique @username: 3–32 Latin letters, digits, hyphens or underscores. It must start with a letter and can be found publicly. Changes take effect after saving.',
+  'Публичный адрес @username доступен для поиска всем пользователям.': 'Your public @username can be found by anyone.',
+  'Защита задания': 'Assignment protection',
+  'Завершаем выход на устройстве…': 'Signing out on this device…',
+  'Аккаунт': 'Account',
+  'Устройство': 'Device',
+  'Предпросмотр камеры': 'Camera preview',
+  'ДЕМО': 'DEMO',
+  'Сбой программы': 'Application error',
   "Снимок сохраняется на устройстве и синхронизируется с аккаунтом при наличии сети.": "The photo is saved on this device and syncs with your account when online.",
   "Аккаунт закрыт. Очистка данных на сервере выполняется автоматически.": "Your account is closed. Server data cleanup runs automatically.",
   "Закройте другие окна приложения, чтобы завершить удаление локальных данных.": "Close other app windows to finish deleting local data.",
