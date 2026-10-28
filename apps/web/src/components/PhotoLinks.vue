@@ -9,6 +9,7 @@ import { encryptShare, type ShareInfo } from '../crypto/shares'
 import { canonical } from '../crypto/protocol'
 import { externalPhotoFile } from '../studio/export'
 import { s } from '../studio/text'
+import { formatDate } from '../i18n'
 const props = defineProps<{
   photo: Photo
   blob: Blob
@@ -145,7 +146,7 @@ onBeforeUnmount(() => {
     <div v-for="link in shares" :key="link.id" class="form-section">
       <span
         >{{ s(link.scope === 'view' ? 'viewOnly' : 'allowDownload') }} ·
-        {{ new Date(link.expiresAt).toLocaleString() }}</span
+        {{ formatDate(link.expiresAt, { dateStyle: 'medium', timeStyle: 'short' }) }}</span
       ><span v-if="link.revoked">{{ s('revokedLink') }}</span
       ><button
         v-else
