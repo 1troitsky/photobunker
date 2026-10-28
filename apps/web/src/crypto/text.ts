@@ -3,6 +3,13 @@ import { locale } from '../i18n'
 
 // Source-language message IDs keep security copy together with its translation.
 const english: Record<string, string> = {
+  'Сохранить': 'Save',
+  'Отмена': 'Cancel',
+  'Ключ аккаунта будет удалён с этого устройства. Чтобы снова открыть фотографии и сообщения, понадобится сохранённый ключ.': 'Your account key will be removed from this device. You will need your saved key to open your photos and messages again.',
+  'Потерянный ключ восстановить нельзя.': 'A lost account key cannot be recovered.',
+  'Сначала дождитесь отправки фотографий с этого устройства.': 'Wait for photos on this device to finish uploading before signing out.',
+  'Сохранить ключ в файл': 'Save key to file',
+  'Выйти без сохранения': 'Sign out without saving',
   'Уникальный @username: 3–32 символа, латинские буквы, цифры, дефис или подчёркивание. Начинается с буквы; поиск по нему общедоступен. Изменение вступает в силу после сохранения.': 'Your unique @username: 3–32 Latin letters, digits, hyphens or underscores. It must start with a letter and can be found publicly. Changes take effect after saving.',
   'Публичный адрес @username доступен для поиска всем пользователям.': 'Your public @username can be found by anyone.',
   'Защита задания': 'Assignment protection',
