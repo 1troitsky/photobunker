@@ -20,21 +20,21 @@ async function refresh() {
     queuedBytes.value = queued.reduce((total, job) => total + Object.values(job.objects).reduce((bytes, object) => bytes + object.bytes.byteLength, 0), 0)
     const estimate = await navigator.storage?.estimate?.().catch(() => undefined)
     if (estimate?.quota !== undefined && estimate.usage !== undefined) availableSpace.value = Math.max(0, estimate.quota - estimate.usage)
-  } catch { error.value = q('Не удалось загрузить данные хранилища. Проверьте соединение и повторите.') }
+  } catch { error.value = 'Не удалось загрузить данные хранилища. Проверьте соединение и повторите.' }
   finally { busy.value = false }
 }
 async function save() {
-  if (!Number.isInteger(days.value) || days.value < 30 || days.value > 360) { error.value = q('Укажите целое число дней от 30 до 360.'); return }
+  if (!Number.isInteger(days.value) || days.value < 30 || days.value > 360) { error.value = 'Укажите целое число дней от 30 до 360.'; return }
   busy.value = true; error.value = ''; notice.value = ''
-  try { const saved = await saveInactivity(days.value); if (summary.value) Object.assign(summary.value, saved); notice.value = q('Срок автоудаления сохранён.') }
-  catch { error.value = q('Не удалось сохранить срок. Проверьте соединение и повторите.') }
+  try { const saved = await saveInactivity(days.value); if (summary.value) Object.assign(summary.value, saved); notice.value = 'Срок автоудаления сохранён.' }
+  catch { error.value = 'Не удалось сохранить срок. Проверьте соединение и повторите.' }
   finally { busy.value = false }
 }
 async function remove() {
   if (busy.value || !confirmed.value) return
   busy.value = true; error.value = ''
   try { await deleteAccountData(); deleteOpen.value = false; await router.replace('/profile') }
-  catch { error.value = q('Не удалось завершить очистку. Закройте другие окна приложения и повторите.'); deleteOpen.value = false }
+  catch { error.value = 'Не удалось завершить очистку. Закройте другие окна приложения и повторите.'; deleteOpen.value = false }
   finally { busy.value = false }
 }
 onMounted(() => void refresh())
@@ -72,8 +72,8 @@ onMounted(() => void refresh())
         <button class="danger-button" :disabled="busy || !summary" @click="confirmed = false; deleteOpen = true">{{ q('Удалить аккаунт и все данные') }}</button>
       </section>
       <p v-if="busy" class="field-hint" role="status">{{ q('Выполняем…') }}</p>
-      <p v-if="error" class="form-error" role="alert">{{ error }}</p>
-      <p v-if="notice" class="field-hint" role="status">{{ notice }}</p>
+      <p v-if="error" class="form-error" role="alert">{{ q(error) }}</p>
+      <p v-if="notice" class="field-hint" role="status">{{ q(notice) }}</p>
     </div>
     <AppSheet :open="deleteOpen" :title="q('Удалить аккаунт и все данные?')" :busy="busy" @close="deleteOpen = false">
       <p>{{ q('Доступ на всех устройствах и внешние ссылки будут закрыты. Фотографии, ваши команды и задания, контакты и резервные копии переписки будут удалены. Это действие нельзя отменить, даже имея ключ аккаунта.') }}</p>
