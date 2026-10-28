@@ -13,7 +13,7 @@ import { readPrivateCardPhoto, privateCardScopeAllowed } from '../studio/photo-c
 import { privatePhotoCard, type PrivatePhotoCard } from '../studio/private-photo-card'
 import { photoCardText as t } from '../studio/photo-card-text'
 import { profilePath } from '../identity/person'
-import { locale } from '../i18n'
+import { formatDate, formatNumber, formatBytes } from '../i18n'
 
 const route = useRoute()
 const card = ref<PrivatePhotoCard>()
@@ -35,9 +35,7 @@ const visible = computed(() =>
   privateCardScopeAllowed() && ownerOfCard.value === account.value?.id &&
   !!card.value && (card.value.expiresAt === undefined || card.value.expiresAt > now.value)
     ? card.value : undefined)
-const dateTime = (value: number) => new Intl.DateTimeFormat(locale.value, {
-  dateStyle: 'medium', timeStyle: 'short',
-}).format(value)
+const dateTime = (value: number) => formatDate(value, { dateStyle: 'medium', timeStyle: 'short' })
 const coordinates = computed(() => visible.value?.location
   ? visible.value.location.latitude.toFixed(6) + ', ' +
     visible.value.location.longitude.toFixed(6) : '')
@@ -178,12 +176,12 @@ onBeforeUnmount(() => { invalidate(); clearInterval(expiry) })
             </button>
             <dl v-if="expanded" class="native-facts photo-card-technical">
               <div v-if="visible.metadata.camera"><dt>{{ t('camera') }}</dt><dd>{{ visible.metadata.camera }}</dd></div>
-              <div><dt>{{ t('dimensions') }}</dt><dd>{{ visible.metadata.width }} × {{ visible.metadata.height }}</dd></div>
-              <div><dt>{{ t('bytes') }}</dt><dd>{{ visible.metadata.bytes }}</dd></div>
+              <div><dt>{{ t('dimensions') }}</dt><dd>{{ formatNumber(visible.metadata.width) }} × {{ formatNumber(visible.metadata.height) }}</dd></div>
+              <div><dt>{{ t('bytes') }}</dt><dd>{{ formatBytes(visible.metadata.bytes) }}</dd></div>
               <div><dt>{{ t('format') }}</dt><dd>{{ visible.metadata.mime }}</dd></div>
               <div><dt>{{ t('method') }}</dt><dd>{{ visible.metadata.method }}</dd></div>
               <div v-if="visible.metadata.accuracy !== undefined">
-                <dt>{{ t('accuracy') }}</dt><dd>± {{ Math.round(visible.metadata.accuracy) }} m</dd>
+                <dt>{{ t('accuracy') }}</dt><dd>± {{ formatNumber(Math.round(visible.metadata.accuracy)) }} m</dd>
               </div>
             </dl>
           </section>
