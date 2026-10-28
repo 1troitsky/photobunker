@@ -2,7 +2,7 @@
 import { afterEach,beforeEach,describe,expect,it,vi } from 'vitest'
 import { formatBytes,formatDate,formatNumber,initializeLocale,languageTag,locale,setLocale,t } from '../src/i18n'
 import { q } from '../src/crypto/text'
-import { chatTime,dayLabel,ui } from '../src/messages/presentation'
+import { chatTime,dayLabel,ui,membersCount } from '../src/messages/presentation'
 
 beforeEach(()=>{
   localStorage.clear()
@@ -73,6 +73,17 @@ describe('R1-11: device-scoped RU/EN, offline/reload/account switch',()=>{
     expect(englishTime).not.toBe('')
     expect(formatDate(Number.NaN)).toBe('—')
     expect(formatBytes(-10)).toBe('—')
+  })
+  it('inflects participant counts correctly in both languages',()=>{
+    setLocale('ru')
+    expect(membersCount(1)).toBe('1 участник')
+    expect(membersCount(2)).toBe('2 участника')
+    expect(membersCount(5)).toBe('5 участников')
+    expect(membersCount(11)).toBe('11 участников')
+    expect(membersCount(21)).toBe('21 участник')
+    setLocale('en')
+    expect(membersCount(1)).toBe('1 member')
+    expect(membersCount(2)).toBe('2 members')
   })
   it('re-renders chat date/time in the language selected AFTER an earlier render',()=>{
     const now=new Date(2026,9,28,12,0).getTime()
