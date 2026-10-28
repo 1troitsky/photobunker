@@ -1,4 +1,4 @@
-import { locale, formatDate } from '../i18n'
+import { locale, formatDate, formatNumber } from '../i18n'
 const copy = {
   search: ['Поиск чатов и сообщений', 'Search chats and messages'], searchChat: ['Поиск сообщений', 'Search messages'],
   searchHistory: ['Искать сообщения во всех чатах', 'Search messages in all chats'], searching: ['Ищем в истории…', 'Searching history…'],
@@ -54,6 +54,17 @@ const copy = {
   deleteConversationHint: ['Удаление у меня синхронизируется между моими устройствами. Полученные и сохранённые вне приложения копии удалить невозможно.', 'Deleting for me syncs across my devices. Copies received and saved outside the app cannot be removed.'],
 } as const
 export function ui(key: keyof typeof copy) { return copy[key][locale.value === 'ru' ? 0 : 1] }
+/** Count label with correct Russian one/few/many and English singular/plural. */
+export function membersCount(value: number) {
+  const n = Math.abs(Math.trunc(value))
+  const singular = n % 10 === 1 && n % 100 !== 11
+  const few = n % 10 >= 2 && n % 10 <= 4 &&
+    (n % 100 < 12 || n % 100 > 14)
+  const noun = locale.value === 'ru'
+    ? (singular ? 'участник' : few ? 'участника' : 'участников')
+    : (n === 1 ? 'member' : 'members')
+  return formatNumber(value) + ' ' + noun
+}
 export function initials(name: string) {
   const words = name.replace(/^@/, '').trim().split(/\s+/).filter(Boolean)
   return ((words[0]?.[0] ?? '?') + (words.length > 1 ? words.at(-1)![0] : '')).toLocaleUpperCase()
