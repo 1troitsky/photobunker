@@ -13,7 +13,7 @@ import { photoCardPath } from '../studio/private-photo-card'
 import { eraseBrowser, readBrowser, saveBrowser } from '../photo-browser/cache'
 import { visibleBrowserPhotos, type BrowserCollection, type BrowserSnapshot } from '../photo-browser/model'
 import { bt } from '../photo-browser/text'
-import { locale } from '../i18n'
+import { locale, formatNumber } from '../i18n'
 import { downloadBrowser, chooseZipDestination, releaseTemporaryDownloads } from '../photo-browser/download'
 import { lockGeneration } from '../crypto/state'
 
@@ -315,7 +315,7 @@ onBeforeUnmount(() => {
             @click="choosing = !choosing; selected = []">{{ bt('select') }}</button>
         </div>
         <div v-if="choosing" class="browser-selection" role="status">
-          {{ bt('selectedCount') }}: {{ selection.length }}
+          {{ bt('selectedCount') }}: {{ formatNumber(selection.length) }}
           <button class="quiet-button" type="button" @click="selectAll">{{ bt('selectAll') }}</button>
           <button class="quiet-button" type="button" @click="selected = []">{{ bt('clear') }}</button>
           <button type="button" class="secondary-button"
