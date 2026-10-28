@@ -19,7 +19,7 @@ import {
   studioError,
 } from '../studio/store'
 import { photos } from '../local/library'
-import { locale } from '../i18n'
+import { locale, formatNumber } from '../i18n'
 import { account } from '../identity/store'
 import WorkspaceInvitations from '../components/WorkspaceInvitations.vue'
 import { s } from '../studio/text'
@@ -196,7 +196,7 @@ onMounted(() => {
         <div class="assignment-progress">
           <span
             >{{ s('progress') }} {{ count(item.id)
-            }}<template v-if="item.count"> / {{ item.count }}</template></span
+            }}<template v-if="item.count"> / {{ formatNumber(item.count) }}</template></span
           ><span>{{
             item.dueAt
               ? new Intl.DateTimeFormat(locale, {
