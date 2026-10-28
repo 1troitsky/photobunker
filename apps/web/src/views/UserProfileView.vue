@@ -21,6 +21,7 @@ import AppIcon from '../components/AppIcon.vue'
 import ScreenHeader from '../components/ScreenHeader.vue'
 import AppSheet from '../components/AppSheet.vue'
 import { q } from '../crypto/text'
+import { formatNumber } from '../i18n'
 import { accountKey } from '../identity/vault'
 import { downloadFile } from '../studio/export'
 import { purgeAccountFromDevice, pendingDeviceCleanup as cleanupPending, accountDeletionNotice as deletionNotice } from '../identity/storage'
@@ -182,11 +183,11 @@ const sections = [
       <template v-if="account && !offlineCaptureIdentity">
       <div class="account-stats">
         <div>
-          <strong>{{ photos.length }}</strong
+          <strong>{{ formatNumber(photos.length) }}</strong
           ><span>{{ u('personalPhotos') }}</span>
         </div>
         <div>
-          <strong>{{ delivery.pending }}</strong
+          <strong>{{ formatNumber(delivery.pending) }}</strong
           ><span>{{ u('queued') }}</span>
         </div>
       </div>
