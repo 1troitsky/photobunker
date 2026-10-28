@@ -139,7 +139,7 @@ const sections = [
       <p v-if="profileSaved && account" class="form-notice" role="status">
         {{ a('profileSaved') }}
       </p>
-      <p v-if="signingOut" class="field-hint" role="status">Завершаем выход на устройстве…</p>
+      <p v-if="signingOut" class="field-hint" role="status">{{ q('Завершаем выход на устройстве…') }}</p>
       <p v-if="sessionNotice && !account" class="form-error" role="alert">
         {{ a('sessionExpired') }}
       </p>
