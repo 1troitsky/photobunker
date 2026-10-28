@@ -28,7 +28,7 @@ import { warmNames } from '../local/photo-names'
 import { nameText } from '../local/photo-name-text'
 import { delivery, refreshClock, retryDelivery } from '../delivery/queue'
 import { d } from '../delivery/text'
-import { t } from '../i18n'
+import { t, formatNumber } from '../i18n'
 import { q } from '../crypto/text'
 import { p } from '../profiles/text'
 import {
@@ -900,14 +900,14 @@ onBeforeUnmount(() => {
               measure()
             }
           "
-          aria-label="Camera preview"
+          :aria-label="q('Предпросмотр камеры')"
         /><canvas
           ref="demo"
           v-show="mode === 'demo'"
           class="camera-video"
           :style="{ objectFit: rules.fit === 'contain' ? 'contain' : 'cover' }"
         />
-        <span v-if="mode === 'demo'" class="camera-demo-tag">DEMO</span>
+        <span v-if="mode === 'demo'" class="camera-demo-tag">{{ q('ДЕМО') }}</span>
         <div
           v-if="showGrid && mode !== 'off'"
           class="viewfinder-grid"
@@ -1042,7 +1042,7 @@ onBeforeUnmount(() => {
           {{ s(hardware?.still ? 'stillCamera' : 'videoCamera') }}
         </p>
         <label v-if="hardware?.zoom"
-          >{{ s('zoom') }} · {{ hardware.zoomValue.toFixed(1) }}×<input
+          >{{ s('zoom') }} · {{ formatNumber(hardware.zoomValue, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) }}×<input
             type="range"
             :min="hardware.zoom.min"
             :max="hardware.zoom.max"

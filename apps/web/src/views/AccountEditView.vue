@@ -12,6 +12,7 @@ import {
 } from '../identity/store'
 import { IdentityError } from '../identity/api'
 import { a } from '../identity/text'
+import { q } from '../crypto/text'
 import { s } from '../studio/text'
 import { clone } from '../studio/model'
 import { guardReload } from '../studio/unsaved'
@@ -132,7 +133,7 @@ onBeforeRouteLeave(
       novalidate
       @submit.prevent="save"
     >
-      <p class="field-hint">Уникальный @username: 3–32 символа, латинские буквы, цифры, дефис или подчёркивание. Начинается с буквы; поиск по нему общедоступен. Изменение вступает в силу после сохранения.</p>
+      <p class="field-hint">{{ q('Уникальный @username: 3–32 символа, латинские буквы, цифры, дефис или подчёркивание. Начинается с буквы; поиск по нему общедоступен. Изменение вступает в силу после сохранения.') }}</p>
       <p
         v-if="error"
         ref="errorElement"
@@ -187,7 +188,7 @@ onBeforeRouteLeave(
             </option>
           </select></label
         >
-        <small v-if="field === 'username'" class="field-hint">Публичный адрес @username доступен для поиска всем пользователям.</small>
+        <small v-if="field === 'username'" class="field-hint">{{ q('Публичный адрес @username доступен для поиска всем пользователям.') }}</small>
       </div>
       <footer class="editor-footer">
         <button

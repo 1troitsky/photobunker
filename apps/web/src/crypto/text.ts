@@ -3,6 +3,22 @@ import { locale } from '../i18n'
 
 // Source-language message IDs keep security copy together with its translation.
 const english: Record<string, string> = {
+  'Сохранить': 'Save',
+  'Отмена': 'Cancel',
+  'Ключ аккаунта будет удалён с этого устройства. Чтобы снова открыть фотографии и сообщения, понадобится сохранённый ключ.': 'Your account key will be removed from this device. You will need your saved key to open your photos and messages again.',
+  'Потерянный ключ восстановить нельзя.': 'A lost account key cannot be recovered.',
+  'Сначала дождитесь отправки фотографий с этого устройства.': 'Wait for photos on this device to finish uploading before signing out.',
+  'Сохранить ключ в файл': 'Save key to file',
+  'Выйти без сохранения': 'Sign out without saving',
+  'Уникальный @username: 3–32 символа, латинские буквы, цифры, дефис или подчёркивание. Начинается с буквы; поиск по нему общедоступен. Изменение вступает в силу после сохранения.': 'Your unique @username: 3–32 Latin letters, digits, hyphens or underscores. It must start with a letter and can be found publicly. Changes take effect after saving.',
+  'Публичный адрес @username доступен для поиска всем пользователям.': 'Your public @username can be found by anyone.',
+  'Защита задания': 'Assignment protection',
+  'Завершаем выход на устройстве…': 'Signing out on this device…',
+  'Аккаунт': 'Account',
+  'Устройство': 'Device',
+  'Предпросмотр камеры': 'Camera preview',
+  'ДЕМО': 'DEMO',
+  'Сбой программы': 'Application error',
   "Снимок сохраняется на устройстве и синхронизируется с аккаунтом при наличии сети.": "The photo is saved on this device and syncs with your account when online.",
   "Аккаунт закрыт. Очистка данных на сервере выполняется автоматически.": "Your account is closed. Server data cleanup runs automatically.",
   "Закройте другие окна приложения, чтобы завершить удаление локальных данных.": "Close other app windows to finish deleting local data.",
@@ -204,8 +220,10 @@ const english: Record<string, string> = {
   'Сервер временно недоступен. Проверьте связь и повторите; ключи сохранены на устройстве.': 'The server is temporarily unavailable. Check your connection and retry; your keys remain on this device.',
 
 }
-export const q = (message: string) =>
-  locale.value === 'en' ? (english[message] ?? message) : message
+// Never show an untranslated Russian source key in English. Static audit
+// checks q('literal') call sites against the complete English catalogue.
+export const q = (message: string): string =>
+  locale.value === 'ru' ? message : (english[message] ?? 'Translation unavailable')
 export const roleLabel = (role: string) =>
   q(
     (

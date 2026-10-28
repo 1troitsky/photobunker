@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import AppIcon from './AppIcon.vue'
 import type { PrivatePhotoCard } from '../studio/private-photo-card'
 import { cardShareText as t } from '../studio/card-share-text'
+import { formatDate } from '../i18n'
 import { CARD_ONLY, type CardScopes } from '../crypto/card-shares'
 import { commitCardShare, revokeCardShare, listCardShareIntents,
   flushCardShares, type ShareRow } from '../crypto/card-share-outbox'
@@ -146,7 +147,7 @@ onBeforeUnmount(() => {
         <select v-model="selectedVersion" :disabled="busy" required>
           <option value="">{{ t('chooseVersion') }}</option>
           <option v-for="v in versions" :key="v.id" :value="v.id">
-            {{ new Date(v.createdAt).toLocaleString() }} · {{ v.id.slice(0,8) }}
+            {{ formatDate(v.createdAt, { dateStyle: 'medium', timeStyle: 'short' }) }} · {{ v.id.slice(0,8) }}
           </option>
         </select>
         <small v-if="!versions.length" role="status">{{ t('noVersion') }}</small>

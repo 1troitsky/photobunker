@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatNumber } from '../i18n'
 import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { teamProfilePath } from '../studio/team-profile'
@@ -111,7 +112,7 @@ onMounted(loadStudio)
             ><strong>{{ team.name }}</strong
             ><small
               >{{ s('participants') }} ·
-              {{ team.participants.length + 1 }}</small
+              {{ formatNumber(team.participants.length + 1) }}</small
             ></span
           ></button
         ><button

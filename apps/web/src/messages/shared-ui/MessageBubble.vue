@@ -3,6 +3,8 @@
 // Source: munafio/chatify@4a39eacb44e2405baa8c1e3bd3b4644fc5c8707d
 // Display only: no Matrix client, crypto, key store, network or storage.
 import MessageStatusTicks from './MessageStatusTicks.vue'
+import { ui } from '../presentation'
+import { formatNumber } from '../../i18n'
 
 defineProps<{
   id: string
@@ -82,21 +84,21 @@ const emit = defineEmits<{
     <slot v-if="hasAttachment && !locked" name="attachment" />
     <p v-if="locked || (!hasVoice && !hasAttachment) || (hasAttachment && !!body)" class="message-body">{{ body }}</p>
     <slot v-if="hasPhoto && !locked" name="photo" />
-    <div v-if="reactions?.length && !locked" class="chatify-reactions" aria-label="Reactions">
+    <div v-if="reactions?.length && !locked" class="chatify-reactions" :aria-label="ui('reactions')">
       <button
         v-for="reaction in reactions"
         :key="reaction.key"
         type="button"
         class="chatify-reaction-chip"
         :class="{ 'is-own': reaction.mine }"
-        :aria-label="(reactionLabel || 'Reaction') + ': ' + reaction.key + ', ' + reaction.count"
+        :aria-label="(reactionLabel || ui('react')) + ': ' + reaction.key + ', ' + formatNumber(reaction.count)"
         :aria-pressed="reaction.mine"
         @click.stop="emit('react', reaction.key)"
         @pointerdown.stop
-      >{{ reaction.key }} <span>{{ reaction.count }}</span></button>
+      >{{ reaction.key }} <span>{{ formatNumber(reaction.count) }}</span></button>
     </div>
     <footer>
-      <span v-if="edited && !locked" class="chatify-message-edited">{{ editedLabel || 'Edited' }}</span>
+      <span v-if="edited && !locked" class="chatify-message-edited">{{ editedLabel || ui('edited') }}</span>
       <time>{{ timeLabel }}</time>
       <span v-if="mine" :class="['message-state', 'message-state-' + status]" :aria-label="statusLabel">
         <svg v-if="status === 'sending' || status === 'queued'" viewBox="0 0 16 16" fill="none" aria-hidden="true">

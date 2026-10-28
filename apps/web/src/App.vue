@@ -419,7 +419,7 @@ watch(
 <template>
   <section v-if="emergencyBlocked && emergencyChecked" class="native-screen" aria-live="polite">
     <div class="screen-body native-form">
-      <h1>{{ locale === 'ru' ? 'Сбой программы' : 'Application error' }}</h1>
+      <h1>{{ q('Сбой программы') }}</h1>
     </div>
   </section>
   <div v-else-if="emergencyBlocked" class="native-screen" aria-hidden="true"></div>

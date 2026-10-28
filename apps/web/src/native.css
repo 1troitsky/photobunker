@@ -482,3 +482,18 @@
 .protected-browser .browser-export-status progress { flex: 1 1 130px; max-width: 320px; height: 12px; accent-color: var(--accent); }
 .protected-browser .browser-selection button { min-height: 44px; }
 @media (max-width: 720px) { .protected-browser .browser-export-status { padding-bottom: calc(12px + env(safe-area-inset-bottom)); } .protected-browser .browser-selection { align-items: stretch; } }
+
+/* R1-11: long RU/EN labels must wrap instead of expanding narrow screens. */
+.native-screen :is(.field-hint, .form-error, .preference-notice, .screen-title,
+  .settings-panel, .native-facts, .native-form label) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.native-facts > div { min-width: 0; }
+.native-facts dt { min-width: 0; flex-shrink: 1; overflow-wrap: anywhere; }
+.native-facts dd { min-width: 0; }
+@media (max-width: 420px) {
+  .setting-row { min-width: 0; flex-wrap: wrap; }
+  .setting-description { min-width: 0; flex: 1 1 180px; }
+  .language-switch { max-width: 100%; flex-wrap: wrap; }
+}
