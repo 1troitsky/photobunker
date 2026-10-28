@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 
 export type Locale = 'ru' | 'en'
-export const locale = ref<Locale>('ru')
+export const locale = ref<Locale>('en')
 const LOCALE_KEY = 'photobunker.locale'
 
 const ru = {
@@ -250,25 +250,60 @@ export function t(key: keyof typeof ru): string {
   return (locale.value === 'ru' ? ru : en)[key]
 }
 
-export function initializeLocale() {
-  try {
-    const saved = localStorage.getItem(LOCALE_KEY)
-    if (saved === 'ru' || saved === 'en') locale.value = saved
-    else locale.value = navigator.language.toLowerCase().startsWith('ru') ? 'ru' : 'en'
-  } catch {
-    locale.value = navigator.language.toLowerCase().startsWith('ru') ? 'ru' : 'en'
-  }
-  document.documentElement.lang = locale.value
+// Language is DEVICE-scoped, never tied to the selected identity/session.
+ // The browser's language is only an initial preference; unknown locales fall
+ // back to English. No network read or account-specific async callback may
+ // overwrite the user's current selection.
+const supported = (value: unknown): value is Locale => value === 'ru' || value === 'en'
+function defaultLocale(): Locale {
+  try { return navigator.language.toLowerCase().startsWith('ru') ? 'ru' : 'en' }
+  catch { return 'en' }
 }
-
-// Only an interface preference is persisted. No account, photo or security state.
-export function setLocale(value: Locale): boolean {
+function applyLocale(value: Locale) {
   locale.value = value
   document.documentElement.lang = value
+}
+export function initializeLocale() {
+  let choice: Locale = defaultLocale()
   try {
-    localStorage.setItem(LOCALE_KEY, value)
+    const saved = localStorage.getItem(LOCALE_KEY)
+    // Invalid stored locale is not a recognized language: English is safe.
+    if (saved !== null) choice = supported(saved) ? saved : 'en'
+  } catch { /* Browser preference still works without storage. */ }
+  applyLocale(choice)
+}
+// A later change in another tab is a device preference update; it must never
+// be silently rolled back by a stale account/session response.
+if (typeof window !== 'undefined') window.addEventListener('storage', event => {
+  if (event.key !== LOCALE_KEY || event.storageArea !== localStorage) return
+  applyLocale(event.newValue === null ? defaultLocale()
+    : supported(event.newValue) ? event.newValue : 'en')
+})
+// Only the interface preference is persisted. Never account or sensitive data.
+export function setLocale(value: Locale): boolean {
+  applyLocale(supported(value) ? value : 'en')
+  try {
+    localStorage.setItem(LOCALE_KEY, locale.value)
     return true
-  } catch {
-    return false
-  }
+  } catch { return false }
+}
+
+export const languageTag = () => locale.value === 'ru' ? 'ru-RU' : 'en-US'
+export function formatNumber(value: number, options?: Intl.NumberFormatOptions): string {
+  return Number.isFinite(value) ? new Intl.NumberFormat(languageTag(), options).format(value) : '—'
+}
+export function formatDate(value: number | Date, options: Intl.DateTimeFormatOptions = {
+  dateStyle: 'medium',
+}): string {
+  const date = value instanceof Date ? value : new Date(value)
+  return Number.isFinite(date.getTime())
+    ? new Intl.DateTimeFormat(languageTag(), options).format(date) : '—'
+}
+export function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value < 0) return '—'
+  const sizes = locale.value === 'ru' ? ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ']
+    : ['B', 'KB', 'MB', 'GB', 'TB']
+  let index = 0, size = value
+  while (size >= 1024 && index < sizes.length - 1) { size /= 1024; index++ }
+  return formatNumber(size, { maximumFractionDigits: index ? 1 : 0 }) + ' ' + sizes[index]
 }
